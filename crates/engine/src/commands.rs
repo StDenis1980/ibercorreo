@@ -328,7 +328,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "New Appointment",
         group: "Calendar/New",
         shortcut: Some("Ctrl+Shift+A"),
-        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string\nrepeat?: daily | weekdays | weekly | monthly | yearly\nrrule?: string — an iCalendar RRULE, instead of repeat\nuntil?: YYYY-MM-DD — the last day it repeats",
+        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string\nrepeat?: daily | weekdays | weekly | monthly | yearly\nrrule?: string — an iCalendar RRULE, instead of repeat\nuntil?: YYYY-MM-DD — the last day it repeats\nreminder?: minutes before | \"none\" — default 15, none for all-day",
         edits: true,
         run: event_add,
     },
@@ -340,6 +340,34 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "id?: number — default: the selected event\noccurrence?: YYYY-MM-DD — for a repeating event, delete only that day's occurrence",
         edits: true,
         run: event_delete,
+    },
+    CommandSpec {
+        id: "event.setReminder",
+        label: "Reminder",
+        group: "Appointment/Options",
+        shortcut: None,
+        params: "id?: number — default: the selected event\nreminder: minutes before the start (negative: after) | \"none\"",
+        edits: true,
+        run: event_set_reminder,
+    },
+    CommandSpec { id: "reminder.list", label: "Reminders", group: "View/Window", shortcut: None, params: "", edits: false, run: reminder_list },
+    CommandSpec {
+        id: "reminder.dismiss",
+        label: "Dismiss",
+        group: "Reminders/Reminder",
+        shortcut: None,
+        params: "id?: number, start?: as reminder.list gives it — default: every due reminder",
+        edits: true,
+        run: reminder_dismiss,
+    },
+    CommandSpec {
+        id: "reminder.snooze",
+        label: "Snooze",
+        group: "Reminders/Reminder",
+        shortcut: None,
+        params: "id?: number, start?: as reminder.list gives it — default: every due reminder\nminutes?: number — default 5, at most a week",
+        edits: true,
+        run: reminder_snooze,
     },
     CommandSpec {
         id: "calendar.importIcs",
@@ -448,6 +476,19 @@ fn u64_param(p: &Value, key: &str) -> Result<Option<u64>> {
     }
 }
 
+/// `reminder`: minutes before the start (negative: after), or `"none"` / `false` for none.
+fn reminder_param(p: &Value) -> Result<Option<Vec<i32>>> {
+    let bad = || Error::invalid("params", "reminder must be minutes before the start, or \"none\"");
+    Ok(match p.get("reminder") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(false)) => Some(Vec::new()),
+        Some(Value::String(s)) if s.trim().eq_ignore_ascii_case("none") => Some(Vec::new()),
+        Some(Value::String(s)) => Some(ibercorreo_core::calendar::clean_reminders(vec![s.trim().parse::<i64>().map_err(|_| bad())?])),
+        Some(Value::Number(n)) => Some(ibercorreo_core::calendar::clean_reminders(vec![n.as_i64().ok_or_else(bad)?])),
+        Some(_) => return Err(bad()),
+    })
+}
+
 fn bool_param(p: &Value, key: &str) -> Result<Option<bool>> {
     match p.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -548,7 +589,7 @@ fn event_json(e: &Event, when: When) -> Value {
     json!({
         "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location,
         "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
-        "timeZone": e.tzid, "timeZoneUnderstood": e.tzid.is_none() || e.zone().is_some(),
+        "timeZone": e.tzid, "timeZoneUnderstood": e.tzid.is_none() || e.zone().is_some(), "reminders": e.reminders,
     })
 }
 
@@ -953,6 +994,12 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
         rrule: repeat_param(p, when)?,
         exdates: Vec::new(),
         recurrence_id: None,
+        // As Outlook: 15 minutes before an appointment, none for an all-day event.
+        reminders: match reminder_param(p)? {
+            Some(r) => r,
+            None if matches!(when, When::Timed { .. }) => vec![15],
+            None => Vec::new(),
+        },
     };
     let id = s.store.add_event(e)?;
     s.event = Some(id);
@@ -1004,6 +1051,92 @@ fn export_ics(s: &mut Session, p: &Value) -> Result<Value> {
         s.store.calendar(c)?;
     }
     Ok(Value::String(s.store.export_ics(cal)))
+}
+
+// ---- reminders ----
+
+/// The reminders due now, as the reminder window lists them.
+fn reminder_list(s: &mut Session, _: &Value) -> Result<Value> {
+    let now = s.now();
+    Ok(Value::Array(
+        s.store
+            .reminders_due(now, s.zone())
+            .into_iter()
+            .map(|d| {
+                let mut v = event_json(d.event, d.when);
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("minutesUntil".into(), json!((d.start_utc.to_unix() - now.to_unix()).div_euclid(60)));
+                    o.insert("startUtc".into(), json!(format!("{}Z", d.start_utc)));
+                }
+                v
+            })
+            .collect(),
+    ))
+}
+
+/// The due reminders `p` names: `id` and `start` (as `reminder.list` gives it), only `id`
+/// (every due one of that event), or nothing (all of them).
+fn chosen_reminders(s: &Session, p: &Value) -> Result<Vec<(String, DateTime)>> {
+    let id = u64_param(p, "id")?.map(EventId);
+    let start = str_param(p, "start")?
+        .map(|t| if t.contains('T') { DateTime::parse(t).map(|(d, _)| d) } else { Date::parse(t).map(DateTime::midnight) })
+        .transpose()?;
+    let picked: Vec<(String, DateTime)> = s
+        .store
+        .reminders_due(s.now(), s.zone())
+        .into_iter()
+        .filter(|d| id.is_none_or(|id| d.event.id == id))
+        .filter(|d| {
+            start.is_none_or(|t| match d.when {
+                When::Timed { start, .. } => start == t,
+                When::AllDay { start, .. } => DateTime::midnight(start) == t,
+            })
+        })
+        .map(|d| (d.event.uid.clone(), d.start_utc))
+        .collect();
+    if picked.is_empty() && (id.is_some() || start.is_some()) {
+        return Err(Error::invalid("reminder", "no such reminder is due"));
+    }
+    Ok(picked)
+}
+
+fn reminder_dismiss(s: &mut Session, p: &Value) -> Result<Value> {
+    let now = s.now();
+    let picked = chosen_reminders(s, p)?;
+    for (uid, start) in &picked {
+        s.store.mark_reminder(uid, *start, None, now);
+    }
+    Ok(json!({ "dismissed": picked.len() }))
+}
+
+/// Longest snooze: a week.
+const MAX_SNOOZE_MINUTES: u64 = 7 * 24 * 60;
+
+fn reminder_snooze(s: &mut Session, p: &Value) -> Result<Value> {
+    let minutes = u64_param(p, "minutes")?.unwrap_or(5);
+    if minutes == 0 || minutes > MAX_SNOOZE_MINUTES {
+        return Err(Error::invalid("minutes", format!("snooze for 1 to {MAX_SNOOZE_MINUTES} minutes")));
+    }
+    let now = s.now();
+    // Provably small: at most a week of seconds.
+    let until = DateTime::from_unix(now.to_unix().saturating_add(i64::try_from(minutes * 60).unwrap_or(0)))?;
+    let picked = chosen_reminders(s, p)?;
+    for (uid, start) in &picked {
+        s.store.mark_reminder(uid, *start, Some(until), now);
+    }
+    Ok(json!({ "snoozed": picked.len(), "until": format!("{until}Z") }))
+}
+
+fn event_set_reminder(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = match u64_param(p, "id")? {
+        Some(id) => EventId(id),
+        None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
+    };
+    let reminders = reminder_param(p)?.ok_or_else(|| Error::invalid("params", "reminder is required (minutes, or \"none\")"))?;
+    let e = s.store.event_mut(id)?;
+    e.reminders = reminders;
+    let e = s.store.event(id)?;
+    Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
 }
 
 // ---- people ----

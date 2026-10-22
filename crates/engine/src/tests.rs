@@ -206,6 +206,55 @@ fn time_zones_choose_convert_and_follow_the_computer() {
 }
 
 #[test]
+fn reminders_fire_snooze_dismiss_and_stay_dismissed() {
+    let mut s = session();
+    let at = |h: u8, m: u8| DateTime::new(today(), h, m, 0).unwrap();
+    let due = |s: &mut Session| -> Vec<(String, i64)> {
+        let v = s.run("reminder.list", &Value::Null).unwrap();
+        v.as_array().unwrap().iter().map(|r| (r["summary"].as_str().unwrap().to_string(), r["minutesUntil"].as_i64().unwrap())).collect()
+    };
+    s.set_now(at(9, 44));
+    assert!(due(&mut s).is_empty(), "the 10:00 meeting's reminder fires at 09:45");
+    s.set_now(at(9, 50));
+    assert_eq!(due(&mut s), [("Reunión de presupuesto".to_string(), 10)]);
+    assert_eq!(s.run("reminder.snooze", &json!({"minutes": 5})).unwrap()["snoozed"], 1);
+    assert!(due(&mut s).is_empty(), "snoozed");
+    s.set_now(at(9, 56));
+    assert_eq!(due(&mut s).len(), 1, "back after five minutes");
+    let id = s.run("reminder.list", &Value::Null).unwrap()[0]["id"].as_u64().unwrap();
+    s.run("reminder.dismiss", &json!({"id": id, "start": "2026-10-22T10:00"})).unwrap();
+    s.set_now(at(10, 20));
+    assert_eq!(due(&mut s), [("Chamada com a Lusodata".to_string(), 10)], "dismissed stays dismissed; the next one fired");
+    // Dismissals are saved with the store.
+    let reloaded: ibercorreo_store::Store = serde_json::from_str(&serde_json::to_string(&s.store).unwrap()).unwrap();
+    let mut again = Session::new(reloaded, today());
+    again.set_now(at(10, 20));
+    assert_eq!(due(&mut again).len(), 1);
+    s.run("reminder.dismiss", &Value::Null).unwrap();
+    assert!(due(&mut s).is_empty());
+    // A missed reminder waits until dismissed, for two days.
+    s.set_now(DateTime::new(Date::new(2026, 10, 23).unwrap(), 8, 0, 0).unwrap());
+    assert_eq!(due(&mut s).iter().map(|d| d.0.as_str()).collect::<Vec<_>>(), ["Almoço com Rui"]);
+    s.set_now(DateTime::new(Date::new(2026, 10, 25).unwrap(), 8, 0, 0).unwrap());
+    assert!(due(&mut s).iter().all(|d| d.0 != "Almoço com Rui"), "older than two days is let go");
+
+    // event.add: 15 minutes by default, none on request, none for all-day; event.setReminder.
+    let a = s.run("event.add", &json!({"summary": "x", "start": "2026-11-02T10:00"})).unwrap();
+    assert_eq!(a["reminders"], json!([15]));
+    let b = s.run("event.add", &json!({"summary": "y", "start": "2026-11-02T11:00", "reminder": "none"})).unwrap();
+    assert_eq!(b["reminders"], json!([]));
+    assert_eq!(s.run("event.add", &json!({"summary": "z", "start": "2026-11-02"})).unwrap()["reminders"], json!([]));
+    let c = s.run("event.setReminder", &json!({"id": b["id"], "reminder": 99_999_999})).unwrap();
+    assert_eq!(c["reminders"], json!([ibercorreo_core::calendar::MAX_REMINDER_MINUTES]), "clamped to four weeks");
+    for bad in [json!({"reminder": "soon"}), json!({"reminder": [1]}), json!({"reminder": 1.5})] {
+        assert!(s.run("event.setReminder", &bad).is_err(), "{bad}");
+    }
+    assert!(s.run("reminder.snooze", &json!({"minutes": 0})).is_err());
+    assert!(s.run("reminder.snooze", &json!({"minutes": 99_999_999})).is_err());
+    assert!(s.run("reminder.dismiss", &json!({"id": 424_242})).is_err(), "not due");
+}
+
+#[test]
 fn outbox_renders_and_sending_results_move_mail() {
     use ibercorreo_sync::outbox::{Outcome, Sent};
     let mut s = session();

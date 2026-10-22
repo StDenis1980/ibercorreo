@@ -109,6 +109,16 @@ impl When {
         When::Timed { start, end: end.max(start), utc: false }
     }
 
+    /// When the span starts, in UTC. Times in `own` zone are converted from it; floating times
+    /// and all-day dates (from midnight) are read in `view`, where the person is.
+    pub fn start_utc(&self, own: Option<&Zone>, view: &Zone) -> DateTime {
+        match *self {
+            When::Timed { start, utc: true, .. } => start,
+            When::Timed { start, .. } => own.unwrap_or(view).to_utc(start),
+            When::AllDay { start, .. } => view.to_utc(DateTime::midnight(start)),
+        }
+    }
+
     /// Whether any part of the event falls on `day` (ignoring recurrence).
     pub fn covers(&self, day: Date) -> bool {
         match self {
@@ -195,6 +205,26 @@ pub struct Event {
     /// (`RECURRENCE-ID`). It shares the series' `uid` and replaces that day's occurrence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recurrence_id: Option<Date>,
+    /// Reminders, in minutes before the start (negative: after it), as `VALARM` triggers. At most
+    /// [`MAX_REMINDERS`], each within [`MAX_REMINDER_MINUTES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reminders: Vec<i32>,
+}
+
+pub const MAX_REMINDERS: usize = 8;
+/// Four weeks, the furthest ahead a reminder may be set.
+pub const MAX_REMINDER_MINUTES: i32 = 4 * 7 * 24 * 60;
+
+/// Reminder offsets made safe to keep: clamped to four weeks either way, duplicates dropped,
+/// at most [`MAX_REMINDERS`], earliest-firing first.
+pub fn clean_reminders(mut minutes: Vec<i64>) -> Vec<i32> {
+    minutes.truncate(64);
+    let mut v: Vec<i32> =
+        minutes.into_iter().map(|m| i32::try_from(m.clamp(i64::from(-MAX_REMINDER_MINUTES), i64::from(MAX_REMINDER_MINUTES))).unwrap_or(0)).collect();
+    v.sort_unstable_by(|a, b| b.cmp(a));
+    v.dedup();
+    v.truncate(MAX_REMINDERS);
+    v
 }
 
 /// Most occurrences one query returns.

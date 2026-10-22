@@ -12,7 +12,7 @@ use std::path::Path;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result, Zone,
+    Account, Calendar, Contact, Date, DateTime, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result, Zone,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,36 @@ pub struct Store {
     /// The zone the calendar is shown in, chosen by the person; `None` follows the computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_zone: Option<String>,
+    /// Reminders dismissed or snoozed, so they do not come back after a restart.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reminder_marks: Vec<ReminderMark>,
 }
+
+/// A reminder the person dealt with: the occurrence (event UID and start in UTC), and until when
+/// it is snoozed (`None`: dismissed).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ReminderMark {
+    uid: String,
+    start: DateTime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    snoozed_until: Option<DateTime>,
+}
+
+/// A reminder that is due: the occurrence as seen in the zone asked for, when it starts and when
+/// the reminder fired (both UTC).
+#[derive(Debug, Clone, Copy)]
+pub struct DueReminder<'a> {
+    pub event: &'a Event,
+    pub when: When,
+    pub start_utc: DateTime,
+    pub fire_utc: DateTime,
+}
+
+/// How long a missed reminder stays up after its appointment started.
+pub const OVERDUE_DAYS: i64 = 2;
+/// Most reminders shown at once, and most marks kept.
+pub const MAX_DUE: usize = 100;
+const MAX_MARKS: usize = 5_000;
 
 /// One occurrence of an event: the event, and when this occurrence happens (for a repeating
 /// event, not the series' first date) as seen in the zone it was asked for.
@@ -294,6 +323,51 @@ impl Store {
             (!matches!(o.when, When::AllDay { .. }), minute, o.event.id)
         });
         v
+    }
+
+    /// Reminders due at `now` (UTC), as seen in `view`, soonest appointment first: fired, not
+    /// dismissed, not snoozed, and for an appointment that started at most [`OVERDUE_DAYS`] ago.
+    pub fn reminders_due(&self, now: DateTime, view: &Zone) -> Vec<DueReminder<'_>> {
+        let today = view.from_utc(now).date;
+        let from = today.add_days(-OVERDUE_DAYS - 1).unwrap_or(today);
+        // A reminder fires at most four weeks ahead.
+        let to = today.add_days(29).unwrap_or(today);
+        let oldest = now.to_unix().saturating_sub(OVERDUE_DAYS * 86_400);
+        let mut due: Vec<DueReminder<'_>> = Vec::new();
+        for e in self.events.iter().filter(|e| !e.reminders.is_empty()) {
+            let own_zone = e.zone();
+            let lead = e.reminders.iter().copied().max().unwrap_or(0);
+            for (own, when) in e.occurrences_in(from, to, view) {
+                if e.rrule.is_some() && e.recurrence_id.is_none() && self.overridden(e, own.start_date()) {
+                    continue;
+                }
+                let start_utc = own.start_utc(own_zone.as_ref(), view);
+                let fire = start_utc.to_unix().saturating_sub(i64::from(lead) * 60);
+                if fire > now.to_unix() || start_utc.to_unix() < oldest {
+                    continue;
+                }
+                let mark = self.reminder_marks.iter().find(|m| m.uid == e.uid && m.start == start_utc);
+                if mark.is_some_and(|m| m.snoozed_until.is_none_or(|until| until > now)) {
+                    continue;
+                }
+                let Ok(fire_utc) = DateTime::from_unix(fire) else { continue };
+                due.push(DueReminder { event: e, when, start_utc, fire_utc });
+            }
+        }
+        due.sort_by_key(|d| (d.start_utc, d.event.id));
+        due.truncate(MAX_DUE);
+        due
+    }
+
+    /// Dismiss (`snooze_until` `None`) or snooze the reminder for the occurrence of `uid`
+    /// starting at `start` (UTC). Marks for appointments long past are dropped on the way.
+    pub fn mark_reminder(&mut self, uid: &str, start: DateTime, snooze_until: Option<DateTime>, now: DateTime) {
+        let keep_from = now.to_unix().saturating_sub((OVERDUE_DAYS + 1) * 86_400);
+        self.reminder_marks.retain(|m| m.start.to_unix() >= keep_from && !(m.uid == uid && m.start == start));
+        if self.reminder_marks.len() >= MAX_MARKS {
+            self.reminder_marks.remove(0);
+        }
+        self.reminder_marks.push(ReminderMark { uid: uid.to_string(), start, snoozed_until: snooze_until });
     }
 
     /// Whether the series `e` has a changed copy of its occurrence on `day`.

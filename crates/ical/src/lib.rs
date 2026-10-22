@@ -29,6 +29,7 @@ pub struct IcsEvent {
     pub rrule: Option<String>,
     pub exdates: Vec<Date>,
     pub recurrence_id: Option<Date>,
+    pub reminders: Vec<i32>,
 }
 
 impl IcsEvent {
@@ -45,6 +46,7 @@ impl IcsEvent {
             rrule: self.rrule,
             exdates: self.exdates,
             recurrence_id: self.recurrence_id,
+            reminders: self.reminders,
         }
     }
 }
@@ -137,6 +139,15 @@ struct Draft {
     rrule: Option<String>,
     exdates: Vec<Date>,
     recurrence_id: Option<Date>,
+    alarms: Vec<Trigger>,
+}
+
+/// A `VALARM` `TRIGGER`: minutes from the start or the end, or a moment.
+#[derive(Clone, Copy)]
+enum Trigger {
+    FromStart(i64),
+    FromEnd(i64),
+    At(DateTime),
 }
 
 #[derive(Clone, Copy)]
@@ -203,6 +214,29 @@ fn add_minutes(dt: DateTime, minutes: i64) -> Result<DateTime> {
     DateTime::new(date, hour, minute, dt.second())
 }
 
+/// Each trigger as minutes before the start.
+fn reminder_minutes(alarms: &[Trigger], when: When, tzid: Option<&str>) -> Vec<i32> {
+    let (start, end, utc) = match when {
+        When::Timed { start, end, utc } => (start, end, utc),
+        When::AllDay { start, end } => (DateTime::midnight(start), DateTime::midnight(end), false),
+    };
+    let length = (end.to_unix() - start.to_unix()) / 60;
+    // A moment is compared with the start in UTC; floating times are read as UTC.
+    let start_utc = match tzid.and_then(ibercorreo_core::Zone::named) {
+        Some(z) if !utc => z.to_utc(start),
+        _ => start,
+    };
+    let minutes = alarms
+        .iter()
+        .map(|t| match *t {
+            Trigger::FromStart(d) => d.saturating_neg(),
+            Trigger::FromEnd(d) => length.saturating_add(d).saturating_neg(),
+            Trigger::At(at) => (start_utc.to_unix() - at.to_unix()) / 60,
+        })
+        .collect();
+    ibercorreo_core::calendar::clean_reminders(minutes)
+}
+
 impl Draft {
     fn finish(self, seq: usize) -> Result<IcsEvent> {
         let (start, tzid) = self.start.ok_or_else(|| Error::invalid("event", "no DTSTART"))?;
@@ -216,6 +250,7 @@ impl Draft {
             (Stamp::Time(s, utc), Some(Stamp::Day(_))) => When::timed(s, s, utc)?,
             (Stamp::Time(s, utc), None) => When::timed(s, add_minutes(s, self.duration_minutes.unwrap_or(0).max(0))?, utc)?,
         };
+        let reminders = reminder_minutes(&self.alarms, when, tzid.as_deref());
         Ok(IcsEvent {
             uid: self.uid.unwrap_or_else(|| format!("ibercorreo-import-{seq}")),
             summary: self.summary,
@@ -226,6 +261,7 @@ impl Draft {
             rrule: self.rrule,
             exdates: self.exdates,
             recurrence_id: self.recurrence_id,
+            reminders,
         })
     }
 }
@@ -282,6 +318,25 @@ pub fn parse(text: &str) -> Result<Parsed> {
                         Ok(e) => out.events.push(e),
                         Err(e) => out.rejected.push(e.to_string()),
                     }
+                }
+            }
+            // A reminder: only its trigger matters (every alarm is shown, whatever its ACTION).
+            _ if stack.len() == 3
+                && line.name == "TRIGGER"
+                && stack.last().map(String::as_str) == Some("VALARM")
+                && stack.get(1).map(String::as_str) == Some("VEVENT") =>
+            {
+                let Some(d) = draft.as_mut() else { continue };
+                let absolute = line.params.iter().any(|(k, v)| k == "VALUE" && v.eq_ignore_ascii_case("DATE-TIME"));
+                let from_end = line.params.iter().any(|(k, v)| k == "RELATED" && v.eq_ignore_ascii_case("END"));
+                let trigger = if absolute {
+                    DateTime::parse(line.value).ok().map(|(t, _)| Trigger::At(t))
+                } else {
+                    duration_minutes(line.value).map(|m| if from_end { Trigger::FromEnd(m) } else { Trigger::FromStart(m) })
+                };
+                match trigger {
+                    Some(t) if d.alarms.len() < 64 => d.alarms.push(t),
+                    _ => out.skipped = out.skipped.saturating_add(1),
                 }
             }
             _ if stack.len() == 2 && stack.last().map(String::as_str) == Some("VEVENT") => {
@@ -408,6 +463,14 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
         if let Some(r) = e.recurrence_id {
             push_folded(&mut out, &format!("RECURRENCE-ID;VALUE=DATE:{}", basic_date(r)));
         }
+        for m in &e.reminders {
+            push_folded(&mut out, "BEGIN:VALARM");
+            push_folded(&mut out, "ACTION:DISPLAY");
+            push_folded(&mut out, &format!("DESCRIPTION:{}", escape(&e.summary)));
+            let trigger = if *m >= 0 { format!("TRIGGER:-PT{m}M") } else { format!("TRIGGER:PT{}M", m.unsigned_abs()) };
+            push_folded(&mut out, &trigger);
+            push_folded(&mut out, "END:VALARM");
+        }
         push_folded(&mut out, "END:VEVENT");
     }
     push_folded(&mut out, "END:VCALENDAR");
@@ -495,5 +558,33 @@ BEGIN:VEVENT\r\nSUMMARY:No start\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         ] {
             let _ = parse(text);
         }
+    }
+
+    #[test]
+    fn reminders_read_every_trigger_form_and_round_trip() {
+        let text = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\nUID:a\r\nDTSTART;TZID=Europe/Lisbon:20261026T100000\r\nDTEND;TZID=Europe/Lisbon:20261026T110000\r\nSUMMARY:A\r\n\
+BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n\
+BEGIN:VALARM\r\nACTION:AUDIO\r\nTRIGGER;RELATED=END:-PT30M\r\nEND:VALARM\r\n\
+BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20261025T110000Z\r\nEND:VALARM\r\n\
+BEGIN:VALARM\r\nTRIGGER:-P1D\r\nEND:VALARM\r\n\
+BEGIN:VALARM\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:b\r\nDTSTART:20261026T100000Z\r\nSUMMARY:B\r\n\
+BEGIN:VALARM\r\nTRIGGER:PT5M\r\nEND:VALARM\r\nBEGIN:VALARM\r\nTRIGGER:-P99W\r\nEND:VALARM\r\nBEGIN:VALARM\r\nTRIGGER:soon\r\nEND:VALARM\r\n\
+END:VEVENT\r\nEND:VCALENDAR\r\n";
+        let p = parse(text).unwrap();
+        // 15 min before; 30 before the end of a one-hour event is 30 after the start; 11:00 UTC
+        // the day before a 10:00 Lisbon start (10:00 UTC: winter time from 25 October) is 23
+        // hours before; a day; the repeated 15 is dropped. Earliest first.
+        assert_eq!(p.events[0].reminders, [1440, 1380, 15, -30]);
+        // After the start; four weeks at most; nonsense skipped.
+        assert_eq!(p.events[1].reminders, [ibercorreo_core::calendar::MAX_REMINDER_MINUTES, -5]);
+        let events: Vec<Event> = p.events.into_iter().enumerate().map(|(i, e)| e.into_event(EventId(i as u64), 0)).collect();
+        let out = write(&events);
+        assert!(out.contains("TRIGGER:-PT1380M") && out.contains("TRIGGER:PT5M"), "{out}");
+        let again = parse(&out).unwrap();
+        assert_eq!(again.events[0].reminders, [1440, 1380, 15, -30]);
+        assert_eq!(again.events[1].reminders, [ibercorreo_core::calendar::MAX_REMINDER_MINUTES, -5]);
     }
 }

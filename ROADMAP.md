@@ -6,7 +6,7 @@ Status: 2026-10-22 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 46 |
+| Commands in the registry | 50 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
 
@@ -45,6 +45,10 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   default the computer's), repeating events expand in their own zone across summer time, new
   appointments carry the calendar's zone, one-off zoned events export in UTC, mail `Date:` kept in
   UTC and shown locally, a zone picker on the calendar ribbon. 46 commands.
+- 2026-10-22 — M2.4: reminders (`VALARM` read in every trigger form and written; `Event.reminders`;
+  `reminder.list`/`dismiss`/`snooze`, `event.setReminder`, `event.add` `reminder` defaulting to 15
+  minutes; dismissals saved in the store; missed reminders kept two days; an Outlook-style
+  reminder window and a Reminder choice in the appointment form). 50 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -57,3 +61,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
+- 2026-10-22 — M2.4.
