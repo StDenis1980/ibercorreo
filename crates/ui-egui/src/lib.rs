@@ -40,6 +40,8 @@ struct EventForm {
     location: String,
     /// `repeat` for `event.add`: none, daily, weekdays, weekly, monthly, yearly.
     repeat: String,
+    /// `reminder` for `event.add`, minutes or `none`; empty: the default (15 minutes).
+    reminder: String,
 }
 
 #[derive(Default)]
@@ -85,6 +87,9 @@ pub struct App {
     /// The time zone picker's search text, and every zone id (read once, when first opened).
     zone_filter: String,
     zone_names: Vec<String>,
+    /// Reminders due, as `reminder.list` gave them, and when (egui time) that was asked.
+    due: Vec<Value>,
+    due_checked: Option<f64>,
 }
 
 impl App {
@@ -103,6 +108,8 @@ impl App {
             scroll_to_morning: true,
             zone_filter: String::new(),
             zone_names: Vec::new(),
+            due: Vec::new(),
+            due_checked: None,
         }
     }
 
@@ -221,7 +228,10 @@ impl App {
 
     /// Run a command; a failure is shown in the status bar (the session records it).
     fn run(&mut self, id: &str, params: Value) -> Option<Value> {
-        self.session.run(id, &params).ok()
+        let out = self.session.run(id, &params).ok();
+        // Anything may have changed what is due.
+        self.due_checked = None;
+        out
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
@@ -238,6 +248,80 @@ impl App {
             View::Contacts => self.people(ui),
         }
         self.account_window(ui);
+        self.reminder_window(ui);
+    }
+
+    /// How often due reminders are looked for while the window is idle.
+    const REMINDER_CHECK_SECS: f64 = 15.0;
+
+    /// The reminder window, Outlook-style: what is due, each with Dismiss and Snooze, and
+    /// Dismiss All. It opens by itself when a reminder fires.
+    fn reminder_window(&mut self, ui: &mut Ui) {
+        let now = ui.input(|i| i.time);
+        if self.due_checked.is_none_or(|t| now - t >= Self::REMINDER_CHECK_SECS || now < t) {
+            self.due = self.session.run("reminder.list", &Value::Null).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+            self.due_checked = Some(now);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(Self::REMINDER_CHECK_SECS));
+        if self.due.is_empty() {
+            return;
+        }
+        let t = self.tokens;
+        let mut action: Option<(&'static str, Value)> = None;
+        let title = if self.due.len() == 1 { "🔔 1 Reminder".to_string() } else { format!("🔔 {} Reminders", self.due.len()) };
+        egui::Window::new(title)
+            .id(egui::Id::new("reminders"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
+            .show(ui.ctx(), |ui| {
+                ui.set_width(340.0);
+                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                    for r in &self.due {
+                        let id = r["id"].clone();
+                        let start = r["start"].clone();
+                        Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(
+                            ui,
+                            |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
+                                let when = r["start"].as_str().unwrap_or("").replace('T', " ");
+                                let place = r["location"].as_str().filter(|l| !l.is_empty()).map(|l| format!(" · 📍 {l}")).unwrap_or_default();
+                                ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui.small_button("Dismiss").clicked() {
+                                            action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
+                                        }
+                                        ui.menu_button("Snooze…", |ui| {
+                                            for (minutes, label) in SNOOZES {
+                                                if ui.button(label).clicked() {
+                                                    action = Some(("reminder.snooze", json!({ "id": id, "start": start, "minutes": minutes })));
+                                                    ui.close();
+                                                }
+                                            }
+                                        });
+                                    });
+                                });
+                            },
+                        );
+                        ui.add_space(4.0);
+                    }
+                });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Dismiss All").clicked() {
+                        action = Some(("reminder.dismiss", json!({})));
+                    }
+                    if ui.button("Snooze all 5 minutes").clicked() {
+                        action = Some(("reminder.snooze", json!({ "minutes": 5 })));
+                    }
+                });
+            });
+        if let Some((id, params)) = action {
+            self.run(id, params);
+        }
     }
 
     fn shortcuts(&mut self, ui: &mut Ui) {
@@ -992,6 +1076,14 @@ impl App {
                 if !e.location.is_empty() {
                     ui.label(RichText::new(format!("📍 {}", e.location)).small().color(t.text_weak));
                 }
+                if let Some(m) = e.reminders.first() {
+                    let text = match *m {
+                        0 => "🔔 At start time".to_string(),
+                        m if m > 0 => format!("🔔 {} before", due_in(i64::from(m)).trim_start_matches("in ")),
+                        m => format!("🔔 {} after the start", due_in(i64::from(m)).trim_end_matches(" overdue")),
+                    };
+                    ui.label(RichText::new(text).small().color(t.text_weak));
+                }
             });
             ui.add_space(6.0);
         }
@@ -1016,6 +1108,14 @@ impl App {
                     ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(260.0));
                     ui.end_row();
                 }
+                ui.label("Reminder");
+                let shown = REMINDERS.iter().find(|(id, _)| *id == f.reminder.as_str()).map_or("15 minutes", |(_, label)| *label);
+                egui::ComboBox::from_id_salt("event-reminder").selected_text(shown).show_ui(ui, |ui| {
+                    for (id, label) in REMINDERS {
+                        ui.selectable_value(&mut f.reminder, id.to_string(), label);
+                    }
+                });
+                ui.end_row();
                 ui.label("Repeat");
                 let shown = REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label);
                 egui::ComboBox::from_id_salt("event-repeat").selected_text(shown).show_ui(ui, |ui| {
@@ -1030,6 +1130,11 @@ impl App {
         if save {
             let f = &self.event_form;
             let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location, "repeat": f.repeat });
+            if !f.reminder.is_empty()
+                && let Some(o) = p.as_object_mut()
+            {
+                o.insert("reminder".into(), Value::String(f.reminder.clone()));
+            }
             if !f.end.trim().is_empty()
                 && let Some(o) = p.as_object_mut()
             {
@@ -1277,6 +1382,43 @@ fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
 }
 
 /// The Repeat choices in the appointment form: `event.add` values and their labels.
+/// The appointment form's reminder choices: `reminder` values for `event.add` ("": its default).
+const REMINDERS: [(&str, &str); 8] = [
+    ("", "15 minutes"),
+    ("none", "None"),
+    ("0", "At start time"),
+    ("5", "5 minutes"),
+    ("30", "30 minutes"),
+    ("60", "1 hour"),
+    ("120", "2 hours"),
+    ("1440", "1 day"),
+];
+
+const SNOOZES: [(u64, &str); 5] = [(5, "5 minutes"), (10, "10 minutes"), (15, "15 minutes"), (60, "1 hour"), (1440, "1 day")];
+
+/// `in 10 minutes`, `now`, `25 minutes overdue`, `in 2 hours`, `1 day overdue`.
+fn due_in(minutes: i64) -> String {
+    let span = |m: i64| {
+        let m = m.unsigned_abs();
+        if m >= 1440 {
+            let d = m / 1440;
+            if d == 1 { "1 day".to_string() } else { format!("{d} days") }
+        } else if m >= 60 {
+            let h = m / 60;
+            if h == 1 { "1 hour".to_string() } else { format!("{h} hours") }
+        } else if m == 1 {
+            "1 minute".to_string()
+        } else {
+            format!("{m} minutes")
+        }
+    };
+    match minutes {
+        0 => "now".into(),
+        m if m > 0 => format!("in {}", span(m)),
+        m => format!("{} overdue", span(m)),
+    }
+}
+
 const REPEATS: [(&str, &str); 6] = [
     ("", "Never"),
     ("daily", "Every day"),
@@ -1304,5 +1446,21 @@ fn human_size(bytes: usize) -> String {
         0..1024 => format!("{bytes} B"),
         1024..1_048_576 => format!("{} KB", bytes / 1024),
         _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reminder_times_read_naturally() {
+        assert_eq!(due_in(0), "now");
+        assert_eq!(due_in(1), "in 1 minute");
+        assert_eq!(due_in(10), "in 10 minutes");
+        assert_eq!(due_in(-25), "25 minutes overdue");
+        assert_eq!(due_in(119), "in 1 hour");
+        assert_eq!(due_in(-1440), "1 day overdue");
+        assert_eq!(due_in(i64::MIN), format!("{} days overdue", i64::MIN.unsigned_abs() / 1440));
     }
 }

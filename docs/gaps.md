@@ -40,7 +40,11 @@ Status: 2026-10-22 · Pick from the top.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
     move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
-    Sunday, and reminders and invitations (M2).
+    Sunday, and invitations (M2).
+11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
+    kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
+    when the window is in the background or closed (needs a tray/background process), a
+    per-person default other than 15 minutes, and reminders on mail (follow-up flags).
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -53,3 +57,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 4 narrowed: recurrence (M2.1).
 - 2026-10-22 — gap 10 narrowed: day and week views (M2.2).
 - 2026-10-22 — gap 5 narrowed: time zones (M2.3).
+- 2026-10-22 — gap 11 added: reminders (M2.4).
