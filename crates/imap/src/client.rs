@@ -49,6 +49,8 @@ pub struct Done {
     pub text: String,
 }
 
+/// An IMAP session. Mailbox arguments are names as the server spells them ([`Mailbox::raw`], or
+/// [`crate::utf7::encode`] of a name a person typed).
 #[derive(Debug)]
 pub struct Client<S> {
     stream: S,

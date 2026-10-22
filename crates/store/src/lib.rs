@@ -10,13 +10,15 @@
 use std::path::Path;
 
 use ibercorreo_core::mail::Attachment;
-use ibercorreo_core::{Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, Result};
+use ibercorreo_core::{Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result};
 use serde::{Deserialize, Serialize};
 
 /// Largest store file read back: 1 GiB.
 pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Format version written into the file; a newer file is refused rather than misread.
-pub const FORMAT_VERSION: u32 = 1;
+/// 2: folders and messages remember their server copy (`remote`), and deleted synced messages
+/// leave a tombstone until the server has deleted them too.
+pub const FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Store {
@@ -31,6 +33,9 @@ pub struct Store {
     next_message: u64,
     next_event: u64,
     next_contact: u64,
+    /// Synced messages deleted here for good, still to be deleted on the server.
+    #[serde(default)]
+    tombstones: Vec<RemoteRef>,
 }
 
 /// What an `.ics` import did, for the report shown to the person.
@@ -66,8 +71,17 @@ impl Store {
     pub fn add_folder(&mut self, name: &str, role: FolderRole) -> FolderId {
         let id = FolderId(self.next_folder);
         self.next_folder = self.next_folder.saturating_add(1);
-        self.folders.push(Folder { id, name: name.to_string(), role });
+        self.folders.push(Folder { id, name: name.to_string(), role, remote: None });
         id
+    }
+
+    pub fn folder_mut(&mut self, id: FolderId) -> Result<&mut Folder> {
+        self.folders.iter_mut().find(|f| f.id == id).ok_or_else(|| Error::not_found("folder", id.0.to_string()))
+    }
+
+    /// The folder that mirrors server mailbox `path`.
+    pub fn folder_by_path(&self, path: &str) -> Option<FolderId> {
+        self.folders.iter().find(|f| f.remote.as_ref().is_some_and(|r| r.path == path)).map(|f| f.id)
     }
 
     /// Folders in the order the folder pane shows them.
@@ -113,6 +127,32 @@ impl Store {
         self.add_message(m)
     }
 
+    /// Every message, in no particular order (for sync).
+    pub fn all_messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// The message whose server copy is `uid` in `folder`'s mailbox.
+    pub fn find_remote(&self, folder: FolderId, uid: u32) -> Option<MessageId> {
+        self.messages.iter().find(|m| m.remote.is_some_and(|r| r.folder == folder && r.uid == uid)).map(|m| m.id)
+    }
+
+    /// Synced messages deleted here and not yet on the server.
+    pub fn tombstones(&self) -> &[RemoteRef] {
+        &self.tombstones
+    }
+
+    /// The server deleted the message too (or never had it): stop remembering it.
+    pub fn forget_tombstone(&mut self, folder: FolderId, uid: u32) {
+        self.tombstones.retain(|t| !(t.folder == folder && t.uid == uid));
+    }
+
+    /// Remove a message the server already removed: no tombstone is left.
+    pub fn drop_message(&mut self, id: MessageId) -> Result<Message> {
+        let pos = self.messages.iter().position(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
+        Ok(self.messages.remove(pos))
+    }
+
     /// Messages in `folder`, newest first (undated last).
     pub fn messages_in(&self, folder: FolderId) -> Vec<&Message> {
         let mut v: Vec<&Message> = self.messages.iter().filter(|m| m.folder == folder).collect();
@@ -153,10 +193,14 @@ impl Store {
         Ok(from)
     }
 
-    /// Remove a message for good, returning it (for undo).
+    /// Remove a message for good, returning it (for undo). A synced message leaves a tombstone so
+    /// the next sync deletes it on the server too.
     pub fn remove_message(&mut self, id: MessageId) -> Result<Message> {
-        let pos = self.messages.iter().position(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
-        Ok(self.messages.remove(pos))
+        let m = self.drop_message(id)?;
+        if let Some(r) = m.remote {
+            self.tombstones.push(r);
+        }
+        Ok(m)
     }
 
     /// Put back a message removed by [`Store::remove_message`], keeping its id.
@@ -166,6 +210,9 @@ impl Store {
             return Err(Error::invalid("message", format!("id {} already present", m.id.0)));
         }
         self.next_message = self.next_message.max(m.id.0.saturating_add(1));
+        if let Some(r) = m.remote {
+            self.forget_tombstone(r.folder, r.uid);
+        }
         self.messages.push(m);
         Ok(())
     }
@@ -282,11 +329,13 @@ impl Store {
     }
 
     pub fn from_json(bytes: &[u8]) -> Result<Store> {
-        let s: Store = serde_json::from_slice(bytes).map_err(|e| Error::invalid("store file", e.to_string()))?;
+        let mut s: Store = serde_json::from_slice(bytes).map_err(|e| Error::invalid("store file", e.to_string()))?;
         if s.version > FORMAT_VERSION {
             return Err(Error::invalid("store file", format!("format {} is newer than this build ({FORMAT_VERSION})", s.version)));
         }
         s.check()?;
+        // Older files read as this format (new fields default) and are written back as it.
+        s.version = FORMAT_VERSION;
         Ok(s)
     }
 
@@ -298,6 +347,12 @@ impl Store {
                 return Err(Error::invalid("store file", format!("duplicate message id {}", m.id.0)));
             }
             self.folder(m.folder)?;
+            if let Some(r) = m.remote {
+                self.folder(r.folder)?;
+            }
+        }
+        for t in &self.tombstones {
+            self.folder(t.folder)?;
         }
         for e in &self.events {
             self.calendar(e.calendar)?;
@@ -376,5 +431,38 @@ mod tests {
         assert!(Store::from_json(dangling.to_string().as_bytes()).is_err());
         assert!(Store::load(&dir.join("missing.json")).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn deleting_a_synced_message_leaves_a_tombstone_until_undone() {
+        let mut s = Store::new();
+        let inbox = s.folder_by_role(FolderRole::Inbox).unwrap();
+        let mut m = msg(&s, "synced", 1);
+        m.remote = Some(RemoteRef { folder: inbox, uid: 42, seen: false, flagged: false });
+        let id = s.add_message(m).unwrap();
+        assert_eq!(s.find_remote(inbox, 42), Some(id));
+        let removed = s.remove_message(id).unwrap();
+        assert_eq!(s.tombstones().len(), 1);
+        s.restore_message(removed).unwrap();
+        assert!(s.tombstones().is_empty());
+        s.drop_message(id).unwrap();
+        assert!(s.tombstones().is_empty(), "a removal the server made needs no tombstone");
+        let local = s.add_message(msg(&s, "local", 2)).unwrap();
+        s.remove_message(local).unwrap();
+        assert!(s.tombstones().is_empty());
+    }
+
+    #[test]
+    fn format_1_files_load_and_are_written_as_format_2() {
+        let mut v1 = serde_json::to_value(Store::new()).unwrap();
+        let obj = v1.as_object_mut().unwrap();
+        obj.insert("version".into(), serde_json::json!(1));
+        obj.remove("tombstones");
+        let s = Store::from_json(v1.to_string().as_bytes()).unwrap();
+        assert_eq!(s.version, FORMAT_VERSION);
+        // A tombstone pointing at a folder that does not exist is refused.
+        let mut bad = serde_json::to_value(Store::new()).unwrap();
+        bad.as_object_mut().unwrap().insert("tombstones".into(), serde_json::json!([{ "folder": 999, "uid": 1, "seen": false, "flagged": false }]));
+        assert!(Store::from_json(bad.to_string().as_bytes()).is_err());
     }
 }

@@ -2,7 +2,7 @@
 //! quoted or sent as a literal, so a name or password can never end the command early and smuggle
 //! a second one in.
 
-use crate::{Error, Result, utf7};
+use crate::{Error, Result};
 
 /// A piece of a command: text, or a literal the server may have to accept first (`+`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,10 +65,10 @@ impl Command {
         self
     }
 
-    /// A mailbox name, encoded in modified UTF-7.
-    pub fn mailbox(self, name: &str) -> Self {
-        let encoded = if name.eq_ignore_ascii_case("INBOX") { "INBOX".to_owned() } else { utf7::encode(name) };
-        self.astring(encoded.as_bytes())
+    /// A mailbox as the server spells it ([`crate::Mailbox::raw`]; [`utf7::encode`] turns a name
+    /// a person typed into one). It is not encoded again: decoding is not always reversible.
+    pub fn mailbox(self, raw: &str) -> Self {
+        self.astring(if raw.eq_ignore_ascii_case("INBOX") { b"INBOX" } else { raw.as_bytes() })
     }
 
     /// A message for `APPEND`: always a literal.
@@ -150,6 +150,7 @@ pub fn check_flags(flags: &[&str]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utf7;
 
     #[test]
     fn arguments_cannot_break_out() {
@@ -159,7 +160,7 @@ mod tests {
             vec![Part::Text(b"LOGIN denys \"pa\\\"ss\\\\word\" ".to_vec()), Part::Literal(b"two\r\nlines".to_vec()), Part::Text(b" \"\"".to_vec())]
         );
         assert_eq!(c.redacted(), "LOGIN denys \"pa\\\"ss\\\\word\" {10} \"\"");
-        let c = Command::new("SELECT").mailbox("Вхідні & Co");
+        let c = Command::new("SELECT").mailbox(&utf7::encode("Вхідні & Co"));
         assert_eq!(c.redacted(), format!("SELECT \"{}\"", utf7::encode("Вхідні & Co")));
         assert_eq!(Command::new("SELECT").mailbox("inbox").redacted(), "SELECT INBOX");
         assert_eq!(Command::new("X").astring("пароль".as_bytes()).parts.len(), 2);

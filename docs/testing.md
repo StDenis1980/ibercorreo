@@ -11,7 +11,10 @@ IMAP server is tested when one is configured.
 - **Local TLS** (`crates/net/src/tests.rs`): real TCP and rustls on 127.0.0.1 against a tiny server
   with a generated certificate: implicit TLS, STARTTLS, untrusted and mismatched certificates,
   passwords refused over plain connections.
-- **Real server** (`real_server_when_configured`): skipped unless `IBERCORREO_TEST_IMAP` is set.
+- **Sync logic** (`crates/sync/src/tests.rs`): `state`/`apply` on stores, `run` against a scripted server.
+- **Real server** (`real_server_when_configured`, `real_server_sync_when_configured`): skipped unless
+  `IBERCORREO_TEST_IMAP` is set. The sync test reads, flags, moves and deletes here and checks the
+  server, then changes the server and checks the store.
 
 ## A throwaway Dovecot for the real-server test (Linux)
 Dovecot runs only as an external test server; none of its code is used.
@@ -78,3 +81,4 @@ IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test
 
 ## Revision history
 - 2026-10-22 — created with M1.2 (local TLS and the Dovecot check).
+- 2026-10-22 — M1.3: sync tests.

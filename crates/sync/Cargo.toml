@@ -1,0 +1,16 @@
+[package]
+name = "ibercorreo-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L3: two-way IMAP mail sync between the local store and a server"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-imap.workspace = true
+ibercorreo-mime.workspace = true
+ibercorreo-store.workspace = true
+serde.workspace = true
+
+[lints]
+workspace = true
