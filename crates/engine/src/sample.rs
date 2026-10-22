@@ -141,6 +141,8 @@ pub fn store(today: Date) -> Result<Store> {
     };
     let at = |d: Date, h: u8, m: u8| DateTime::new(d, h, m, 0);
     s.add_event(event("Reunión de presupuesto", "Sala 1", When::timed(at(today, 10, 0)?, at(today, 11, 0)?, false)?))?;
+    // Overlaps the budget meeting, so the day and week views show two side by side.
+    s.add_event(event("Chamada com a Lusodata", "Teams", When::timed(at(today, 10, 30)?, at(today, 11, 30)?, false)?))?;
     s.add_event(event("Almoço com Rui", "Café Azul", When::timed(at(today, 13, 0)?, at(today, 14, 0)?, false)?))?;
     let d2 = today.add_days(2)?;
     s.add_event(event("Formação Iber Texto", "Sala 2", When::timed(at(d2, 10, 0)?, at(d2, 13, 0)?, false)?))?;

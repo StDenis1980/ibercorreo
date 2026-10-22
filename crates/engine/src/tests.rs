@@ -107,7 +107,7 @@ fn reply_all_skips_me_and_prefixes_once() {
 fn calendar_commands() {
     let mut s = session();
     let n = s.run("event.list", &json!({"date": "2026-10-22"})).unwrap().as_array().unwrap().len();
-    assert_eq!(n, 3, "two appointments and the weekday stand-up");
+    assert_eq!(n, 4, "three appointments and the weekday stand-up");
     s.run("event.add", &json!({"summary": "Late call", "start": "2026-10-22T23:30"})).unwrap();
     let late = s.run("event.list", &json!({"date": "2026-10-23"})).unwrap();
     assert!(late.as_array().unwrap().iter().any(|e| e["summary"] == "Late call"), "an hour from 23:30 runs into the next day");
@@ -117,7 +117,46 @@ fn calendar_commands() {
     let ics = s.run("calendar.exportIcs", &Value::Null).unwrap();
     let mut fresh = Session::new(ibercorreo_store::Store::new(), today());
     let report = fresh.run("calendar.importIcs", &json!({"text": ics})).unwrap();
-    assert_eq!(report["added"], json!(6), "four sample appointments, the stand-up and the late call");
+    assert_eq!(report["added"], json!(7), "five sample appointments, the stand-up and the late call");
+}
+
+#[test]
+fn day_week_and_month_views_step_and_list_their_range() {
+    let mut s = session();
+    let state = s.run("calendar.viewWeek", &Value::Null).unwrap();
+    assert_eq!(s.view, View::Calendar);
+    // 2026-10-22 is a Thursday; weeks start on Monday.
+    assert_eq!(state, json!({"date": "2026-10-22", "mode": "week", "from": "2026-10-19", "to": "2026-10-25"}));
+    let week = s.run("event.list", &json!({"from": "view"})).unwrap();
+    let names: Vec<_> = week.as_array().unwrap().iter().map(|e| e["summary"].as_str().unwrap().to_string()).collect();
+    assert_eq!(names.iter().filter(|n| *n == "Stand-up").count(), 5, "one stand-up each weekday: {names:?}");
+    assert_eq!(names.len(), 9, "five stand-ups, three on Thursday, the training on Saturday: {names:?}");
+    assert!(!names.iter().any(|n| n == "Відпустка"), "the holiday starts next week");
+    assert_eq!(s.run("calendar.next", &Value::Null).unwrap()["from"], "2026-10-26");
+    let next = s.run("event.list", &json!({"from": "view"})).unwrap();
+    let holiday = next.as_array().unwrap().iter().filter(|e| e["summary"] == "Відпустка").count();
+    assert_eq!(holiday, 1, "a three-day holiday is listed once");
+
+    assert_eq!(s.run("calendar.viewWorkWeek", &Value::Null).unwrap()["to"], "2026-10-30");
+    s.run("calendar.prev", &Value::Null).unwrap();
+    assert_eq!(s.day, today());
+    let day = s.run("calendar.viewDay", &Value::Null).unwrap();
+    assert_eq!((day["from"].as_str(), day["to"].as_str()), (Some("2026-10-22"), Some("2026-10-22")));
+    s.run("calendar.next", &Value::Null).unwrap();
+    assert_eq!(s.day, Date::new(2026, 10, 23).unwrap());
+    s.run("calendar.viewMonth", &Value::Null).unwrap();
+    s.run("calendar.goto", &json!({"date": "2028-01-31"})).unwrap();
+    assert_eq!(s.run("calendar.next", &Value::Null).unwrap()["to"], "2028-02-29", "a leap February");
+
+    assert!(s.run("event.list", &json!({"from": "2026-10-22"})).is_err(), "from without to");
+    assert!(s.run("event.list", &json!({"from": "2026-10-22", "to": "2026-10-21"})).is_err());
+    assert!(s.run("event.list", &json!({"from": "2026-01-01", "to": "2027-01-02"})).is_err(), "367 days");
+    assert!(s.run("event.list", &json!({"from": "2026-01-01", "to": "2026-12-31"})).is_ok());
+    let edge = Session::run(&mut s, "calendar.goto", &json!({"date": "9999-12-31"}));
+    assert!(edge.is_ok());
+    assert!(s.run("calendar.next", &Value::Null).is_err(), "no month after 9999-12");
+    s.run("calendar.viewWeek", &Value::Null).unwrap();
+    assert!(s.run("event.list", &json!({"from": "view"})).is_ok(), "a week clipped at the end of time still lists");
 }
 
 #[test]

@@ -81,6 +81,19 @@ impl When {
         }
     }
 
+    /// For a timed span, the minutes of `day` it fills, `start..end` with `end` up to 1440 (it
+    /// runs past midnight). `None` for all-day spans and days it does not touch. A zero-length
+    /// span still fills its start minute, so it can be drawn.
+    pub fn minutes_on(&self, day: Date) -> Option<(u16, u16)> {
+        let When::Timed { start, end, .. } = *self else { return None };
+        if !self.covers(day) && !(start.date == day && end == start) {
+            return None;
+        }
+        let from = if start.date == day { start.minute_of_day() } else { 0 };
+        let to = if end.date == day { end.minute_of_day() } else { MINUTES_PER_DAY };
+        Some((from.min(MINUTES_PER_DAY - 1), to.clamp(from.saturating_add(1), MINUTES_PER_DAY)))
+    }
+
     /// Whether any part of the event falls on `day` (ignoring recurrence).
     pub fn covers(&self, day: Date) -> bool {
         match self {
@@ -90,6 +103,55 @@ impl When {
                 let ends_at_midnight = end.minute_of_day() == 0 && end.second() == 0 && end.date > start.date;
                 start.date <= day && (day < end.date || (day == end.date && !ends_at_midnight))
             }
+        }
+    }
+}
+
+pub const MINUTES_PER_DAY: u16 = 24 * 60;
+
+/// Side-by-side columns for a day's timed events, as Outlook draws a busy day: events that
+/// overlap share the width, each in the first column free at its start. `spans` are
+/// `(start, end)` minutes in display order; the result gives each its `(column, columns)`, where
+/// `columns` is how many the group of overlapping events it belongs to needs.
+pub fn columns(spans: &[(u16, u16)]) -> Vec<(usize, usize)> {
+    let mut out = vec![(0, 1); spans.len()];
+    // Ends of the events in each column of the current group, and where that group began.
+    let mut ends: Vec<u16> = Vec::new();
+    let mut group_start = 0;
+    let mut group_end = 0u16;
+    let mut order: Vec<usize> = (0..spans.len()).collect();
+    order.sort_by_key(|&i| spans.get(i).map_or((0, std::cmp::Reverse(0)), |&(s, e)| (s, std::cmp::Reverse(e))));
+    for (n, &i) in order.iter().enumerate() {
+        let Some(&(start, end)) = spans.get(i) else { continue };
+        let end = end.max(start.saturating_add(1));
+        if start >= group_end && !ends.is_empty() {
+            close_group(&mut out, order.get(group_start..n).unwrap_or(&[]), ends.len());
+            ends.clear();
+            group_start = n;
+        }
+        let column = match ends.iter().position(|&e| e <= start) {
+            Some(c) => c,
+            None => {
+                ends.push(0);
+                ends.len() - 1
+            }
+        };
+        if let Some(e) = ends.get_mut(column) {
+            *e = end;
+        }
+        if let Some(slot) = out.get_mut(i) {
+            slot.0 = column;
+        }
+        group_end = group_end.max(end);
+    }
+    close_group(&mut out, order.get(group_start..).unwrap_or(&[]), ends.len());
+    out
+}
+
+fn close_group(out: &mut [(usize, usize)], members: &[usize], width: usize) {
+    for &i in members {
+        if let Some(slot) = out.get_mut(i) {
+            slot.1 = width.max(1);
         }
     }
 }
@@ -190,5 +252,39 @@ mod tests {
         assert!(w.covers(d(2026, 10, 22)));
         assert!(!w.covers(d(2026, 10, 23)));
         assert!(When::timed(end, start, false).is_err());
+    }
+
+    #[test]
+    fn minutes_on_clips_to_the_day() {
+        let at = |day: Date, h, m| DateTime::new(day, h, m, 0).unwrap();
+        let (a, b, c) = (d(2026, 10, 22), d(2026, 10, 23), d(2026, 10, 24));
+        let w = When::timed(at(a, 9, 15), at(a, 9, 30), false).unwrap();
+        assert_eq!(w.minutes_on(a), Some((555, 570)));
+        assert_eq!(w.minutes_on(b), None);
+        // Overnight: to midnight, then from midnight.
+        let night = When::timed(at(a, 22, 0), at(c, 2, 0), false).unwrap();
+        assert_eq!(night.minutes_on(a), Some((1320, 1440)));
+        assert_eq!(night.minutes_on(b), Some((0, 1440)));
+        assert_eq!(night.minutes_on(c), Some((0, 120)));
+        // Ending at midnight does not spill; a zero-length reminder still gets a minute.
+        assert_eq!(When::timed(at(a, 23, 0), at(b, 0, 0), false).unwrap().minutes_on(b), None);
+        assert_eq!(When::timed(at(a, 23, 59), at(a, 23, 59), false).unwrap().minutes_on(a), Some((1439, 1440)));
+        assert_eq!(When::all_day(a, b).unwrap().minutes_on(a), None);
+    }
+
+    #[test]
+    fn overlapping_events_share_columns() {
+        assert_eq!(columns(&[]), []);
+        // 9–10 and 9:30–11 overlap; 11–12 starts a new group, alone.
+        assert_eq!(columns(&[(540, 600), (570, 660), (660, 720)]), [(0, 2), (1, 2), (0, 1)]);
+        // A long event with two short ones beside it that do not touch each other: two columns,
+        // and the second short one reuses the freed column.
+        assert_eq!(columns(&[(540, 720), (540, 600), (600, 660)]), [(0, 2), (1, 2), (1, 2)]);
+        // Given out of order, the longer of two at the same start takes the first column.
+        assert_eq!(columns(&[(600, 630), (540, 600), (540, 700)]), [(1, 2), (1, 2), (0, 2)]);
+        // Three at once.
+        assert_eq!(columns(&[(0, 60), (0, 60), (30, 90)]), [(0, 3), (1, 3), (2, 3)]);
+        // Zero-length and reversed spans do not break it.
+        assert_eq!(columns(&[(100, 100), (100, 50)]), [(0, 2), (1, 2)]);
     }
 }

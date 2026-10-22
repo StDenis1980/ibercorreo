@@ -26,6 +26,27 @@ pub enum View {
     Contacts,
 }
 
+/// How much time the calendar shows at once, as Outlook's Day, Work Week, Week and Month.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CalendarMode {
+    Day,
+    WorkWeek,
+    Week,
+    Month,
+}
+
+impl CalendarMode {
+    pub fn id(self) -> &'static str {
+        match self {
+            CalendarMode::Day => "day",
+            CalendarMode::WorkWeek => "workWeek",
+            CalendarMode::Week => "week",
+            CalendarMode::Month => "month",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Session {
     pub store: Store,
@@ -37,6 +58,8 @@ pub struct Session {
     pub event: Option<EventId>,
     /// The day the calendar view is centred on.
     pub day: Date,
+    /// Day, work week, week or month.
+    pub calendar_mode: CalendarMode,
     pub search: String,
     /// Set by commands that change the store; cleared by `file.save`.
     pub dirty: bool,
@@ -64,6 +87,7 @@ impl Session {
             message: None,
             event: None,
             day: today,
+            calendar_mode: CalendarMode::Month,
             search: String::new(),
             dirty: false,
             status: String::new(),
@@ -110,6 +134,22 @@ impl Session {
                 let e = Error::invalid("command", format!("{id} failed unexpectedly; nothing was changed"));
                 self.status = e.to_string();
                 Err(e)
+            }
+        }
+    }
+
+    /// The first and last day the calendar shows: the day; Monday to Friday or Sunday of its week;
+    /// or the first and last of its month. Weeks start on Monday.
+    pub fn calendar_range(&self) -> (Date, Date) {
+        let monday = self.day.add_days(-i64::from(self.day.weekday().index())).unwrap_or(self.day);
+        let span = |from: Date, days: i64| (from, from.add_days(days).unwrap_or(from));
+        match self.calendar_mode {
+            CalendarMode::Day => (self.day, self.day),
+            CalendarMode::WorkWeek => span(monday, 4),
+            CalendarMode::Week => span(monday, 6),
+            CalendarMode::Month => {
+                let first = self.day.first_of_month();
+                span(first, i64::from(ibercorreo_core::date::days_in_month(first.year(), first.month())) - 1)
             }
         }
     }

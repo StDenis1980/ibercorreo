@@ -1,5 +1,5 @@
 //! Iber Correo's front end, L6: an Outlook-style window (navigation rail, folder pane, message
-//! list, reading pane; month calendar; people) over [`ibercorreo_engine::Session`].
+//! list, reading pane; day, week and month calendar; people) over [`ibercorreo_engine::Session`].
 //!
 //! Thin by rule: every change goes through `Session::run` with a command id, so the interface
 //! never edits the store itself. Swappable: nothing below this crate depends on egui.
@@ -10,10 +10,10 @@ pub mod icons;
 pub mod theme;
 
 use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
-use ibercorreo_core::calendar::When;
+use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
 use ibercorreo_core::{Date, FolderRole, MessageId};
-use ibercorreo_engine::{Session, View};
+use ibercorreo_engine::{CalendarMode, Session, View};
 use serde_json::{Value, json};
 
 use icons::Icon;
@@ -80,6 +80,8 @@ pub struct App {
     contact_form: ContactForm,
     contact_query: String,
     search: String,
+    /// Scroll the day and week grid to the working morning on its next frame.
+    scroll_to_morning: bool,
 }
 
 impl App {
@@ -95,6 +97,7 @@ impl App {
             contact_form: ContactForm::default(),
             contact_query: String::new(),
             search: String::new(),
+            scroll_to_morning: true,
         }
     }
 
@@ -237,10 +240,28 @@ impl App {
         if ui.ctx().memory(|m| m.focused().is_some()) {
             return;
         }
-        let pressed =
-            |ui: &Ui, cmd: bool, shift: bool, key: Key| ui.input(|i| i.key_pressed(key) && i.modifiers.command == cmd && i.modifiers.shift == shift);
+        let pressed_alt = |ui: &Ui, cmd: bool, shift: bool, alt: bool, key: Key| {
+            ui.input(|i| i.key_pressed(key) && i.modifiers.command == cmd && i.modifiers.shift == shift && i.modifiers.alt == alt)
+        };
+        let pressed = |ui: &Ui, cmd: bool, shift: bool, key: Key| pressed_alt(ui, cmd, shift, false, key);
         if pressed(ui, false, false, Key::F9) && !self.syncing {
             self.run("account.sync", json!({}));
+        }
+        if self.session.view == View::Calendar {
+            let calendar: [(bool, Key, &str); 6] = [
+                (true, Key::Num1, "calendar.viewDay"),
+                (true, Key::Num2, "calendar.viewWorkWeek"),
+                (true, Key::Num3, "calendar.viewWeek"),
+                (true, Key::Num4, "calendar.viewMonth"),
+                (false, Key::ArrowLeft, "calendar.prev"),
+                (false, Key::ArrowRight, "calendar.next"),
+            ];
+            for (cmd, key, id) in calendar {
+                if pressed_alt(ui, cmd, false, true, key) {
+                    self.run(id, json!({}));
+                    self.scroll_to_morning = true;
+                }
+            }
         }
         let actions: [(bool, bool, Key, &str); 10] = [
             (true, false, Key::N, "message.compose"),
@@ -345,9 +366,21 @@ impl App {
                     if ui.button("Today").clicked() {
                         self.run("calendar.goto", json!({ "date": "today" }));
                     }
-                    self.button(ui, "◀", "calendar.prevMonth", true);
-                    self.button(ui, "▶", "calendar.nextMonth", true);
-                    ui.label(RichText::new(month_title(self.session.day)).heading());
+                    self.button(ui, "◀", "calendar.prev", true);
+                    self.button(ui, "▶", "calendar.next", true);
+                    ui.label(RichText::new(range_title(&self.session)).heading());
+                    ui.separator();
+                    for (mode, label, id, tip) in [
+                        (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
+                        (CalendarMode::WorkWeek, "Work Week", "calendar.viewWorkWeek", "Ctrl+Alt+2"),
+                        (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
+                        (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
+                    ] {
+                        if ui.selectable_label(self.session.calendar_mode == mode, label).on_hover_text(tip).clicked() {
+                            self.run(id, json!({}));
+                            self.scroll_to_morning = true;
+                        }
+                    }
                 }
                 View::Contacts => {
                     ui.label(RichText::new("People").heading());
@@ -588,7 +621,13 @@ impl App {
     fn calendar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         egui::Panel::right("agenda").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| self.agenda(ui));
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(10)).show(ui, |ui| self.month(ui));
+        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(10)).show(ui, |ui| {
+            if self.session.calendar_mode == CalendarMode::Month {
+                self.month(ui);
+            } else {
+                self.time_grid(ui);
+            }
+        });
         self.event_window(ui);
     }
 
@@ -681,6 +720,192 @@ impl App {
                 }
             });
         }
+    }
+
+    /// Day, work week and week: a column per day, an all-day strip on top and the hours below,
+    /// with overlapping appointments side by side.
+    fn time_grid(&mut self, ui: &mut Ui) {
+        const GUTTER: f32 = 48.0;
+        const HOUR: f32 = 44.0;
+        const ALL_DAY_ROW: f32 = 20.0;
+        let t = self.tokens;
+        let (from, to) = self.session.calendar_range();
+        let count = usize::try_from(to.day_number().saturating_sub(from.day_number()).saturating_add(1)).unwrap_or(1).clamp(1, 7);
+        let days: Vec<Date> = (0..count).filter_map(|n| from.add_days(i64::try_from(n).unwrap_or(0)).ok()).collect();
+        let now = self.session.now();
+        let col_w = ((ui.available_width() - GUTTER) / days.len().max(1) as f32).max(60.0);
+        let x_of = |left: f32, n: usize| left + GUTTER + col_w * n as f32;
+
+        // Day headings.
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+        let p = ui.painter_at(head);
+        for (n, day) in days.iter().enumerate() {
+            let x = x_of(head.left(), n);
+            let is_today = *day == now.date;
+            let colour = if is_today { t.today } else { t.text };
+            p.text(egui::pos2(x + 6.0, head.top() + 2.0), egui::Align2::LEFT_TOP, weekday_abbr(*day), egui::FontId::proportional(11.0), t.text_weak);
+            p.text(egui::pos2(x + 6.0, head.top() + 16.0), egui::Align2::LEFT_TOP, day.day().to_string(), egui::FontId::proportional(18.0), colour);
+            if *day == self.session.day {
+                p.rect_filled(egui::Rect::from_min_size(egui::pos2(x + 2.0, head.bottom() - 3.0), vec2(col_w - 4.0, 3.0)), 1.0, t.accent);
+            }
+        }
+
+        // The all-day strip: one row per all-day appointment of the busiest day.
+        let all_day: Vec<Vec<(String, Date)>> = days
+            .iter()
+            .map(|d| {
+                self.session
+                    .store
+                    .events_on(*d)
+                    .into_iter()
+                    .filter(|o| matches!(o.when, When::AllDay { .. }))
+                    .map(|o| (o.event.summary.clone(), *d))
+                    .collect()
+            })
+            .collect();
+        let rows = all_day.iter().map(Vec::len).max().unwrap_or(0).min(4);
+        if rows > 0 {
+            let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW * rows as f32 + 4.0), Sense::hover());
+            let p = ui.painter_at(strip);
+            p.rect_filled(strip, 0.0, t.list);
+            for (n, list) in all_day.iter().enumerate() {
+                for (row, (summary, day)) in list.iter().take(rows).enumerate() {
+                    let chip = egui::Rect::from_min_size(
+                        egui::pos2(x_of(strip.left(), n) + 2.0, strip.top() + 2.0 + ALL_DAY_ROW * row as f32),
+                        vec2(col_w - 4.0, ALL_DAY_ROW - 2.0),
+                    );
+                    let r = ui.interact(chip, ui.id().with(("all-day", n, row)), Sense::click()).on_hover_text(summary.as_str());
+                    if r.clicked() {
+                        self.run("calendar.goto", json!({ "date": day.to_string() }));
+                    }
+                    p.rect_filled(chip, 3.0, t.accent_soft);
+                    p.with_clip_rect(chip).text(
+                        chip.left_center() + vec2(4.0, 0.0),
+                        egui::Align2::LEFT_CENTER,
+                        summary,
+                        egui::FontId::proportional(11.0),
+                        t.text,
+                    );
+                }
+            }
+        }
+
+        let mut scroll = egui::ScrollArea::vertical().id_salt("time-grid").auto_shrink([false, false]);
+        if std::mem::take(&mut self.scroll_to_morning) {
+            scroll = scroll.vertical_scroll_offset(7.0 * HOUR);
+        }
+        scroll.show(ui, |ui| {
+            let (grid, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0 * HOUR), Sense::click());
+            let p = ui.painter_at(grid);
+            for (n, day) in days.iter().enumerate() {
+                let x = x_of(grid.left(), n);
+                let weekend = day.weekday().index() >= 5;
+                let column = egui::Rect::from_min_size(egui::pos2(x, grid.top()), vec2(col_w, grid.height()));
+                p.rect_filled(
+                    column,
+                    0.0,
+                    if *day == self.session.day {
+                        t.accent_soft.gamma_multiply(0.4)
+                    } else if weekend {
+                        t.list
+                    } else {
+                        t.reading
+                    },
+                );
+                p.line_segment([egui::pos2(x, grid.top()), egui::pos2(x, grid.bottom())], Stroke::new(0.5, t.border));
+            }
+            for hour in 0..24u8 {
+                let y = grid.top() + HOUR * f32::from(hour);
+                p.line_segment([egui::pos2(grid.left() + GUTTER, y), egui::pos2(grid.right(), y)], Stroke::new(0.5, t.border));
+                p.line_segment(
+                    [egui::pos2(grid.left() + GUTTER, y + HOUR / 2.0), egui::pos2(grid.right(), y + HOUR / 2.0)],
+                    Stroke::new(0.5, t.border.gamma_multiply(0.4)),
+                );
+                if hour > 0 {
+                    p.text(
+                        egui::pos2(grid.left() + GUTTER - 6.0, y),
+                        egui::Align2::RIGHT_CENTER,
+                        format!("{hour:02}:00"),
+                        egui::FontId::proportional(11.0),
+                        t.text_weak,
+                    );
+                }
+            }
+            let y_of = |minute: u16| grid.top() + HOUR * f32::from(minute) / 60.0;
+
+            // Clicking a free slot picks its day; double-clicking starts an appointment there.
+            if let Some(pos) = resp.interact_pointer_pos()
+                && pos.x >= grid.left() + GUTTER
+            {
+                let n = ((pos.x - grid.left() - GUTTER) / col_w).floor();
+                let half_hours = ((pos.y - grid.top()) / (HOUR / 2.0)).floor().clamp(0.0, 47.0);
+                if let Some(day) = days.get(n.max(0.0) as usize) {
+                    if resp.double_clicked() {
+                        let minute = half_hours as u16 * 30;
+                        self.event_form =
+                            EventForm { open: true, start: format!("{day}T{:02}:{:02}", minute / 60, minute % 60), ..EventForm::default() };
+                    } else if resp.clicked() {
+                        self.run("calendar.goto", json!({ "date": day.to_string() }));
+                    }
+                }
+            }
+
+            for (n, day) in days.iter().enumerate() {
+                let occurrences: Vec<_> = self
+                    .session
+                    .store
+                    .events_on(*day)
+                    .into_iter()
+                    .filter_map(|o| o.when.minutes_on(*day).map(|m| (o.event.clone(), o.when, m)))
+                    .collect();
+                let spans: Vec<(u16, u16)> = occurrences.iter().map(|(_, _, m)| *m).collect();
+                let x = x_of(grid.left(), n);
+                for ((e, when, (start, end)), (column, columns)) in occurrences.iter().zip(ibercorreo_core::calendar::columns(&spans)) {
+                    let w = (col_w - 6.0) / columns.max(1) as f32;
+                    let top = y_of(*start);
+                    let bottom = y_of(*end).max(top + 20.0);
+                    let rect = egui::Rect::from_min_max(
+                        egui::pos2(x + 2.0 + w * column as f32, top + 1.0),
+                        egui::pos2(x + 2.0 + w * (column + 1) as f32 - 2.0, bottom - 1.0),
+                    );
+                    let times = match when {
+                        When::Timed { start, end, .. } => {
+                            format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute())
+                        }
+                        When::AllDay { .. } => String::new(),
+                    };
+                    let tip = if e.location.is_empty() {
+                        format!("{}\n{times}", e.summary)
+                    } else {
+                        format!("{}\n{times}\n📍 {}", e.summary, e.location)
+                    };
+                    let r = ui.interact(rect, ui.id().with(("event", e.id.0, n)), Sense::click()).on_hover_text(tip);
+                    if r.clicked() {
+                        self.run("calendar.goto", json!({ "date": day.to_string() }));
+                    }
+                    p.rect_filled(rect, 3.0, t.accent_soft);
+                    p.rect_filled(egui::Rect::from_min_size(rect.left_top(), vec2(3.0, rect.height())), 1.0, t.accent);
+                    let clip = p.with_clip_rect(rect.shrink(1.0));
+                    let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
+                    let title = format!("{repeat}{}", e.summary);
+                    if rect.height() < 30.0 {
+                        clip.text(rect.left_center() + vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(11.5), t.text);
+                    } else {
+                        clip.text(rect.left_top() + vec2(6.0, 2.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(11.5), t.text);
+                    }
+                    if rect.height() > 32.0 {
+                        let detail = if e.location.is_empty() { times } else { e.location.clone() };
+                        clip.text(rect.left_top() + vec2(6.0, 17.0), egui::Align2::LEFT_TOP, detail, egui::FontId::proportional(10.5), t.text_weak);
+                    }
+                }
+                // The current time, on today's column.
+                if *day == now.date {
+                    let y = y_of(now.minute_of_day().min(MINUTES_PER_DAY));
+                    p.circle_filled(egui::pos2(x, y), 4.0, t.flag);
+                    p.line_segment([egui::pos2(x, y), egui::pos2(x + col_w, y)], Stroke::new(1.5, t.flag));
+                }
+            }
+        });
     }
 
     fn agenda(&mut self, ui: &mut Ui) {
@@ -846,9 +1071,31 @@ fn month_abbr(m: u8) -> &'static str {
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
 }
 
+fn weekday_abbr(d: Date) -> &'static str {
+    ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].get(usize::from(d.weekday().index())).copied().unwrap_or("")
+}
+
+/// The ribbon's title for what the calendar shows: `22 October 2026`, `19–25 October 2026`,
+/// `26 October – 1 November 2026` or `October 2026`.
+fn range_title(s: &Session) -> String {
+    let (from, to) = s.calendar_range();
+    match s.calendar_mode {
+        CalendarMode::Month => month_title(s.day),
+        CalendarMode::Day => format!("{} {}", from.day(), month_title(from)),
+        _ if from.month() == to.month() => format!("{}–{} {}", from.day(), to.day(), month_title(to)),
+        _ if from.year() == to.year() => format!("{} {} – {} {}", from.day(), month_name(from), to.day(), month_title(to)),
+        _ => format!("{} {} – {} {}", from.day(), month_title(from), to.day(), month_title(to)),
+    }
+}
+
+fn month_name(d: Date) -> &'static str {
+    MONTHS.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
+}
+
+const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
 fn month_title(d: Date) -> String {
-    let names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    format!("{} {}", names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""), d.year())
+    format!("{} {}", month_name(d), d.year())
 }
 
 fn long_date(d: Date) -> String {

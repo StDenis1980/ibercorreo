@@ -5,7 +5,7 @@ use ibercorreo_core::mail::{Account, AccountKind};
 use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result, Security};
 use serde_json::{Value, json};
 
-use crate::{Session, View};
+use crate::{CalendarMode, Session, View};
 
 pub struct CommandSpec {
     pub id: &'static str,
@@ -252,11 +252,65 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: |s, _| shift_month(s, -1),
     },
     CommandSpec {
+        id: "calendar.next",
+        label: "Forward",
+        group: "Calendar/Go To",
+        shortcut: Some("Alt+Right"),
+        params: "",
+        edits: false,
+        run: |s, _| shift_period(s, 1),
+    },
+    CommandSpec {
+        id: "calendar.prev",
+        label: "Back",
+        group: "Calendar/Go To",
+        shortcut: Some("Alt+Left"),
+        params: "",
+        edits: false,
+        run: |s, _| shift_period(s, -1),
+    },
+    CommandSpec {
+        id: "calendar.viewDay",
+        label: "Day",
+        group: "Calendar/Arrange",
+        shortcut: Some("Ctrl+Alt+1"),
+        params: "",
+        edits: false,
+        run: |s, _| set_calendar_mode(s, CalendarMode::Day),
+    },
+    CommandSpec {
+        id: "calendar.viewWorkWeek",
+        label: "Work Week",
+        group: "Calendar/Arrange",
+        shortcut: Some("Ctrl+Alt+2"),
+        params: "",
+        edits: false,
+        run: |s, _| set_calendar_mode(s, CalendarMode::WorkWeek),
+    },
+    CommandSpec {
+        id: "calendar.viewWeek",
+        label: "Week",
+        group: "Calendar/Arrange",
+        shortcut: Some("Ctrl+Alt+3"),
+        params: "",
+        edits: false,
+        run: |s, _| set_calendar_mode(s, CalendarMode::Week),
+    },
+    CommandSpec {
+        id: "calendar.viewMonth",
+        label: "Month",
+        group: "Calendar/Arrange",
+        shortcut: Some("Ctrl+Alt+4"),
+        params: "",
+        edits: false,
+        run: |s, _| set_calendar_mode(s, CalendarMode::Month),
+    },
+    CommandSpec {
         id: "event.list",
         label: "List events",
         group: "Calendar/Arrange",
         shortcut: None,
-        params: "date?: YYYY-MM-DD | \"today\" — default: the calendar's day",
+        params: "date?: YYYY-MM-DD | \"today\" — default: the calendar's day\nfrom?, to?: YYYY-MM-DD — every occurrence in the range instead (at most 366 days); \"view\" for from takes what the calendar shows",
         edits: false,
         run: event_list,
     },
@@ -758,21 +812,72 @@ fn calendar_goto(s: &mut Session, p: &Value) -> Result<Value> {
     let d = required_str(p, "date")?;
     s.day = if d.eq_ignore_ascii_case("today") { s.now().date } else { Date::parse(d)? };
     s.view = View::Calendar;
-    Ok(json!({ "date": s.day.to_string() }))
+    Ok(calendar_state(s))
 }
 
 fn shift_month(s: &mut Session, delta: i32) -> Result<Value> {
     s.day = s.day.add_months(delta)?;
-    Ok(json!({ "date": s.day.to_string() }))
+    Ok(calendar_state(s))
 }
 
-fn event_list(s: &mut Session, p: &Value) -> Result<Value> {
-    let day = match str_param(p, "date")? {
-        Some(d) if d.eq_ignore_ascii_case("today") => s.now().date,
-        Some(d) => Date::parse(d)?,
-        None => s.day,
+/// What the calendar shows: its day, mode and first and last date.
+fn calendar_state(s: &Session) -> Value {
+    let (from, to) = s.calendar_range();
+    json!({ "date": s.day.to_string(), "mode": s.calendar_mode.id(), "from": from.to_string(), "to": to.to_string() })
+}
+
+/// One day, week or month forward (`delta` 1) or back (-1), as the calendar mode says.
+fn shift_period(s: &mut Session, delta: i32) -> Result<Value> {
+    s.day = match s.calendar_mode {
+        CalendarMode::Day => s.day.add_days(i64::from(delta))?,
+        CalendarMode::WorkWeek | CalendarMode::Week => s.day.add_days(i64::from(delta).saturating_mul(7))?,
+        CalendarMode::Month => s.day.add_months(delta)?,
     };
-    Ok(Value::Array(s.store.events_on(day).into_iter().map(|o| event_json(o.event, o.when)).collect()))
+    Ok(calendar_state(s))
+}
+
+fn set_calendar_mode(s: &mut Session, mode: CalendarMode) -> Result<Value> {
+    s.calendar_mode = mode;
+    s.view = View::Calendar;
+    Ok(calendar_state(s))
+}
+
+/// The longest range `event.list` expands, in days.
+const MAX_LIST_DAYS: i64 = 366;
+
+fn event_list(s: &mut Session, p: &Value) -> Result<Value> {
+    let date = |s: &Session, d: &str| if d.eq_ignore_ascii_case("today") { Ok(s.now().date) } else { Date::parse(d) };
+    let (from, to) = match (str_param(p, "from")?, str_param(p, "to")?) {
+        (Some(f), _) if f.eq_ignore_ascii_case("view") => s.calendar_range(),
+        (Some(f), Some(t)) => (date(s, f)?, date(s, t)?),
+        (Some(_), None) | (None, Some(_)) => return Err(Error::invalid("params", "pass both from and to")),
+        (None, None) => {
+            let day = match str_param(p, "date")? {
+                Some(d) => date(s, d)?,
+                None => s.day,
+            };
+            (day, day)
+        }
+    };
+    if to < from {
+        return Err(Error::invalid("params", format!("to {to} is before from {from}")));
+    }
+    let days = to.day_number().saturating_sub(from.day_number()).saturating_add(1);
+    if days > MAX_LIST_DAYS {
+        return Err(Error::invalid("params", format!("{days} days is more than {MAX_LIST_DAYS}; list a shorter range")));
+    }
+    // A long event shows once, on the first listed day it touches.
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for n in 0..days {
+        let day = from.add_days(n)?;
+        for o in s.store.events_on(day) {
+            if seen.insert((o.event.id, o.when.start_date())) {
+                out.push(event_json(o.event, o.when));
+            }
+        }
+    }
+    Ok(Value::Array(out))
 }
 
 fn event_add(s: &mut Session, p: &Value) -> Result<Value> {

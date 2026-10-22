@@ -33,7 +33,9 @@ Status: 2026-10-22 · Pick from the top.
 8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Iber PDF,
    Iber Texto, Iber Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
-10. **Week/day calendar views**, reminders, invitations (M2).
+10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
+    move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
+    Sunday, and reminders and invitations (M2).
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -44,3 +46,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 1 narrowed: accounts in the window (M1.5); gap 3 closed (keychain).
 - 2026-10-22 — gap 2 narrowed: safe HTML display (M1.6).
 - 2026-10-22 — gap 4 narrowed: recurrence (M2.1).
+- 2026-10-22 — gap 10 narrowed: day and week views (M2.2).
