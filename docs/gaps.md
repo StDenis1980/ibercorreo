@@ -24,8 +24,13 @@ Status: 2026-10-22 · Pick from the top.
    `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). Missing: editing one
    occurrence in the window (only deleting it), sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
    once), `RDATE`, and exceptions matched by day only (one occurrence a day at most).
-5. **Time zones**: `TZID` is kept, times are shown as written; `Date:` offsets of incoming mail are
-   not applied.
+5. **Time zones** work: events in a zone (IANA, Windows names as Outlook writes them, vendor
+   ids) and in UTC show in the zone chosen (default: the computer's), repeating events follow
+   summer time in their own zone, and mail dates are kept in UTC and shown locally. Missing:
+   reading `VTIMEZONE` (a zone only Outlook's own definition describes, like "Customized Time
+   Zone", shows as written), writing `VTIMEZONE` for repeating events (one-off ones are exported in
+   UTC; the IANA id is enough for Google, Apple and Thunderbird), a second zone column in the day
+   view, and choosing an appointment's zone in the form (it takes the calendar's).
 6. **Undo** snapshots the whole store (50 steps), and a sync clears the history (stepping back past
    a sync would resurrect stale server state). Replace with operation-level undo.
 7. **Store** is one JSON file loaded in memory. Move to an on-disk index (per-folder files or an
@@ -47,3 +52,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 2 narrowed: safe HTML display (M1.6).
 - 2026-10-22 — gap 4 narrowed: recurrence (M2.1).
 - 2026-10-22 — gap 10 narrowed: day and week views (M2.2).
+- 2026-10-22 — gap 5 narrowed: time zones (M2.3).

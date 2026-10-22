@@ -22,7 +22,8 @@ fn every_command_survives_hostile_params() {
         json!({"id": -1, "folder": 9_999_999_999u64, "date": "9999-12-31", "start": "", "query": "", "name": "", "path": ""}),
         json!({"id": "abc", "folder": {}, "to": "not an address", "text": "BEGIN:VCALENDAR", "raw": "\u{0}\u{ffff}", "summary": 5}),
         json!({"id": u64::MAX, "folder": "trash", "start": "2026-10-22T23:30", "end": "2026-10-22T23:00", "summary": "x"}),
-        json!({"date": "today", "start": "9999-12-31", "summary": "edge", "email": "a@b, c@d", "name": " "}),
+        json!({"date": "today", "start": "9999-12-31", "summary": "edge", "email": "a@b, c@d", "name": " ", "zone": "\u{0}/../x"}),
+        json!({"zone": "Pacific/Kiritimati", "start": "9999-12-31T23:30", "summary": "end of time", "repeat": "daily", "from": "view"}),
     ];
     for spec in commands::REGISTRY {
         for p in &junk {
@@ -157,6 +158,51 @@ fn day_week_and_month_views_step_and_list_their_range() {
     assert!(s.run("calendar.next", &Value::Null).is_err(), "no month after 9999-12");
     s.run("calendar.viewWeek", &Value::Null).unwrap();
     assert!(s.run("event.list", &json!({"from": "view"})).is_ok(), "a week clipped at the end of time still lists");
+}
+
+#[test]
+fn time_zones_choose_convert_and_follow_the_computer() {
+    let mut s = session();
+    // Late evening UTC on the 22nd: already the 23rd in Kyiv.
+    s.set_now(DateTime::new(today(), 22, 30, 0).unwrap());
+    s.set_system_zone(Zone::named("Europe/Kyiv").unwrap());
+    assert_eq!(s.today(), Date::new(2026, 10, 23).unwrap());
+    assert_eq!(s.run("calendar.goto", &json!({"date": "today"})).unwrap()["date"], "2026-10-23");
+    let tz = s.run("calendar.timeZone", &Value::Null).unwrap();
+    assert_eq!(tz, json!({"zone": "Europe/Kyiv", "offset": "UTC+03:00", "system": "Europe/Kyiv", "followsSystem": true}));
+    // An appointment typed in Kyiv is kept in Kyiv time; in Lisbon it is two hours earlier, so
+    // 01:00 there is 23:00 the evening before.
+    let v = s.run("event.add", &json!({"summary": "Call", "start": "2026-10-28T01:00", "repeat": "daily", "until": "2026-10-30"})).unwrap();
+    assert_eq!((v["start"].as_str(), v["timeZone"].as_str()), (Some("2026-10-28T01:00"), Some("Europe/Kyiv")));
+    let id = v["id"].as_u64().unwrap();
+    let chosen = s.run("calendar.timeZone", &json!({"zone": "GMT Standard Time"})).unwrap();
+    assert_eq!((chosen["zone"].as_str(), chosen["followsSystem"].as_bool()), (Some("Europe/London"), Some(false)));
+    assert_eq!(s.zone().name(), "Europe/London");
+    s.run("calendar.timeZone", &json!({"zone": "Europe/Lisbon"})).unwrap();
+    let call = |s: &mut Session, d: &str| {
+        s.run("event.list", &json!({"date": d})).unwrap().as_array().unwrap().iter().find(|e| e["summary"] == "Call").map(|e| e["start"].clone())
+    };
+    assert_eq!(call(&mut s, "2026-10-27"), Some(json!("2026-10-27T23:00")));
+    assert_eq!(call(&mut s, "2026-10-30"), None, "the last one, the 30th in Kyiv, is the 29th here");
+    // Deleting the occurrence the Lisbon calendar shows on the 28th removes the 29th in Kyiv.
+    let deleted = s.run("event.delete", &json!({"id": id, "occurrence": "2026-10-28"})).unwrap();
+    assert_eq!(deleted["deleted"], "2026-10-29");
+    assert_eq!(call(&mut s, "2026-10-28"), None);
+    assert_eq!(call(&mut s, "2026-10-27"), Some(json!("2026-10-27T23:00")));
+    assert_eq!(call(&mut s, "2026-10-29"), Some(json!("2026-10-29T23:00")));
+    // The choice is the store's, so undo takes it back; "system" follows the computer again.
+    s.run("edit.undo", &Value::Null).unwrap();
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.zone().name(), "Europe/London");
+    s.run("calendar.timeZone", &json!({"zone": "system"})).unwrap();
+    assert_eq!(s.zone().name(), "Europe/Kyiv");
+    for bad in ["Mars/Base", "", "Customized Time Zone"] {
+        assert!(s.run("calendar.timeZone", &json!({"zone": bad})).is_err(), "{bad:?}");
+    }
+    assert_eq!(s.zone().name(), "Europe/Kyiv", "a refused zone changes nothing");
+    // Mail dates are listed in UTC, marked.
+    let first = s.run("message.list", &Value::Null).unwrap()[0]["date"].as_str().unwrap().to_string();
+    assert!(first.ends_with('Z'), "{first}");
 }
 
 #[test]

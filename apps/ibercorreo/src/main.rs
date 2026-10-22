@@ -212,7 +212,8 @@ fn main() -> eframe::Result {
             _ => imports.push(PathBuf::from(a)),
         }
     }
-    let today = now().date;
+    let zone = ibercorreo_core::Zone::system();
+    let today = zone.from_utc(now()).date;
     let store_path = store_path.or_else(|| data_dir().map(|d| d.join("store.json")));
     let mut status = String::new();
     let store = if sample {
@@ -234,6 +235,9 @@ fn main() -> eframe::Result {
     };
     let mut session = Session::new(store, today);
     session.set_now(now());
+    session.set_system_zone(zone);
+    // The store may name another zone than the computer's; open on today there.
+    session.day = session.today();
     if !sample && let Some(p) = &store_path {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);

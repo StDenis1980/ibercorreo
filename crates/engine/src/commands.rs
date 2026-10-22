@@ -2,7 +2,7 @@
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind};
-use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result, Security};
+use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result, Security, Zone};
 use serde_json::{Value, json};
 
 use crate::{CalendarMode, Session, View};
@@ -270,6 +270,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: |s, _| shift_period(s, -1),
     },
     CommandSpec {
+        id: "calendar.timeZone",
+        label: "Time zone",
+        group: "File/Options",
+        shortcut: None,
+        params: "zone?: an IANA id (Europe/Lisbon), a Windows name (GMT Standard Time) or \"system\" — default: just say which is in use",
+        edits: true,
+        run: time_zone,
+    },
+    CommandSpec {
         id: "calendar.viewDay",
         label: "Day",
         group: "Calendar/Arrange",
@@ -488,7 +497,7 @@ fn summary(m: &Message) -> Value {
         "from": m.from.as_ref().map(ToString::to_string),
         "to": m.to.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "subject": m.subject,
-        "date": m.date.map(|d| d.to_string()),
+        "date": m.date.map(|d| format!("{d}Z")),
         "seen": m.seen,
         "flagged": m.flagged,
         "attachments": m.attachments.len(),
@@ -539,6 +548,7 @@ fn event_json(e: &Event, when: When) -> Value {
     json!({
         "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location,
         "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
+        "timeZone": e.tzid, "timeZoneUnderstood": e.tzid.is_none() || e.zone().is_some(),
     })
 }
 
@@ -810,7 +820,7 @@ fn search(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn calendar_goto(s: &mut Session, p: &Value) -> Result<Value> {
     let d = required_str(p, "date")?;
-    s.day = if d.eq_ignore_ascii_case("today") { s.now().date } else { Date::parse(d)? };
+    s.day = if d.eq_ignore_ascii_case("today") { s.today() } else { Date::parse(d)? };
     s.view = View::Calendar;
     Ok(calendar_state(s))
 }
@@ -824,6 +834,26 @@ fn shift_month(s: &mut Session, delta: i32) -> Result<Value> {
 fn calendar_state(s: &Session) -> Value {
     let (from, to) = s.calendar_range();
     json!({ "date": s.day.to_string(), "mode": s.calendar_mode.id(), "from": from.to_string(), "to": to.to_string() })
+}
+
+/// Show or choose the zone the calendar and mail times are shown in.
+fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(z) = str_param(p, "zone")? {
+        s.store.time_zone = if z.eq_ignore_ascii_case("system") {
+            None
+        } else {
+            let zone = Zone::named(z).ok_or_else(|| Error::not_found("time zone", ibercorreo_core::clamp_text(z, 64)))?;
+            Some(zone.name().to_string())
+        };
+    }
+    // The session follows the store after the command; say what it will be.
+    let zone = s.store.time_zone.as_deref().and_then(Zone::named).unwrap_or_else(|| s.system_zone().clone());
+    Ok(json!({
+        "zone": zone.name(),
+        "offset": zone.offset_label(s.now()),
+        "system": s.system_zone().name(),
+        "followsSystem": s.store.time_zone.is_none(),
+    }))
 }
 
 /// One day, week or month forward (`delta` 1) or back (-1), as the calendar mode says.
@@ -846,7 +876,7 @@ fn set_calendar_mode(s: &mut Session, mode: CalendarMode) -> Result<Value> {
 const MAX_LIST_DAYS: i64 = 366;
 
 fn event_list(s: &mut Session, p: &Value) -> Result<Value> {
-    let date = |s: &Session, d: &str| if d.eq_ignore_ascii_case("today") { Ok(s.now().date) } else { Date::parse(d) };
+    let date = |s: &Session, d: &str| if d.eq_ignore_ascii_case("today") { Ok(s.today()) } else { Date::parse(d) };
     let (from, to) = match (str_param(p, "from")?, str_param(p, "to")?) {
         (Some(f), _) if f.eq_ignore_ascii_case("view") => s.calendar_range(),
         (Some(f), Some(t)) => (date(s, f)?, date(s, t)?),
@@ -871,7 +901,7 @@ fn event_list(s: &mut Session, p: &Value) -> Result<Value> {
     let mut out = Vec::new();
     for n in 0..days {
         let day = from.add_days(n)?;
-        for o in s.store.events_on(day) {
+        for o in s.store.events_on(day, s.zone()) {
             if seen.insert((o.event.id, o.when.start_date())) {
                 out.push(event_json(o.event, o.when));
             }
@@ -885,6 +915,7 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
     let start = required_str(p, "start")?;
     let end = str_param(p, "end")?;
     let when = if start.contains('T') {
+        // Times typed without `Z` are in the zone the calendar is shown in.
         let (st, utc) = DateTime::parse(start)?;
         let en = match end {
             Some(e) => DateTime::parse(e)?.0,
@@ -915,7 +946,10 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
         location: ibercorreo_core::clamp_text(str_param(p, "location")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string(),
         description: ibercorreo_core::clamp_text(str_param(p, "description")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string(),
         when,
-        tzid: None,
+        tzid: match when {
+            When::Timed { utc: false, .. } if !s.zone().is_utc() => Some(s.zone().name().to_string()),
+            _ => None,
+        },
         rrule: repeat_param(p, when)?,
         exdates: Vec::new(),
         recurrence_id: None,
@@ -924,7 +958,7 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
     s.event = Some(id);
     s.day = when.start_date();
     let e = s.store.event(id)?;
-    Ok(event_json(e, e.when))
+    Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
 }
 
 fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {
@@ -933,19 +967,21 @@ fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {
         None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
     };
     if let Some(day) = str_param(p, "occurrence")? {
+        // `day` is as the calendar shows it; EXDATE names the day in the event's own zone.
         let day = Date::parse(day)?;
+        let zone = s.zone().clone();
         let e = s.store.event_mut(id)?;
         if e.rrule.is_none() {
             return Err(Error::invalid("occurrence", "the event does not repeat; delete it without occurrence"));
         }
-        if !e.occurs_on(day) {
+        // The occurrence starting on `day`, or the one running through it.
+        let Some((own, _)) = e.occurrences_in(day, day, &zone).into_iter().next() else {
             return Err(Error::invalid("occurrence", format!("the event has no occurrence on {day}")));
-        }
+        };
         if e.exdates.len() >= 1_000 {
             return Err(Error::invalid("occurrence", "too many deleted occurrences; delete the series"));
         }
-        // The occurrence starting on `day`, or the one running through it.
-        let start = e.occurrence_on(day).map_or(day, |w| w.start_date());
+        let start = own.start_date();
         e.exdates.push(start);
         return Ok(json!({ "id": id.0, "deleted": start.to_string() }));
     }

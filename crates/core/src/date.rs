@@ -203,6 +203,11 @@ impl DateTime {
         DateTime::new(date, hour, minute, second)
     }
 
+    /// Seconds since 1970-01-01T00:00, reading the date-time as UTC.
+    pub fn to_unix(self) -> i64 {
+        self.date.day_number() * 86_400 + i64::from(self.hour) * 3600 + i64::from(self.minute) * 60 + i64::from(self.second)
+    }
+
     pub fn hour(self) -> u8 {
         self.hour
     }

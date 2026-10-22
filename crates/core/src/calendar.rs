@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::recur::Rule;
+use crate::zone::Zone;
 use crate::{Date, DateTime, Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -94,6 +95,20 @@ impl When {
         Some((from.min(MINUTES_PER_DAY - 1), to.clamp(from.saturating_add(1), MINUTES_PER_DAY)))
     }
 
+    /// The span as wall-clock times in `view`. UTC times and times in the event's own zone `own`
+    /// are converted; floating times and all-day dates stay as they are.
+    pub fn in_zone(self, own: Option<&Zone>, view: &Zone) -> When {
+        let When::Timed { start, end, utc } = self else { return self };
+        let convert = |t: DateTime| match (utc, own) {
+            (true, _) => view.from_utc(t),
+            (false, Some(own)) if own != view => view.from_utc(own.to_utc(t)),
+            _ => t,
+        };
+        let (start, end) = (convert(start), convert(end));
+        // A clock change can not put the end before the start, but keep the invariant anyway.
+        When::Timed { start, end: end.max(start), utc: false }
+    }
+
     /// Whether any part of the event falls on `day` (ignoring recurrence).
     pub fn covers(&self, day: Date) -> bool {
         match self {
@@ -166,7 +181,9 @@ pub struct Event {
     pub location: String,
     pub description: String,
     pub when: When,
-    /// The `TZID` the times are in, if any (time zones are applied from M3, see docs/gaps.md).
+    /// The `TZID` the times are in, if any: an IANA id, a Windows name or a vendor id (see
+    /// [`Zone::named`]). Times with no zone and not UTC are floating: the same wall time
+    /// wherever they are seen.
     pub tzid: Option<String>,
     /// The raw `RRULE`, preserved so a round trip loses nothing. Expanded by [`crate::recur`];
     /// a rule it cannot read leaves only the first occurrence.
@@ -207,6 +224,36 @@ impl Event {
             .filter(|w| w.touches(from, to))
             .take(MAX_OCCURRENCES)
             .collect()
+    }
+
+    /// The zone the event's times are in: `None` for floating or UTC times, or a zone id the
+    /// database does not know (its times are then shown as written).
+    pub fn zone(&self) -> Option<Zone> {
+        self.tzid.as_deref().and_then(Zone::named)
+    }
+
+    /// Whether [`Event::occurrences_in`] has to convert this event's times for `view`.
+    fn needs_converting(&self, own: Option<&Zone>, view: &Zone) -> bool {
+        match self.when {
+            When::AllDay { .. } => false,
+            When::Timed { utc: true, .. } => !view.is_utc(),
+            When::Timed { .. } => own.is_some_and(|z| z != view),
+        }
+    }
+
+    /// Each occurrence touching `from..=to` as seen in zone `view`, paired with the same
+    /// occurrence in the event's own times (whose start date is what `EXDATE` and
+    /// `RECURRENCE-ID` name). The rule repeats in the event's own zone, so a weekly 09:00 in
+    /// Lisbon stays 09:00 there across summer time, as RFC 5545 says.
+    pub fn occurrences_in(&self, from: Date, to: Date, view: &Zone) -> Vec<(When, When)> {
+        let own = self.zone();
+        if !self.needs_converting(own.as_ref(), view) {
+            return self.occurrences(from, to).into_iter().map(|w| (w, w)).collect();
+        }
+        // Offsets are under a day, so a day either side catches everything that moves in.
+        let wide_from = from.add_days(-1).unwrap_or(from);
+        let wide_to = to.add_days(1).unwrap_or(to);
+        self.occurrences(wide_from, wide_to).into_iter().map(|w| (w, w.in_zone(own.as_ref(), view))).filter(|(_, v)| v.touches(from, to)).collect()
     }
 
     /// The occurrence that falls on `day`, if any.

@@ -75,9 +75,15 @@ fn addresses(a: &mail_parser::Address<'_>) -> Vec<Address> {
 
 /// The sender's wall-clock time as written in the `Date:` header (the offset is not applied, so the
 /// list shows what the sender saw; time zones arrive in M3).
+/// The `Date:` header as UTC: its offset is taken off, so mail from every zone sorts and shows
+/// right.
 fn convert_date(d: &mail_parser::DateTime) -> Option<DateTime> {
     let date = Date::new(i32::from(d.year), d.month, d.day).ok()?;
-    DateTime::new(date, d.hour, d.minute, d.second).ok()
+    let local = DateTime::new(date, d.hour, d.minute, d.second).ok()?;
+    // Offsets beyond ±18 hours are not real; read them as none.
+    let offset = (i64::from(d.tz_hour) * 3600 + i64::from(d.tz_minute) * 60).min(18 * 3600);
+    let offset = if d.tz_before_gmt { -offset } else { offset };
+    DateTime::from_unix(local.to_unix().checked_sub(offset)?).ok()
 }
 
 /// What [`write`] needs besides the message itself.
@@ -213,13 +219,28 @@ BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\
 --b--\r\n";
 
     #[test]
+    fn dates_are_kept_in_utc() {
+        let at = |header: &str| {
+            let raw = format!("From: a@b.example\r\nDate: {header}\r\nSubject: x\r\n\r\nhi\r\n");
+            parse(raw.as_bytes(), MessageId(1), FolderId(0)).unwrap().date.map(|d| d.to_string())
+        };
+        assert_eq!(at("Thu, 22 Oct 2026 21:00:00 -0330").as_deref(), Some("2026-10-23T00:30"), "St John's evening is the next UTC day");
+        assert_eq!(at("Fri, 1 Jan 2027 01:00:00 +0300").as_deref(), Some("2026-12-31T22:00"), "back across a year");
+        assert_eq!(at("Thu, 22 Oct 2026 09:30:00 +0000").as_deref(), Some("2026-10-22T09:30"));
+        assert_eq!(at("Thu, 22 Oct 2026 09:30:00 GMT").as_deref(), Some("2026-10-22T09:30"));
+        // A nonsense offset does not move the time by days.
+        let wild = at("Thu, 22 Oct 2026 09:30:00 +9959").unwrap();
+        assert!(wild.starts_with("2026-10-2"), "{wild}");
+    }
+
+    #[test]
     fn parses_a_multipart_message() {
         let m = parse(SAMPLE.as_bytes(), MessageId(7), FolderId(0)).unwrap();
         assert_eq!(m.from.as_ref().map(|a| a.display()), Some("Ana Souza"));
         assert_eq!(m.to.len(), 2);
         assert_eq!(m.subject, "Reunião de segunda");
         let date = m.date.unwrap();
-        assert_eq!((date.date.day(), date.hour(), date.minute()), (22, 9, 30));
+        assert_eq!((date.date.day(), date.hour(), date.minute()), (22, 8, 30), "09:30 +0100 is 08:30 UTC");
         assert!(m.body.contains("Olá!"), "{:?}", m.body);
         assert!(!m.body.contains("tracker.example"), "remote image URL leaked into text: {:?}", m.body);
         assert_eq!(m.attachments.len(), 1);
