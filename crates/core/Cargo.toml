@@ -1,0 +1,16 @@
+[package]
+name = "ibercorreo-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L0: the mail, calendar and contact model, dates and the error type"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

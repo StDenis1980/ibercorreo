@@ -1,0 +1,19 @@
+[package]
+name = "ibercorreo-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo on the command line: list and run commands, read .eml and .ics files"
+
+[[bin]]
+name = "ibercorreo-cli"
+path = "src/main.rs"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-engine.workspace = true
+ibercorreo-store.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
