@@ -2,7 +2,9 @@
 
 Status: 2026-10-22 · Pick from the top.
 
-1. **No network.** IMAP and SMTP clients (M1). Outbox queues mail but nothing is sent.
+1. **No network.** The IMAP protocol client exists (`crates/imap`, tested against a scripted server)
+   but nothing connects yet: TLS (M1.2), sync into the store (M1.3) and SMTP (M1.4) are next.
+   Outbox queues mail but nothing is sent.
 2. **HTML mail** is reduced to plain text; links, inline images (`cid:`) and tables are lost. Needs a
    safe HTML-to-rich-text renderer (no remote fetch by default).
 3. **Credentials**: no keychain integration yet (must never be stored in the store file).
@@ -20,3 +22,4 @@ Status: 2026-10-22 · Pick from the top.
 
 ## Revision history
 - 2026-10-22 — created with M0.
+- 2026-10-22 — gap 1 narrowed: IMAP protocol core.

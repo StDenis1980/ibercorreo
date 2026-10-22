@@ -1358,6 +1358,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ibercorreo-imap"
+version = "0.1.0"
+dependencies = [
+ "ibercorreo-core",
+ "ibercorreo-mime",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "ibercorreo-mime"
 version = "0.1.0"
 dependencies = [

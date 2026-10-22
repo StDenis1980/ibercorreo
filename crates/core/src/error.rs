@@ -18,6 +18,9 @@ pub enum Error {
     /// Reading or writing local storage failed.
     #[error("storage: {0}")]
     Storage(String),
+    /// Talking to a mail or calendar server failed (connection, protocol or a refusal).
+    #[error("server: {0}")]
+    Network(String),
     /// The operation is planned but not built yet. Never a panic.
     #[error("not supported yet: {0}")]
     Unsupported(&'static str),
