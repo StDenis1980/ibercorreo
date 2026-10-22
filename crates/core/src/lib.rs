@@ -11,6 +11,7 @@ pub mod contact;
 pub mod date;
 pub mod error;
 pub mod mail;
+pub mod rich;
 
 pub use calendar::{Calendar, Event, EventId};
 pub use contact::Contact;

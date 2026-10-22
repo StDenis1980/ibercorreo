@@ -60,6 +60,22 @@ const INBOX: &[Mail] = &[
     },
 ];
 
+/// An HTML newsletter, to show formatted mail with its remote images blocked.
+const NEWSLETTER: &str = "<html><head><style>h1{color:#1F7A8C}</style></head><body>\
+<div style=\"display:none\">Esta semana: novo menu de outono&zwnj;&nbsp;&zwnj;&nbsp;</div>\
+<p><img src=\"https://cdn.example.net/cafe-azul-logo.png\" alt=\"Café Azul\" width=\"120\"></p>\
+<h1>Novidades de outubro</h1>\
+<p>Olá Denys,</p><p>O nosso <b>menu de outono</b> já chegou. Esta semana temos:</p>\
+<ul><li>Sopa de abóbora com gengibre</li><li>Bolo de castanha, <i>feito na casa</i></li><li>Chá de maçã e canela</li></ul>\
+<p>Reserve a sua mesa em <a href=\"https://cafe-azul.example.net/reservas\">cafe-azul.example.net</a>.</p>\
+<blockquote>&ldquo;O melhor café do bairro.&rdquo; &mdash; um cliente</blockquote>\
+<hr><p style=\"font-size:12px\">Café Azul &middot; Rua das Flores 12 &middot; <a href=\"https://cafe-azul.example.net/sair\">Cancelar subscrição</a></p>\
+<img src=\"https://track.example.net/open.gif?u=denys\" width=\"1\" height=\"1\"></body></html>";
+
+/// A phishing-shaped message: its link shows one site and goes to another.
+const PHISHING: &str = "<p>Dear customer,</p><p>Your account will be <b>suspended</b> today. Sign in to keep it:</p>\
+<p><a href=\"https://login.example.info/verify\">https://www.bank.example/secure</a></p><p>Bank Support</p>";
+
 fn addr(s: &str) -> Result<Address> {
     Address::parse(s)
 }
@@ -84,6 +100,21 @@ pub fn store(today: Date) -> Result<Store> {
                 if name.ends_with(".pdf") { "application/pdf" } else { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
             m.attachments.push(Attachment { name: name.into(), mime_type: mime_type.into(), size: 48_213 });
         }
+        s.add_message(m)?;
+    }
+    for (role, from, subject, days_ago, html) in [
+        (FolderRole::Inbox, "Café Azul <novidades@example.net>", "Novidades de outubro", 2, NEWSLETTER),
+        (FolderRole::Junk, "Bank Support <support@example.info>", "Confirm your account", 1, PHISHING),
+    ] {
+        let mut m = Message::new(MessageId(0), s.folder_by_role(role)?);
+        m.from = Some(addr(from)?);
+        m.to = vec![addr("Denys <denys@example.com>")?];
+        m.set_subject(subject);
+        m.date = Some(DateTime::new(today.add_days(-days_ago)?, 7, 15, 0)?);
+        let rich = ibercorreo_mime::html::to_rich(html);
+        m.body = rich.to_text();
+        m.rich = Some(rich);
+        m.seen = role != FolderRole::Inbox;
         s.add_message(m)?;
     }
     let mut m = Message::new(MessageId(0), sent);

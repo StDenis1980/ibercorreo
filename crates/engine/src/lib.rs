@@ -44,6 +44,8 @@ pub struct Session {
     pub status: String,
     /// Set by `account.sync`: the front end runs the sync (it owns the network) and clears it.
     pub sync_requested: bool,
+    /// Show HTML mail as its plain text (`view.plainText`).
+    pub plain_text: bool,
     /// The current time in UTC, set by the front end (the engine never reads the clock, so it runs
     /// the same in tests, scripts and wasm).
     now: DateTime,
@@ -66,6 +68,7 @@ impl Session {
             dirty: false,
             status: String::new(),
             sync_requested: false,
+            plain_text: false,
             now: DateTime::midnight(today),
             undo: Vec::new(),
             redo: Vec::new(),

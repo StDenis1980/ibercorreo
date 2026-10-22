@@ -11,8 +11,13 @@ Status: 2026-10-22 · Pick from the top.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
    remapping); folders deleted on the server are kept here; one account only; whole messages are
    downloaded (no header-first fetch).
-2. **HTML mail** is reduced to plain text; links, inline images (`cid:`) and tables are lost. Needs a
-   safe HTML-to-rich-text renderer (no remote fetch by default).
+2. **HTML mail, the first pass.** HTML is read into safe formatted text (headings, lists, quotes,
+   bold and italic, links with their real address on hover and a ⚠ on phishing-shaped ones);
+   scripts, forms, styles and hidden preview text are dropped and remote images are never loaded.
+   Missing: inline (`cid:`) images and a "load remote images from this sender" choice, tables laid
+   out as tables (cells show as paragraphs), colours and fonts, a confirmation before opening a
+   deceptive link, and a true bold weight (the interface font has one weight, so bold is shown in
+   the strong text colour).
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
    session) they last only until the app closes. No OAuth yet (M3).
 4. **Recurring events** are stored (raw `RRULE`) but not expanded; only the first occurrence shows.
@@ -34,3 +39,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 1 narrowed: two-way sync (CLI); gap 6 notes undo is cleared by sync.
 - 2026-10-22 — gap 1 narrowed: SMTP sending (CLI).
 - 2026-10-22 — gap 1 narrowed: accounts in the window (M1.5); gap 3 closed (keychain).
+- 2026-10-22 — gap 2 narrowed: safe HTML display (M1.6).

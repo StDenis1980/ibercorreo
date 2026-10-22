@@ -52,6 +52,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         edits: false,
         run: |s, _| set_view(s, View::Contacts),
     },
+    CommandSpec {
+        id: "view.plainText",
+        label: "Plain text",
+        group: "View/Message",
+        shortcut: None,
+        params: "on?: bool — show HTML mail as plain text (default: toggle)",
+        edits: false,
+        run: view_plain_text,
+    },
     CommandSpec { id: "folder.list", label: "List folders", group: "Folder/Folders", shortcut: None, params: "", edits: false, run: folder_list },
     CommandSpec {
         id: "folder.select",
@@ -178,6 +187,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "id?: number — a draft; queued in Outbox until an account can send (M1)",
         edits: true,
         run: message_send,
+    },
+    CommandSpec {
+        id: "message.read",
+        label: "Read message",
+        group: "Message/Actions",
+        shortcut: None,
+        params: "id?: number — the message with its text, and its formatted body made safe (`rich`) when it has HTML",
+        edits: false,
+        run: message_read,
     },
     CommandSpec {
         id: "message.source",
@@ -420,6 +438,7 @@ fn summary(m: &Message) -> Value {
         "seen": m.seen,
         "flagged": m.flagged,
         "attachments": m.attachments.len(),
+        "html": m.rich.is_some(),
     })
 }
 
@@ -649,6 +668,29 @@ fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
     s.fix_selection();
     s.status = "Queued in Outbox: it is sent at the next sync".into();
     Ok(json!({ "id": id.0, "folder": outbox.0, "queued": true }))
+}
+
+fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_message(s, p)?;
+    let m = s.store.message(id)?;
+    let mut v = summary(m);
+    if let Some(o) = v.as_object_mut() {
+        o.insert("cc".into(), json!(m.cc.iter().map(ToString::to_string).collect::<Vec<_>>()));
+        o.insert("body".into(), Value::String(m.body.clone()));
+        let rich = m.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
+        o.insert("rich".into(), rich.unwrap_or(Value::Null));
+    }
+    Ok(v)
+}
+
+fn view_plain_text(s: &mut Session, p: &Value) -> Result<Value> {
+    s.plain_text = match p.get("on") {
+        None | Some(Value::Null) => !s.plain_text,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Error::invalid("on", "expected true or false")),
+    };
+    s.status = if s.plain_text { "HTML mail is shown as plain text" } else { "HTML mail is shown formatted" }.into();
+    Ok(json!({ "plainText": s.plain_text }))
 }
 
 fn message_source(s: &mut Session, p: &Value) -> Result<Value> {
