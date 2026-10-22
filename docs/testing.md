@@ -12,8 +12,9 @@ IMAP server is tested when one is configured.
   with a generated certificate: implicit TLS, STARTTLS, untrusted and mismatched certificates,
   passwords refused over plain connections.
 - **Sync logic** (`crates/sync/src/tests.rs`): `state`/`apply` on stores, `run` against a scripted server.
-- **Real server** (`real_server_when_configured`, `real_server_sync_when_configured`): skipped unless
-  `IBERCORREO_TEST_IMAP` is set. The sync test reads, flags, moves and deletes here and checks the
+- **Real server** (`real_server_when_configured`, `real_server_sync_when_configured`,
+  `real_submission_when_configured`): skipped unless
+  `IBERCORREO_TEST_IMAP` (and for submission `IBERCORREO_TEST_SMTP`) is set. The sync test reads, flags, moves and deletes here and checks the
   server, then changes the server and checks the store.
 
 ## A throwaway Dovecot for the real-server test (Linux)
@@ -79,6 +80,59 @@ sudo dovecot -c $D/dovecot.conf
 IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_server
 ```
 
+## Postfix for the submission test (Linux)
+Postfix also runs only as an external test server. It takes mail on 10587 (STARTTLS) and 10465
+(implicit TLS), checks passwords through Dovecot, and delivers to Dovecot over LMTP, so a sent
+message can be found in the recipient's INBOX.
+
+```sh
+sudo apt-get install postfix dovecot-lmtpd    # "Local only"
+sudo cp $D/cert.pem $D/key.pem /etc/postfix/
+sudo postconf -e "inet_interfaces = loopback-only" "mydestination = localhost" \
+  "smtpd_tls_cert_file = /etc/postfix/cert.pem" "smtpd_tls_key_file = /etc/postfix/key.pem" \
+  "smtpd_sasl_type = dovecot" "smtpd_sasl_path = private/auth" \
+  "virtual_transport = lmtp:unix:private/dovecot-lmtp" "virtual_mailbox_domains = example.org" \
+  "smtpd_relay_restrictions = permit_sasl_authenticated,reject"
+```
+
+Append to `/etc/postfix/master.cf`:
+
+```
+10587     inet  n       -       y       -       -       smtpd
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_tls_auth_only=yes
+10465     inet  n       -       y       -       -       smtpd
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_sasl_auth_enable=yes
+```
+
+Add to `$D/dovecot.conf` (and `lmtp` to `protocols`):
+
+```
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+```
+
+```sh
+sudo postfix start
+IBERCORREO_TEST_SMTP="localhost 10587 starttls" \
+IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_
+```
+
 ## Revision history
 - 2026-10-22 — created with M1.2 (local TLS and the Dovecot check).
 - 2026-10-22 — M1.3: sync tests.
+- 2026-10-22 — M1.4: SMTP tests and the Postfix setup.

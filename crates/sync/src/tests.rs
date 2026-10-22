@@ -263,3 +263,52 @@ a3 OK examined
     let mut c = client("* OK [CAPABILITY IMAP4rev1] hi\n* LIST () \"/\" INBOX\na1 OK listed\n");
     assert_eq!(run(&mut c, &s, &Limits::default()), Err(Error::Closed));
 }
+
+mod sending {
+    use super::super::outbox::{Outcome, Outgoing, Sent, send};
+    use super::*;
+
+    fn smtp(replies: &str) -> ibercorreo_smtp::Client<Script> {
+        let s = Script { replies: std::io::Cursor::new(replies.replace('\n', "\r\n").into_bytes()), sent: Vec::new() };
+        ibercorreo_smtp::Client::new(s, true, "h").unwrap()
+    }
+
+    fn mail(id: u64, to: &str) -> Outgoing {
+        Outgoing { id: MessageId(id), from: "me@example.org".into(), to: vec![to.into()], raw: b"Subject: x\r\n\r\nhi\r\n".to_vec() }
+    }
+
+    #[test]
+    fn outcomes_by_reply() {
+        let mut c = smtp(
+            "220 hi
+250 hello
+250 ok
+250 ok
+354 go
+250 queued
+250 ok
+550 no such user
+250 reset
+451 busy
+",
+        );
+        let results = send(&mut c, &[mail(1, "a@b.c"), mail(2, "nobody@b.c"), mail(3, "c@d.e"), mail(4, "f@g.h")]);
+        let outcomes: Vec<_> = results.iter().map(|r: &Sent| r.outcome.clone()).collect();
+        assert!(matches!(outcomes.first(), Some(Outcome::Sent { saved: false })));
+        assert!(matches!(outcomes.get(1), Some(Outcome::Failed(e)) if e.contains("550")));
+        assert!(matches!(outcomes.get(2), Some(Outcome::Later(e)) if e.contains("451")));
+        // The script ends: the connection is lost, and what is left waits for the next try.
+        assert!(matches!(outcomes.get(3), Some(Outcome::Later(_))));
+        assert_eq!(results.len(), 4);
+    }
+
+    #[test]
+    fn saved_copies_go_to_sent() {
+        let mut results =
+            vec![Sent { id: MessageId(1), outcome: Outcome::Sent { saved: false } }, Sent { id: MessageId(2), outcome: Outcome::Later("x".into()) }];
+        let mut c = client("* OK [CAPABILITY IMAP4rev1 LITERAL+] hi\na1 OK appended\n");
+        super::super::outbox::save_sent(&mut c, "Sent", &[mail(1, "a@b.c"), mail(2, "c@d.e")], &mut results);
+        assert!(matches!(results.first().map(|r| &r.outcome), Some(Outcome::Sent { saved: true })));
+        assert_eq!(sent(c), "a1 APPEND Sent (\\Seen) {18+}\nSubject: x\n\nhi\n\n");
+    }
+}

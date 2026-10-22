@@ -1,6 +1,6 @@
 //! Iber Correo's connections to mail servers, L3: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
-//! session with implicit TLS (port 993) or STARTTLS (port 143).
+//! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587).
 //!
 //! Desktop only: the web build reaches servers through a proxy instead (planned), so this crate
 //! is not part of the wasm check.
@@ -17,6 +17,7 @@ use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use thiserror::Error;
 
 pub use ibercorreo_imap as imap;
+pub use ibercorreo_smtp as smtp;
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -36,6 +37,8 @@ pub enum Error {
     Io(String),
     #[error(transparent)]
     Imap(#[from] imap::Error),
+    #[error(transparent)]
+    Smtp(#[from] smtp::Error),
 }
 
 impl From<Error> for ibercorreo_core::Error {
@@ -191,6 +194,22 @@ pub fn imap(endpoint: &Endpoint, tls: &Tls) -> Result<imap::Client<Stream>> {
             let client = imap::Client::new(Stream::Plain(tcp), false)?;
             match client.starttls()? {
                 Stream::Plain(tcp) => Ok(imap::Client::resume(secure(tcp, &endpoint.host, tls)?)?),
+                Stream::Tls(_) => Err(Error::Tls("already encrypted".into())),
+            }
+        }
+    }
+}
+
+/// Connect to an SMTP submission server and introduce this machine as `helo`. Not logged in yet.
+pub fn smtp(endpoint: &Endpoint, tls: &Tls, helo: &str) -> Result<smtp::Client<Stream>> {
+    let tcp = tcp(&endpoint.host, endpoint.port)?;
+    match endpoint.security {
+        Security::Tls => Ok(smtp::Client::new(secure(tcp, &endpoint.host, tls)?, true, helo)?),
+        Security::Plain => Ok(smtp::Client::new(Stream::Plain(tcp), false, helo)?),
+        Security::StartTls => {
+            let client = smtp::Client::new(Stream::Plain(tcp), false, helo)?;
+            match client.starttls()? {
+                Stream::Plain(tcp) => Ok(smtp::Client::resume(secure(tcp, &endpoint.host, tls)?, helo)?),
                 Stream::Tls(_) => Err(Error::Tls("already encrypted".into())),
             }
         }

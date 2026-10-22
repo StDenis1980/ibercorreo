@@ -2,13 +2,13 @@
 
 Status: 2026-10-22 · M1 (IMAP/SMTP) in progress
 
-**Stage:** M1. Offline mail, calendar and people in one window; two-way IMAP sync works from the CLI; the window gets account setup in M1.5.
+**Stage:** M1. Offline mail, calendar and people in one window; two-way IMAP sync and SMTP sending work from the CLI; the window gets account setup in M1.5.
 
 | Number | Value |
 |---|---|
 | Commands in the registry | 35 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 over TLS/STARTTLS with two-way sync (CLI); files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS (CLI); files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -25,9 +25,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.3: `ibercorreo-sync` — two-way sync (new mail newest first, flags both ways,
   moves, deletes with tombstones, UIDVALIDITY resets), store format 2 (`remote` on folders and
   messages), `Session::apply_sync`, `ibercorreo-cli sync`; checked end to end against Dovecot.
+- 2026-10-22 — M1.4: `ibercorreo-smtp` (RFC 5321/6409: EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE,
+  8BITMIME, dot-stuffing, injection-safe addresses), `net::smtp`, Outbox sending with Sent copies
+  (`sync::outbox`, `Session::outbox`/`apply_sent`); checked against Postfix 3.8 delivering to Dovecot.
 
 ## Revision history
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
 - 2026-10-22 — M1.3.
+- 2026-10-22 — M1.4.

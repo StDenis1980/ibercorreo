@@ -23,6 +23,8 @@ use serde::Serialize;
 
 pub use ibercorreo_imap::{Error, Result};
 
+pub mod outbox;
+
 #[cfg(test)]
 mod tests;
 

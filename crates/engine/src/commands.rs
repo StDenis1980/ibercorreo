@@ -501,7 +501,7 @@ fn message_delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-fn the_user(s: &Session) -> Address {
+pub(crate) fn the_user(s: &Session) -> Address {
     s.store.accounts.first().map(|a| a.address.clone()).unwrap_or_else(|| Address { name: Some("Me".into()), email: "me@localhost".into() })
 }
 
@@ -604,11 +604,15 @@ fn rfc5322_date(dt: DateTime) -> String {
     format!("{day}, {} {month} {:04} {:02}:{:02}:{:02} +0000", d.day(), d.year(), dt.hour(), dt.minute(), dt.second())
 }
 
-fn render(s: &Session, id: MessageId) -> Result<String> {
+/// The message as RFC 5322 text. The `Message-ID` is made from the message's id and its date, so
+/// rendering the same queued message twice gives the same bytes (what is sent is what is saved).
+pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     let m = s.store.message(id)?;
     let from = m.from.clone().unwrap_or_else(|| the_user(s));
-    let date = rfc5322_date(m.date.unwrap_or_else(|| s.now()));
-    ibercorreo_mime::write(m, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &format!("ibercorreo.{}.{}", id.0, date.len()) })
+    let when = m.date.unwrap_or_else(|| s.now());
+    let date = rfc5322_date(when);
+    let unique = format!("{}.{:05}.{}.ibercorreo", when.date.day_number(), u32::from(when.minute_of_day()) * 60 + u32::from(when.second()), id.0);
+    ibercorreo_mime::write(m, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
 }
 
 fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
@@ -623,7 +627,7 @@ fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
     s.store.message_mut(id)?.date = Some(s.now());
     s.store.move_message(id, outbox)?;
     s.fix_selection();
-    s.status = "Queued in Outbox: sending arrives with IMAP/SMTP accounts (M1)".into();
+    s.status = "Queued in Outbox: it is sent at the next sync".into();
     Ok(json!({ "id": id.0, "folder": outbox.0, "queued": true }))
 }
 

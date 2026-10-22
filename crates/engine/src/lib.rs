@@ -164,6 +164,63 @@ impl Session {
         report
     }
 
+    /// The Outbox, rendered for sending ([`ibercorreo_sync::outbox::send`]). Messages that cannot be
+    /// written (no recipients) are left out; `message.send` already refuses those.
+    pub fn outbox(&self) -> Vec<ibercorreo_sync::outbox::Outgoing> {
+        let Ok(outbox) = self.store.folder_by_role(FolderRole::Outbox) else { return Vec::new() };
+        let mut out = Vec::new();
+        for m in self.store.messages_in(outbox) {
+            let Ok(raw) = commands::render(self, m.id) else { continue };
+            let from = m.from.clone().unwrap_or_else(|| commands::the_user(self)).email;
+            let to = m.to.iter().chain(&m.cc).map(|a| a.email.clone()).collect();
+            out.push(ibercorreo_sync::outbox::Outgoing { id: m.id, from, to, raw: raw.into_bytes() });
+        }
+        out
+    }
+
+    /// Record what sending did: sent mail leaves the Outbox (into Sent, or dropped when the
+    /// server's Sent has the copy, which the next sync brings back), mail refused for good goes
+    /// back to Drafts, the rest stays queued. Undo history is cleared, so undo can never put a sent
+    /// message back in the Outbox to be sent twice.
+    pub fn apply_sent(&mut self, results: &[ibercorreo_sync::outbox::Sent]) {
+        use ibercorreo_sync::outbox::Outcome;
+        let (mut sent, mut later, mut failed) = (0usize, 0usize, Vec::new());
+        for r in results {
+            let outcome = match &r.outcome {
+                Outcome::Sent { saved: true } => self.store.drop_message(r.id).map(drop),
+                Outcome::Sent { saved: false } => {
+                    self.store.folder_by_role(FolderRole::Sent).and_then(|to| self.store.move_message(r.id, to)).map(drop)
+                }
+                Outcome::Later(_) => Ok(()),
+                Outcome::Failed(why) => {
+                    failed.push(why.clone());
+                    self.store.folder_by_role(FolderRole::Drafts).and_then(|to| self.store.move_message(r.id, to)).map(drop)
+                }
+            };
+            match (&r.outcome, outcome) {
+                (Outcome::Sent { .. }, Ok(())) => {
+                    sent = sent.saturating_add(1);
+                    if let Ok(m) = self.store.message_mut(r.id) {
+                        m.seen = true;
+                    }
+                }
+                (Outcome::Later(_), _) => later = later.saturating_add(1),
+                _ => {}
+            }
+        }
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = true;
+        self.fix_selection();
+        self.status = format!("Sent {sent}");
+        if later > 0 {
+            self.status.push_str(&format!(", {later} waiting in Outbox"));
+        }
+        if let Some(why) = failed.first() {
+            self.status.push_str(&format!(", {} back in Drafts: {why}", failed.len()));
+        }
+    }
+
     /// Drop a selection that no longer exists (after undo, delete or a move).
     fn fix_selection(&mut self) {
         if self.store.folder(self.folder).is_err() {

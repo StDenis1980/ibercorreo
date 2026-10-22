@@ -162,7 +162,8 @@ fn encode_word(v: &str) -> String {
     words.join("\r\n ")
 }
 
-fn base64(bytes: &[u8]) -> String {
+/// Standard base64 (RFC 4648 §4) on one line, with padding.
+pub fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let sym = |i: u32| char::from(*ALPHABET.get((i & 63) as usize).unwrap_or(&b'A'));
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);

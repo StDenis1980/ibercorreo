@@ -247,3 +247,101 @@ fn real_server_sync_when_configured() {
     assert!(ibercorreo_sync::state(&store).pushes.is_empty());
     c.logout().unwrap();
 }
+
+/// SMTP over implicit TLS and STARTTLS against a scripted local server.
+#[test]
+fn smtp_sessions() {
+    for starttls in [false, true] {
+        let c = cert(&["localhost"]);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let config = Arc::clone(&c.server);
+        let server = thread::spawn(move || {
+            let (mut tcp, _) = listener.accept().unwrap();
+            let reply = |w: &mut dyn Write, s: &str| w.write_all(s.as_bytes()).unwrap();
+            if starttls {
+                reply(&mut tcp, "220 hi\r\n");
+                let mut r = BufReader::new(tcp.try_clone().unwrap());
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                reply(&mut tcp, "250-hi\r\n250 STARTTLS\r\n");
+                line.clear();
+                r.read_line(&mut line).unwrap();
+                assert_eq!(line, "STARTTLS\r\n");
+                reply(&mut tcp, "220 go\r\n");
+            }
+            let mut tls = StreamOwned::new(ServerConnection::new(config).unwrap(), tcp);
+            if !starttls {
+                reply(&mut tls, "220 hi\r\n");
+            }
+            let mut r = BufReader::new(tls);
+            let mut got = Vec::new();
+            let mut line = String::new();
+            while r.read_line(&mut line).is_ok_and(|n| n > 0) {
+                got.push(line.trim_end().to_owned());
+                let answer = match line.split([' ', ':', '\r']).next().unwrap_or("") {
+                    "EHLO" => "250-hi\r\n250 AUTH PLAIN\r\n",
+                    "AUTH" => "235 ok\r\n",
+                    "MAIL" | "RCPT" => "250 ok\r\n",
+                    "DATA" => "354 go\r\n",
+                    "." => "250 queued\r\n",
+                    "QUIT" => "221 bye\r\n",
+                    _ => "",
+                };
+                reply(r.get_mut(), answer);
+                if answer.starts_with("221") {
+                    break;
+                }
+                line.clear();
+            }
+            got
+        });
+        let tls = Tls::with_roots(std::slice::from_ref(&c.der)).unwrap();
+        let security = if starttls { Security::StartTls } else { Security::Tls };
+        let mut client = smtp(&endpoint("localhost", port, security), &tls, "laptop").unwrap();
+        assert!(client.is_secure());
+        client.login("denys", "secret").unwrap();
+        client.send("denys@example.org", &["ana@example.org"], b"Subject: hi\r\n\r\nbody\r\n").unwrap();
+        client.quit().unwrap();
+        let got = server.join().unwrap();
+        assert_eq!(got.first().map(String::as_str), Some("EHLO laptop"));
+        assert!(got.contains(&"RCPT TO:<ana@example.org>".to_string()));
+        assert!(got.contains(&"body".to_string()));
+    }
+}
+
+/// Send through a real submission server and find the message in the recipient's real INBOX:
+/// `IBERCORREO_TEST_SMTP="host port tls|starttls"` together with `IBERCORREO_TEST_IMAP` (same
+/// certificate and password; see `docs/testing.md`). Skips otherwise.
+#[test]
+fn real_submission_when_configured() {
+    let (Ok(smtp_spec), Ok(imap_spec)) = (std::env::var("IBERCORREO_TEST_SMTP"), std::env::var("IBERCORREO_TEST_IMAP")) else { return };
+    let s: Vec<&str> = smtp_spec.split_whitespace().collect();
+    let i: Vec<&str> = imap_spec.split_whitespace().collect();
+    let ([smtp_host, smtp_port, mode], [host, tls_port, _, _, password, cert]) = (s.as_slice(), i.as_slice()) else { panic!("bad test settings") };
+    let tls = Tls::with_roots(&[std::fs::read(cert).unwrap()]).unwrap();
+    let security = if *mode == "tls" { Security::Tls } else { Security::StartTls };
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let to = format!("rcpt{stamp}@example.org");
+    let mut c = smtp(&endpoint(smtp_host, smtp_port.parse().unwrap(), security), &tls, "localhost").unwrap();
+    assert!(matches!(c.login("sender@example.org", "wrong"), Err(smtp::Error::Rejected { code: 535, .. })));
+    c.login("sender@example.org", password).unwrap();
+    let body = format!("From: sender@example.org\r\nTo: {to}\r\nSubject: s{stamp}\r\n\r\n.dot line\r\nend\r\n");
+    c.send("sender@example.org", &[&to], body.as_bytes()).unwrap();
+    c.quit().unwrap();
+
+    let mut found = None;
+    for _ in 0..50 {
+        let mut imap_client = imap(&endpoint(host, tls_port.parse().unwrap(), Security::Tls), &tls).unwrap();
+        imap_client.login(&to, password).unwrap();
+        imap_client.select("INBOX", true).unwrap();
+        found = imap_client.uid_fetch("1:*", imap::Items::Full).unwrap().into_iter().find_map(|f| f.body);
+        imap_client.logout().unwrap();
+        if found.is_some() {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let raw = String::from_utf8(found.expect("delivered")).unwrap();
+    assert!(raw.contains(&format!("Subject: s{stamp}")) && raw.contains("\r\n.dot line\r\nend"), "{raw}");
+}

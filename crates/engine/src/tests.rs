@@ -119,3 +119,39 @@ fn calendar_commands() {
     let report = fresh.run("calendar.importIcs", &json!({"text": ics})).unwrap();
     assert_eq!(report["added"], json!(5));
 }
+
+#[test]
+fn outbox_renders_and_sending_results_move_mail() {
+    use ibercorreo_sync::outbox::{Outcome, Sent};
+    let mut s = session();
+    let mut queue = |to: &str, subject: &str| {
+        let id = s.run("message.compose", &json!({"to": to, "subject": subject, "body": "Hi"})).unwrap()["id"].as_u64().unwrap();
+        s.run("message.send", &json!({"id": id})).unwrap();
+        MessageId(id)
+    };
+    let (ok, saved, later, bad) =
+        (queue("ana@example.org", "a"), queue("bob@example.org", "b"), queue("c@example.org", "c"), queue("d@example.org", "d"));
+    let out = s.outbox();
+    assert_eq!(out.len(), 4);
+    let first = out.iter().find(|o| o.id == ok).unwrap();
+    assert_eq!(first.to, ["ana@example.org"]);
+    assert_eq!(first.from, "denys@example.com");
+    let text = String::from_utf8(first.raw.clone()).unwrap();
+    assert!(text.contains("Subject: a\r\n") && text.contains("Message-ID: <"), "{text}");
+    assert_eq!(s.outbox().iter().find(|o| o.id == ok).unwrap().raw, first.raw, "the same bytes every time");
+
+    s.apply_sent(&[
+        Sent { id: ok, outcome: Outcome::Sent { saved: false } },
+        Sent { id: saved, outcome: Outcome::Sent { saved: true } },
+        Sent { id: later, outcome: Outcome::Later("451 try later".into()) },
+        Sent { id: bad, outcome: Outcome::Failed("550 no such user".into()) },
+    ]);
+    let folder = |id| s.store.message(id).map(|m| m.folder);
+    assert_eq!(folder(ok), s.store.folder_by_role(FolderRole::Sent));
+    assert!(s.store.message(ok).unwrap().seen);
+    assert!(s.store.message(saved).is_err(), "the server's Sent copy comes back with the next sync");
+    assert_eq!(folder(later), s.store.folder_by_role(FolderRole::Outbox));
+    assert_eq!(folder(bad), s.store.folder_by_role(FolderRole::Drafts));
+    assert!(!s.can_undo(), "undo must never put sent mail back in the Outbox");
+    assert!(s.status.contains("Sent 2") && s.status.contains("550"), "{}", s.status);
+}

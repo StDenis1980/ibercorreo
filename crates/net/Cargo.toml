@@ -8,6 +8,7 @@ description = "Iber Correo L3: TCP and TLS (rustls) connections to mail servers,
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-imap.workspace = true
+ibercorreo-smtp.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.6"
 thiserror.workspace = true
