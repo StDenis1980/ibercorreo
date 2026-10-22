@@ -1495,11 +1495,20 @@ version = "0.1.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-imap",
+ "ibercorreo-smtp",
  "ibercorreo-store",
  "ibercorreo-sync",
  "rcgen",
  "rustls",
  "rustls-platform-verifier",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ibercorreo-smtp"
+version = "0.1.0"
+dependencies = [
+ "ibercorreo-mime",
  "thiserror 2.0.21",
 ]
 
@@ -1521,6 +1530,7 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-imap",
  "ibercorreo-mime",
+ "ibercorreo-smtp",
  "ibercorreo-store",
  "serde",
 ]

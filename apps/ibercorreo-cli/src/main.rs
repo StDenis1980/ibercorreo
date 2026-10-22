@@ -6,8 +6,10 @@
 //! ibercorreo-cli eml FILE.eml                     a message as JSON
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
 //! ibercorreo-cli sync --store FILE --host H --user U [--port N] [--security tls|starttls] [--ca CERT.der]
-//!                                                 two-way IMAP sync of a store file; the password
-//!                                                 is read from IBERCORREO_PASSWORD, never an argument
+//!                 [--smtp-host H [--smtp-port N] [--smtp-security tls|starttls]]
+//!                                                 send the Outbox (with --smtp-host), then two-way
+//!                                                 IMAP sync of a store file; the password is read
+//!                                                 from IBERCORREO_PASSWORD, never an argument
 //! ```
 //!
 //! `run` prints each command's result as one JSON line and stops at the first error (exit code 1).
@@ -45,7 +47,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE --host H --user U [--port N] [--security tls|starttls] [--ca CERT.der]"
+        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE --host H --user U [--port N] [--security tls|starttls] [--ca CERT.der] [--smtp-host H [--smtp-port N] [--smtp-security tls|starttls]]"
     );
     ExitCode::from(2)
 }
@@ -151,6 +153,9 @@ fn sync(args: &[String]) -> Result<(), String> {
     let mut port = None;
     let mut security = Security::Tls;
     let mut ca = None;
+    let mut smtp_host = None;
+    let mut smtp_port = None;
+    let mut smtp_security = Security::Tls;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || it.next().ok_or(format!("{a} needs a value"));
@@ -160,13 +165,10 @@ fn sync(args: &[String]) -> Result<(), String> {
             "--user" => user = Some(value()?.clone()),
             "--port" => port = Some(value()?.parse::<u16>().map_err(|e| format!("--port: {e}"))?),
             "--ca" => ca = Some(value()?.clone()),
-            "--security" => {
-                security = match value()?.as_str() {
-                    "tls" => Security::Tls,
-                    "starttls" => Security::StartTls,
-                    other => return Err(format!("--security: {other:?} is not tls or starttls")),
-                }
-            }
+            "--security" => security = security_arg(value()?)?,
+            "--smtp-host" => smtp_host = Some(value()?.clone()),
+            "--smtp-port" => smtp_port = Some(value()?.parse::<u16>().map_err(|e| format!("--smtp-port: {e}"))?),
+            "--smtp-security" => smtp_security = security_arg(value()?)?,
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -188,12 +190,41 @@ fn sync(args: &[String]) -> Result<(), String> {
     let mut s = Session::new(store, now().date);
     s.set_now(now());
     s.path = Some(store_path);
+    // Send first, so the copies saved to the server's Sent come back with this sync.
+    let outgoing = s.outbox();
+    let mut sent = Vec::new();
+    if let Some(smtp_host) = smtp_host
+        && !outgoing.is_empty()
+    {
+        let port = smtp_port.unwrap_or(if smtp_security == Security::Tls { 465 } else { 587 });
+        let mut smtp =
+            ibercorreo_net::smtp(&Endpoint { host: smtp_host, port, security: smtp_security }, &tls, "localhost").map_err(|e| e.to_string())?;
+        smtp.login(&user, &password).map_err(|e| e.to_string())?;
+        sent = ibercorreo_sync::outbox::send(&mut smtp, &outgoing);
+        let _ = smtp.quit();
+    }
     let mut client = ibercorreo_net::imap(&Endpoint { host, port, security }, &tls).map_err(|e| e.to_string())?;
     client.login(&user, &password).map_err(|e| e.to_string())?;
+    if let Ok(sent_folder) = s.store.folder_by_role(FolderRole::Sent)
+        && let Some(path) = s.store.folder(sent_folder).ok().and_then(|f| f.remote.as_ref()).map(|r| r.path.clone())
+    {
+        ibercorreo_sync::outbox::save_sent(&mut client, &path, &outgoing, &mut sent);
+    }
     let batch = ibercorreo_sync::run(&mut client, &s.sync_state(), &ibercorreo_sync::Limits::default()).map_err(|e| e.to_string())?;
     let _ = client.logout();
+    if !sent.is_empty() {
+        s.apply_sent(&sent);
+    }
     let report = s.apply_sync(batch);
     s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
-    print(&json!(report));
+    print(&json!({ "sent": sent, "sync": report }));
     Ok(())
+}
+
+fn security_arg(v: &str) -> Result<ibercorreo_net::Security, String> {
+    match v {
+        "tls" => Ok(ibercorreo_net::Security::Tls),
+        "starttls" => Ok(ibercorreo_net::Security::StartTls),
+        other => Err(format!("{other:?} is not tls or starttls")),
+    }
 }
