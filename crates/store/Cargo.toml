@@ -1,0 +1,16 @@
+[package]
+name = "ibercorreo-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L2: the local mail, calendar and contact store, and saving it to disk"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-ical.workspace = true
+ibercorreo-mime.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

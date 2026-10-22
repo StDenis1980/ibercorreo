@@ -1,0 +1,10 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Iber Correo build tasks: ci, layers, assets, wasm"
+
+[lints]
+workspace = true

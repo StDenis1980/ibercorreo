@@ -1,0 +1,51 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/mime", "crates/ical", "crates/store", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+repository = "https://github.com/StDenis1980/ibercorreo"
+
+[workspace.dependencies]
+# internal
+ibercorreo-core = { path = "crates/core" }
+ibercorreo-mime = { path = "crates/mime" }
+ibercorreo-ical = { path = "crates/ical" }
+ibercorreo-store = { path = "crates/store" }
+ibercorreo-engine = { path = "crates/engine" }
+ibercorreo-ui-egui = { path = "crates/ui-egui" }
+
+# foundation
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# mail: Stalwart's RFC 5322 / MIME parser (Apache-2.0 OR MIT)
+mail-parser = "0.11"
+
+# ui
+egui = "0.36"
+eframe = { version = "0.36", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+indexing_slicing = "warn"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 0

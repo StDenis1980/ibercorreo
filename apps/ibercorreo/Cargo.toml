@@ -1,0 +1,22 @@
+[package]
+name = "ibercorreo"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo desktop app: mail, calendar and people"
+
+[[bin]]
+name = "ibercorreo"
+path = "src/main.rs"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-engine.workspace = true
+ibercorreo-store.workspace = true
+ibercorreo-ui-egui.workspace = true
+egui.workspace = true
+serde_json.workspace = true
+eframe = { workspace = true, features = ["default_fonts", "glow", "accesskit", "wayland", "x11"] }
+
+[lints]
+workspace = true
