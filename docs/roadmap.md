@@ -1,11 +1,11 @@
 # Iber Correo — milestones
 
-Status: 2026-10-22 · Current focus: M0 → M1
+Status: 2026-10-22 · Current focus: M1
 
 | Milestone | Scope | State |
 |---|---|---|
-| M0 | Skeleton: model, MIME, iCalendar, store, commands, undo, UI (mail, month calendar, people), CLI, CI | in review |
-| M1 | IMAP (RFC 9051/3501: folders, sync, IDLE, flags, move) and SMTP (RFC 5321, STARTTLS/TLS via rustls), account setup, OS keychain, offline queue (Outbox really sends), HTML mail shown safely | next |
+| M0 | Skeleton: model, MIME, iCalendar, store, commands, undo, UI (mail, month calendar, people), CLI, CI | done |
+| M1 | IMAP (RFC 9051/3501: folders, sync, IDLE, flags, move) and SMTP (RFC 5321, STARTTLS/TLS via rustls), account setup, OS keychain, offline queue (Outbox really sends), HTML mail shown safely | in progress: IMAP protocol core (M1.1) |
 | M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | |
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | |
 | M4 | Exchange: EWS mail (Thunderbird's MPL-2.0 `ews` crate, unmodified), then EWS calendar and contacts, then Microsoft Graph | |
@@ -17,3 +17,4 @@ M1: IMAP/SMTP accounts, so Iber Correo reads and sends real mail.
 
 ## Revision history
 - 2026-10-22 — created with M0.
+- 2026-10-22 — M0 done; M1.1 (IMAP protocol core) landed.

@@ -1,0 +1,14 @@
+[package]
+name = "ibercorreo-imap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L2: an IMAP4 client (RFC 9051 / RFC 3501) over any byte stream, written from the RFCs"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-mime.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
