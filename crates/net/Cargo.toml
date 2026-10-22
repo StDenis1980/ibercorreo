@@ -1,0 +1,19 @@
+[package]
+name = "ibercorreo-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L3: TCP and TLS (rustls) connections to mail servers, and opening IMAP sessions on them"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-imap.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+rustls-platform-verifier = "0.6"
+thiserror.workspace = true
+
+[dev-dependencies]
+rcgen = "0.14"
+
+[lints]
+workspace = true
