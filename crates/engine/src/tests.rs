@@ -183,3 +183,20 @@ fn account_settings_and_sync_request() {
     }
     assert_eq!(s.run("account.get", &Value::Null).unwrap()["imapHost"], "imap.example.org");
 }
+
+#[test]
+fn html_mail_reads_safely_and_can_show_as_plain_text() {
+    let mut s = session();
+    let list = s.run("message.list", &Value::Null).unwrap();
+    let id = list.as_array().unwrap().iter().find(|m| m["html"] == true).unwrap()["id"].as_u64().unwrap();
+    let v = s.run("message.read", &json!({ "id": id })).unwrap();
+    assert_eq!(v["rich"]["remoteImages"], 2);
+    let blocks = v["rich"]["blocks"].as_array().unwrap();
+    assert!(blocks.iter().any(|b| b["kind"] == json!({"bullet": {"depth": 1}})), "{blocks:?}");
+    assert!(!v["body"].as_str().unwrap().contains("menu de outono&"), "plain text is decoded");
+    assert!(!v["body"].as_str().unwrap().contains("Esta semana: novo"), "the hidden preheader is not in the text");
+    assert!(!s.plain_text);
+    assert_eq!(s.run("view.plainText", &Value::Null).unwrap()["plainText"], true);
+    assert_eq!(s.run("view.plainText", &json!({ "on": false })).unwrap()["plainText"], false);
+    assert!(s.run("view.plainText", &json!({ "on": "yes" })).is_err());
+}

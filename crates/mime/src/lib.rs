@@ -1,8 +1,8 @@
 //! Messages in and out, L1.
 //!
 //! [`parse`] reads a raw RFC 5322 message (an `.eml` file, an IMAP `BODY[]`) into a
-//! [`Message`] through Stalwart's `mail-parser` (Apache-2.0 OR MIT). HTML-only mail is reduced to
-//! plain text; nothing remote is fetched. [`write`] turns a message being sent into RFC 5322 text:
+//! [`Message`] through Stalwart's `mail-parser` (Apache-2.0 OR MIT). HTML is read into safe
+//! formatted text by [`html`]; nothing remote is fetched. [`write`] turns a message being sent into RFC 5322 text:
 //! UTF-8 headers as RFC 2047 encoded words, the body as base64 when it is not plain ASCII, and no
 //! header value can carry a line break (header injection).
 
@@ -10,7 +10,9 @@
 
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{Address, Date, DateTime, Error, FolderId, MAX_FIELD_LEN, Message, MessageId, Result, clamp_text};
-use mail_parser::{MessageParser, MimeHeaders};
+use mail_parser::{MessageParser, MimeHeaders, PartType};
+
+pub mod html;
 
 /// Largest message read: 64 MiB, above what common servers accept (Gmail 25 MB, Exchange Online 150 MB is rare).
 pub const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
@@ -31,7 +33,17 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
     m.cc = parsed.cc().map(addresses).unwrap_or_default();
     m.set_subject(parsed.subject().unwrap_or(""));
     m.date = parsed.date().and_then(convert_date);
-    let body = parsed.body_text(0).map(|b| b.into_owned()).unwrap_or_default();
+    let html = parsed.html_part(0).and_then(|p| match &p.body {
+        PartType::Html(h) => Some(h.as_ref()),
+        _ => None,
+    });
+    m.rich = html.map(html::to_rich);
+    // HTML-only mail: the plain text comes from the same safe reading, without hidden preheaders.
+    let text_is_html = parsed.text_part(0).is_some_and(|p| matches!(p.body, PartType::Html(_)));
+    let body = match (&m.rich, text_is_html) {
+        (Some(rich), true) => rich.to_text(),
+        _ => parsed.body_text(0).map(|b| b.into_owned()).unwrap_or_default(),
+    };
     m.body = clamp_text(&body.replace("\r\n", "\n"), MAX_BODY_BYTES).to_string();
     m.attachments = parsed
         .attachments()
@@ -212,6 +224,22 @@ BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\
         assert!(!m.body.contains("tracker.example"), "remote image URL leaked into text: {:?}", m.body);
         assert_eq!(m.attachments.len(), 1);
         assert_eq!(m.attachments.first().map(|a| a.name.as_str()), Some("agenda.ics"));
+    }
+
+    #[test]
+    fn html_is_kept_safe_and_plain_text_preferred() {
+        let m = parse(SAMPLE.as_bytes(), MessageId(7), FolderId(0)).unwrap();
+        let rich = m.rich.as_ref().unwrap();
+        assert_eq!(rich.remote_images, 1);
+        assert!(rich.blocks.iter().flat_map(|b| &b.spans).any(|s| s.image), "the image keeps a placeholder");
+        let alternative = "Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\r\nThe plain words\r\n--a\r\n\
+Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<script>x()</script></p>\r\n--a--\r\n";
+        let m = parse(alternative.as_bytes(), MessageId(8), FolderId(0)).unwrap();
+        assert_eq!(m.body.trim(), "The plain words", "the sender's own text version wins");
+        assert_eq!(m.rich.unwrap().to_text(), "The formatted words");
+        let plain = parse(b"Subject: x\r\n\r\njust text", MessageId(9), FolderId(0)).unwrap();
+        assert_eq!(plain.rich, None, "plain mail gets no formatted body");
     }
 
     #[test]

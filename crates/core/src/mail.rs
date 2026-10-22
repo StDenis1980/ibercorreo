@@ -241,6 +241,9 @@ pub struct Message {
     /// Plain-text body. HTML-only mail is reduced to text by `ibercorreo-mime`; remote content is
     /// never fetched.
     pub body: String,
+    /// The formatted body of an HTML message, made safe ([`crate::rich`]); `None` for plain mail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rich: Option<crate::rich::Rich>,
     pub attachments: Vec<Attachment>,
     pub seen: bool,
     pub flagged: bool,
@@ -261,6 +264,7 @@ impl Message {
             subject: String::new(),
             date: None,
             body: String::new(),
+            rich: None,
             attachments: Vec::new(),
             seen: false,
             flagged: false,

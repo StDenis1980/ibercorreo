@@ -11,6 +11,7 @@ pub mod theme;
 
 use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ibercorreo_core::calendar::When;
+use ibercorreo_core::rich::{BlockKind, Rich, Span};
 use ibercorreo_core::{Date, FolderRole, MessageId};
 use ibercorreo_engine::{Session, View};
 use serde_json::{Value, json};
@@ -484,7 +485,8 @@ impl App {
 
     fn reading(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()).cloned() else {
+        // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
+        let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
             ui.centered_and_justified(|ui| ui.label(RichText::new("Select a message to read it").color(t.text_weak)));
             return;
         };
@@ -520,11 +522,31 @@ impl App {
                 }
             });
         }
+        let mut toggle_plain = false;
+        if let Some(rich) = &m.rich {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if rich.remote_images > 0 {
+                    let n = rich.remote_images;
+                    ui.label(RichText::new(format!("🛡 {n} remote image{} not loaded", if n == 1 { "" } else { "s" })).small().color(t.text_weak))
+                        .on_hover_text("Images on other servers can tell the sender that you opened the message, so Iber Correo never loads them.");
+                }
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    toggle_plain = ui.small_button(if self.session.plain_text { "Show formatted" } else { "Show as plain text" }).clicked();
+                });
+            });
+        }
         ui.add_space(10.0);
         ui.separator();
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            ui.add(egui::Label::new(RichText::new(&m.body).size(14.0).color(t.text)).wrap());
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match &m.rich {
+            Some(rich) if !self.session.plain_text => rich_body(ui, &t, rich),
+            _ => {
+                ui.add(egui::Label::new(RichText::new(&m.body).size(14.0).color(t.text)).wrap());
+            }
         });
+        if toggle_plain {
+            self.run("view.plainText", json!({}));
+        }
     }
 
     fn compose(&mut self, ui: &mut Ui) {
@@ -807,6 +829,96 @@ fn month_title(d: Date) -> String {
 fn long_date(d: Date) -> String {
     let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
     format!("{}, {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), d.day(), month_title(d))
+}
+
+/// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
+/// Links show their real address on hover; a link whose text names another site is marked ⚠.
+fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
+    ui.spacing_mut().item_spacing.y = 6.0;
+    for block in &rich.blocks {
+        let quote = f32::from(block.quote) * 14.0;
+        if block.kind == BlockKind::Rule {
+            ui.horizontal(|ui| {
+                ui.add_space(quote);
+                ui.add(egui::Separator::default().horizontal());
+            });
+            continue;
+        }
+        let (size, marker, list) = match block.kind {
+            BlockKind::Heading(1) => (22.0, None, 0.0),
+            BlockKind::Heading(2) => (19.0, None, 0.0),
+            BlockKind::Heading(_) => (16.5, None, 0.0),
+            BlockKind::Bullet { depth } => (14.0, Some("•".to_string()), f32::from(depth) * 18.0),
+            BlockKind::Numbered { depth, number } => (14.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
+            _ => (14.0, None, 0.0),
+        };
+        let pre = block.kind == BlockKind::Pre;
+        if matches!(block.kind, BlockKind::Heading(_)) {
+            ui.add_space(4.0);
+        }
+        let rect = ui
+            .horizontal_top(|ui| {
+                ui.add_space(quote + (list - 14.0).max(0.0));
+                if let Some(marker) = &marker {
+                    ui.add_sized(vec2(14.0, size), egui::Label::new(RichText::new(marker).size(size).color(t.text_weak)));
+                }
+                ui.vertical(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
+                        for span in &block.spans {
+                            rich_span(ui, t, span, size, pre);
+                        }
+                    });
+                });
+            })
+            .response
+            .rect;
+        // A bar per quotation level, as mail readers draw quoted text.
+        for level in 0..block.quote {
+            let x = rect.left() + f32::from(level) * 14.0 + 3.0;
+            ui.painter().vline(x, rect.y_range(), Stroke::new(2.0, t.border));
+        }
+    }
+}
+
+fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
+    let mut text = if span.image { RichText::new(format!("🖼 {}", span.text)).italics() } else { RichText::new(&span.text) };
+    text = text.size(size);
+    if pre || span.code {
+        text = text.monospace();
+    }
+    if span.bold {
+        text = text.strong();
+    }
+    if span.italic {
+        text = text.italics();
+    }
+    if span.strike {
+        text = text.strikethrough();
+    }
+    let Some(url) = &span.link else {
+        if span.underline {
+            text = text.underline();
+        }
+        // The interface font has one weight, so bold shows as the strong text colour.
+        let color = if span.image {
+            t.text_weak
+        } else if span.bold {
+            ui.visuals().strong_text_color()
+        } else {
+            t.text
+        };
+        ui.label(text.color(color));
+        return;
+    };
+    if span.deceptive {
+        ui.label(RichText::new("⚠ ").size(size).color(t.flag)).on_hover_text("This link does not go where its text says");
+    }
+    let shown = egui::Link::new(text.color(t.accent).underline());
+    let hover = if span.deceptive { format!("Careful: the text names one site, but the link goes to\n{url}") } else { url.clone() };
+    if ui.add(shown).on_hover_text(hover).clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    }
 }
 
 fn human_size(bytes: usize) -> String {

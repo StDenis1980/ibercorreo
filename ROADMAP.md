@@ -1,12 +1,12 @@
 # Iber Correo — roadmap summary
 
-Status: 2026-10-22 · M1 (IMAP/SMTP) in progress
+Status: 2026-10-22 · M1 (IMAP/SMTP) done; M2 (calendar) next
 
-**Stage:** M1. Offline mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background.
+**Stage:** M1 done. Mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 37 |
+| Commands in the registry | 39 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
 
@@ -31,6 +31,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.5: `account.set`/`account.get`/`account.sync` (F9), Account settings dialog,
   Send/Receive on a background thread (`net::job`) at start, every 5 minutes and on request,
   passwords in the system credential store (`keyring`); `ibercorreo-cli sync` uses the store's account.
+- 2026-10-22 — M1.6: safe HTML mail (`mime::html` into `core::rich`: no scripts, forms, styles,
+  hidden text or remote loads; `http`/`https`/`mailto` links only, phishing-shaped links marked),
+  formatted reading pane with "Show as plain text", `message.read` and `view.plainText`. M1 done.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -38,4 +41,6 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.2.
 - 2026-10-22 — M1.3.
 - 2026-10-22 — M1.4.
+- 2026-10-22 — M1.5.
+- 2026-10-22 — M1.6; M1 done.
 - 2026-10-22 — M1.5.
