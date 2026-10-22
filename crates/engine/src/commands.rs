@@ -265,7 +265,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "New Appointment",
         group: "Calendar/New",
         shortcut: Some("Ctrl+Shift+A"),
-        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string",
+        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string\nrepeat?: daily | weekdays | weekly | monthly | yearly\nrrule?: string — an iCalendar RRULE, instead of repeat\nuntil?: YYYY-MM-DD — the last day it repeats",
         edits: true,
         run: event_add,
     },
@@ -274,7 +274,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Delete appointment",
         group: "Calendar/Actions",
         shortcut: None,
-        params: "id?: number — default: the selected event",
+        params: "id?: number — default: the selected event\noccurrence?: YYYY-MM-DD — for a repeating event, delete only that day's occurrence",
         edits: true,
         run: event_delete,
     },
@@ -442,12 +442,50 @@ fn summary(m: &Message) -> Value {
     })
 }
 
-fn event_json(e: &Event) -> Value {
-    let (start, end, all_day) = match e.when {
+/// The `rrule` for `event.add`: a raw rule, or one built from `repeat` (and `until`).
+fn repeat_param(p: &Value, when: When) -> Result<Option<String>> {
+    let rule = match (str_param(p, "rrule")?, str_param(p, "repeat")?) {
+        (Some(r), _) => {
+            let r = r.trim();
+            if r.len() > 1024 || r.contains(['\r', '\n']) {
+                return Err(Error::invalid("rrule", "one line of at most 1024 characters"));
+            }
+            ibercorreo_core::recur::Rule::parse(r)?
+        }
+        (None, None) => return Ok(None),
+        (None, Some(kind)) => {
+            let text = match kind.trim().to_ascii_lowercase().as_str() {
+                "" | "none" | "never" => return Ok(None),
+                "daily" => "FREQ=DAILY",
+                "weekdays" => "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+                "weekly" => "FREQ=WEEKLY",
+                "monthly" => "FREQ=MONTHLY",
+                "yearly" => "FREQ=YEARLY",
+                other => return Err(Error::invalid("repeat", format!("{other:?}: use daily, weekdays, weekly, monthly or yearly"))),
+            };
+            ibercorreo_core::recur::Rule::parse(text)?
+        }
+    };
+    let mut rule = rule;
+    if let Some(until) = str_param(p, "until")? {
+        let until = Date::parse(until)?;
+        if until < when.start_date() {
+            return Err(Error::invalid("until", "before the start"));
+        }
+        rule.until = Some((until, None));
+    }
+    Ok(Some(rule.to_text()))
+}
+
+fn event_json(e: &Event, when: When) -> Value {
+    let (start, end, all_day) = match when {
         When::AllDay { start, end } => (start.to_string(), end.to_string(), true),
         When::Timed { start, end, .. } => (start.to_string(), end.to_string(), false),
     };
-    json!({ "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location })
+    json!({
+        "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location,
+        "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
+    })
 }
 
 // ---- mail ----
@@ -734,7 +772,7 @@ fn event_list(s: &mut Session, p: &Value) -> Result<Value> {
         Some(d) => Date::parse(d)?,
         None => s.day,
     };
-    Ok(Value::Array(s.store.events_on(day).into_iter().map(event_json).collect()))
+    Ok(Value::Array(s.store.events_on(day).into_iter().map(|o| event_json(o.event, o.when)).collect()))
 }
 
 fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
@@ -773,12 +811,15 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
         description: ibercorreo_core::clamp_text(str_param(p, "description")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string(),
         when,
         tzid: None,
-        rrule: None,
+        rrule: repeat_param(p, when)?,
+        exdates: Vec::new(),
+        recurrence_id: None,
     };
     let id = s.store.add_event(e)?;
     s.event = Some(id);
     s.day = when.start_date();
-    Ok(event_json(s.store.event(id)?))
+    let e = s.store.event(id)?;
+    Ok(event_json(e, e.when))
 }
 
 fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {
@@ -786,6 +827,23 @@ fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {
         Some(id) => EventId(id),
         None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
     };
+    if let Some(day) = str_param(p, "occurrence")? {
+        let day = Date::parse(day)?;
+        let e = s.store.event_mut(id)?;
+        if e.rrule.is_none() {
+            return Err(Error::invalid("occurrence", "the event does not repeat; delete it without occurrence"));
+        }
+        if !e.occurs_on(day) {
+            return Err(Error::invalid("occurrence", format!("the event has no occurrence on {day}")));
+        }
+        if e.exdates.len() >= 1_000 {
+            return Err(Error::invalid("occurrence", "too many deleted occurrences; delete the series"));
+        }
+        // The occurrence starting on `day`, or the one running through it.
+        let start = e.occurrence_on(day).map_or(day, |w| w.start_date());
+        e.exdates.push(start);
+        return Ok(json!({ "id": id.0, "deleted": start.to_string() }));
+    }
     s.store.remove_event(id)?;
     s.fix_selection();
     Ok(json!({ "id": id.0, "deleted": true }))

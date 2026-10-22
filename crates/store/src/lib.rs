@@ -9,6 +9,7 @@
 
 use std::path::Path;
 
+use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result};
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,14 @@ pub struct Store {
     /// Synced messages deleted here for good, still to be deleted on the server.
     #[serde(default)]
     tombstones: Vec<RemoteRef>,
+}
+
+/// One occurrence of an event: the event, and when this occurrence happens (for a repeating
+/// event, not the series' first date).
+#[derive(Debug, Clone, Copy)]
+pub struct Occurrence<'a> {
+    pub event: &'a Event,
+    pub when: When,
 }
 
 /// What an `.ics` import did, for the report shown to the person.
@@ -240,6 +249,10 @@ impl Store {
         self.events.iter().find(|e| e.id == id).ok_or_else(|| Error::not_found("event", id.0.to_string()))
     }
 
+    pub fn event_mut(&mut self, id: EventId) -> Result<&mut Event> {
+        self.events.iter_mut().find(|e| e.id == id).ok_or_else(|| Error::invalid("event", format!("no event {}", id.0)))
+    }
+
     pub fn remove_event(&mut self, id: EventId) -> Result<Event> {
         let pos = self.events.iter().position(|e| e.id == id).ok_or_else(|| Error::not_found("event", id.0.to_string()))?;
         Ok(self.events.remove(pos))
@@ -255,11 +268,28 @@ impl Store {
         Ok(())
     }
 
-    /// Events on `day`, all-day first, then by start time.
-    pub fn events_on(&self, day: Date) -> Vec<&Event> {
-        let mut v: Vec<&Event> = self.events.iter().filter(|e| e.occurs_on(day)).collect();
-        v.sort_by_key(|e| (!matches!(e.when, ibercorreo_core::calendar::When::AllDay { .. }), e.start_minute_on(day), e.id));
+    /// Occurrences on `day`, all-day first, then by start time. A repeating event's occurrence
+    /// that was changed on its own (`RECURRENCE-ID`) shows as the changed copy instead.
+    pub fn events_on(&self, day: Date) -> Vec<Occurrence<'_>> {
+        let mut v: Vec<Occurrence<'_>> = self
+            .events
+            .iter()
+            .filter_map(|e| e.occurrence_on(day).map(|when| Occurrence { event: e, when }))
+            .filter(|o| o.event.rrule.is_none() || o.event.recurrence_id.is_some() || !self.overridden(o.event, o.when.start_date()))
+            .collect();
+        v.sort_by_key(|o| {
+            let minute = match o.when {
+                When::Timed { start, .. } if start.date == day => start.minute_of_day(),
+                _ => 0,
+            };
+            (!matches!(o.when, When::AllDay { .. }), minute, o.event.id)
+        });
         v
+    }
+
+    /// Whether the series `e` has a changed copy of its occurrence on `day`.
+    fn overridden(&self, e: &Event, day: Date) -> bool {
+        self.events.iter().any(|x| x.uid == e.uid && x.calendar == e.calendar && x.recurrence_id == Some(day))
     }
 
     pub fn events(&self) -> &[Event] {
@@ -273,7 +303,9 @@ impl Store {
         let parsed = ibercorreo_ical::parse(text)?;
         let mut report = ImportReport { added: 0, updated: 0, skipped_properties: parsed.skipped, rejected: parsed.rejected };
         for ev in parsed.events {
-            if let Some(existing) = self.events.iter_mut().find(|e| e.uid == ev.uid && e.calendar == calendar) {
+            // The series and each changed occurrence share a UID; RECURRENCE-ID tells them apart.
+            if let Some(existing) = self.events.iter_mut().find(|e| e.uid == ev.uid && e.calendar == calendar && e.recurrence_id == ev.recurrence_id)
+            {
                 let id = existing.id;
                 *existing = ev.into_event(id, calendar);
                 report.updated += 1;
@@ -407,9 +439,35 @@ mod tests {
         let r = s.import_ics(&ics.replace("SUMMARY:A", "SUMMARY:B"), 0).unwrap();
         assert_eq!((r.added, r.updated), (0, 1));
         let day = Date::new(2026, 10, 22).unwrap();
-        assert_eq!(s.events_on(day).first().map(|e| e.summary.as_str()), Some("B"));
+        assert_eq!(s.events_on(day).first().map(|o| o.event.summary.as_str()), Some("B"));
         assert!(s.import_ics(ics, 42).is_err());
         assert!(s.export_ics(None).contains("SUMMARY:B"));
+    }
+
+    #[test]
+    fn repeating_events_expand_skip_exdates_and_yield_to_changed_occurrences() {
+        let mut s = Store::new();
+        let ics = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\nUID:standup\r\nDTSTART:20261019T091500\r\nDTEND:20261019T093000\r\nSUMMARY:Stand-up\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR\r\nEXDATE:20261021T091500,20261023T091500\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:standup\r\nRECURRENCE-ID:20261022T091500\r\nDTSTART:20261022T110000\r\nDTEND:20261022T111500\r\n\
+SUMMARY:Stand-up (moved)\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+        let r = s.import_ics(ics, 0).unwrap();
+        assert_eq!((r.added, r.updated), (2, 0), "the changed occurrence is its own event, not an update of the series");
+        let on = |s: &Store, d: u8| -> Vec<(String, String)> {
+            s.events_on(Date::new(2026, 10, d).unwrap()).iter().map(|o| (o.event.summary.clone(), o.when.start_date().to_string())).collect()
+        };
+        assert_eq!(on(&s, 19), [("Stand-up".to_string(), "2026-10-19".to_string())]);
+        assert!(on(&s, 21).is_empty(), "EXDATE removes the Wednesday");
+        assert_eq!(on(&s, 22), [("Stand-up (moved)".to_string(), "2026-10-22".to_string())], "the changed copy replaces the occurrence");
+        assert!(on(&s, 24).is_empty(), "no weekend occurrences");
+        assert_eq!(on(&s, 26).len(), 1, "the next week");
+        assert_eq!(on(&s, 30).len(), 1);
+        // A second import updates both, each by its own key.
+        let r = s.import_ics(ics, 0).unwrap();
+        assert_eq!((r.added, r.updated), (0, 2));
+        let out = s.export_ics(None);
+        assert!(out.contains("EXDATE;VALUE=DATE:20261021,20261023") && out.contains("RECURRENCE-ID;VALUE=DATE:20261022"), "{out}");
     }
 
     #[test]

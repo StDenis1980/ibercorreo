@@ -20,7 +20,10 @@ Status: 2026-10-22 · Pick from the top.
    the strong text colour).
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
    session) they last only until the app closes. No OAuth yet (M3).
-4. **Recurring events** are stored (raw `RRULE`) but not expanded; only the first occurrence shows.
+4. **Recurring events** expand (`DAILY`…`YEARLY` with `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `BYSETPOS`,
+   `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). Missing: editing one
+   occurrence in the window (only deleting it), sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
+   once), `RDATE`, and exceptions matched by day only (one occurrence a day at most).
 5. **Time zones**: `TZID` is kept, times are shown as written; `Date:` offsets of incoming mail are
    not applied.
 6. **Undo** snapshots the whole store (50 steps), and a sync clears the history (stepping back past
@@ -40,3 +43,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 1 narrowed: SMTP sending (CLI).
 - 2026-10-22 — gap 1 narrowed: accounts in the window (M1.5); gap 3 closed (keychain).
 - 2026-10-22 — gap 2 narrowed: safe HTML display (M1.6).
+- 2026-10-22 — gap 4 narrowed: recurrence (M2.1).

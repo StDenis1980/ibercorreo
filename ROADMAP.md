@@ -1,6 +1,6 @@
 # Iber Correo — roadmap summary
 
-Status: 2026-10-22 · M1 (IMAP/SMTP) done; M2 (calendar) next
+Status: 2026-10-22 · M2 (calendar and contacts) in progress
 
 **Stage:** M1 done. Mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -34,6 +34,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.6: safe HTML mail (`mime::html` into `core::rich`: no scripts, forms, styles,
   hidden text or remote loads; `http`/`https`/`mailto` links only, phishing-shaped links marked),
   formatted reading pane with "Show as plain text", `message.read` and `view.plainText`. M1 done.
+- 2026-10-22 — M2.1: repeating events (`core::recur`: RFC 5545 `RRULE` expansion, bounded), `EXDATE`
+  and `RECURRENCE-ID` in `.ics`, occurrences in the month view and agenda, `event.add` `repeat`/`rrule`/
+  `until`, `event.delete` `occurrence`, a Repeat choice in the appointment form.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -43,4 +46,5 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.4.
 - 2026-10-22 — M1.5.
 - 2026-10-22 — M1.6; M1 done.
+- 2026-10-22 — M2.1.
 - 2026-10-22 — M1.5.

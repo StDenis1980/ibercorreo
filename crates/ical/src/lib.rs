@@ -1,7 +1,8 @@
 //! iCalendar (RFC 5545), L1: `.ics` files, CalDAV bodies and meeting invitations.
 //!
 //! Written from the RFC. Reads `VEVENT`s inside a `VCALENDAR`: `UID`, `SUMMARY`, `LOCATION`,
-//! `DESCRIPTION`, `DTSTART`, `DTEND` / `DURATION` (days, hours, minutes), `TZID` and the raw `RRULE`.
+//! `DESCRIPTION`, `DTSTART`, `DTEND` / `DURATION` (days, hours, minutes), `TZID`, the raw `RRULE`,
+//! `EXDATE` and `RECURRENCE-ID` (by day).
 //! Anything else is skipped and counted in [`Parsed::skipped`], never silently dropped.
 //! Writes the same subset back with escaping and 75-octet folding.
 
@@ -13,6 +14,8 @@ use ibercorreo_core::{Date, DateTime, Error, Event, EventId, MAX_FIELD_LEN, Resu
 pub const MAX_ICS_BYTES: usize = 32 * 1024 * 1024;
 pub const MAX_EVENTS: usize = 100_000;
 const MAX_DEPTH: usize = 32;
+/// Most cancelled occurrences kept per event.
+const MAX_EXDATES: usize = 1_000;
 
 /// An event as read from a file, before the store gives it an id and a calendar.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +27,8 @@ pub struct IcsEvent {
     pub when: When,
     pub tzid: Option<String>,
     pub rrule: Option<String>,
+    pub exdates: Vec<Date>,
+    pub recurrence_id: Option<Date>,
 }
 
 impl IcsEvent {
@@ -38,6 +43,8 @@ impl IcsEvent {
             when: self.when,
             tzid: self.tzid,
             rrule: self.rrule,
+            exdates: self.exdates,
+            recurrence_id: self.recurrence_id,
         }
     }
 }
@@ -128,6 +135,8 @@ struct Draft {
     end: Option<Stamp>,
     duration_minutes: Option<i64>,
     rrule: Option<String>,
+    exdates: Vec<Date>,
+    recurrence_id: Option<Date>,
 }
 
 #[derive(Clone, Copy)]
@@ -215,6 +224,8 @@ impl Draft {
             when,
             tzid,
             rrule: self.rrule,
+            exdates: self.exdates,
+            recurrence_id: self.recurrence_id,
         })
     }
 }
@@ -290,6 +301,19 @@ pub fn parse(text: &str) -> Result<Parsed> {
                     "DTEND" => d.end = stamp(&line).ok(),
                     "DURATION" => d.duration_minutes = duration_minutes(line.value),
                     "RRULE" => d.rrule = Some(clamp_text(line.value.trim(), 4096).to_string()),
+                    // A list of dates or date-times; only the day matters (one occurrence a day at most).
+                    "EXDATE" => {
+                        for v in line.value.split(',').take(MAX_EXDATES.saturating_sub(d.exdates.len())) {
+                            match Date::parse(v.trim().get(..8).unwrap_or("")) {
+                                Ok(day) => d.exdates.push(day),
+                                Err(_) => out.skipped = out.skipped.saturating_add(1),
+                            }
+                        }
+                    }
+                    "RECURRENCE-ID" => match Date::parse(line.value.trim().get(..8).unwrap_or("")) {
+                        Ok(day) => d.recurrence_id = Some(day),
+                        Err(e) => out.rejected.push(e.to_string()),
+                    },
                     _ => out.skipped = out.skipped.saturating_add(1),
                 }
             }
@@ -370,6 +394,13 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
         }
         if let Some(r) = &e.rrule {
             push_folded(&mut out, &format!("RRULE:{}", r.replace(['\r', '\n'], "")));
+        }
+        if !e.exdates.is_empty() {
+            let days: Vec<String> = e.exdates.iter().map(|d| basic_date(*d)).collect();
+            push_folded(&mut out, &format!("EXDATE;VALUE=DATE:{}", days.join(",")));
+        }
+        if let Some(r) = e.recurrence_id {
+            push_folded(&mut out, &format!("RECURRENCE-ID;VALUE=DATE:{}", basic_date(r)));
         }
         push_folded(&mut out, "END:VEVENT");
     }
