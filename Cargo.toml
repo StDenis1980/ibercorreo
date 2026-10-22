@@ -27,6 +27,9 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# time zones: IANA database, bundled where the OS has none (Windows, wasm) (MIT OR Unlicense)
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tz-fat", "tzdb-bundle-always"] }
+
 # mail: Stalwart's RFC 5322 / MIME parser (Apache-2.0 OR MIT)
 mail-parser = "0.11"
 

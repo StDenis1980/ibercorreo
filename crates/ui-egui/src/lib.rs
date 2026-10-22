@@ -82,6 +82,9 @@ pub struct App {
     search: String,
     /// Scroll the day and week grid to the working morning on its next frame.
     scroll_to_morning: bool,
+    /// The time zone picker's search text, and every zone id (read once, when first opened).
+    zone_filter: String,
+    zone_names: Vec<String>,
 }
 
 impl App {
@@ -98,6 +101,8 @@ impl App {
             contact_query: String::new(),
             search: String::new(),
             scroll_to_morning: true,
+            zone_filter: String::new(),
+            zone_names: Vec::new(),
         }
     }
 
@@ -381,6 +386,8 @@ impl App {
                             self.scroll_to_morning = true;
                         }
                     }
+                    ui.separator();
+                    self.zone_picker(ui);
                 }
                 View::Contacts => {
                     ui.label(RichText::new("People").heading());
@@ -398,6 +405,41 @@ impl App {
                 }
             });
         });
+    }
+
+    /// The zone times are shown in: a button with its name and offset, opening a searchable list.
+    fn zone_picker(&mut self, ui: &mut Ui) {
+        let zone = self.session.zone().clone();
+        let label = format!("🌐 {} ({})", zone.name().replace('_', " "), zone.offset_label(self.session.now()));
+        let mut chosen: Option<String> = None;
+        // Clicks inside (the search field) keep it open.
+        let config = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        egui::containers::menu::MenuButton::new(label).config(config).ui(ui, |ui| {
+            if self.zone_names.is_empty() {
+                self.zone_names = ibercorreo_core::zone::all_names();
+            }
+            let system = self.session.system_zone().name().to_string();
+            let follows = self.session.store.time_zone.is_none();
+            if ui.selectable_label(follows, format!("Same as this computer ({})", system.replace('_', " "))).clicked() {
+                chosen = Some("system".into());
+            }
+            ui.separator();
+            ui.add(egui::TextEdit::singleline(&mut self.zone_filter).hint_text("Search: Lisbon, Kyiv, New York…").desired_width(240.0));
+            let needle = self.zone_filter.to_lowercase().replace(' ', "_");
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for name in self.zone_names.iter().filter(|n| needle.is_empty() || n.to_lowercase().contains(&needle)).take(400) {
+                    if ui.selectable_label(!follows && name == zone.name(), name.replace('_', " ")).clicked() {
+                        chosen = Some(name.clone());
+                    }
+                }
+            });
+            if chosen.is_some() {
+                ui.close();
+            }
+        });
+        if let Some(z) = chosen {
+            self.run("calendar.timeZone", json!({ "zone": z }));
+        }
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
@@ -484,7 +526,7 @@ impl App {
                     m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "(unknown sender)".into())
                 };
                 let subject = if m.subject.is_empty() { "(no subject)".to_string() } else { m.subject.clone() };
-                let when = m.date.map(|d| short_when(d, self.session.now().date)).unwrap_or_default();
+                let when = m.date.map(|d| short_when(self.session.zone().from_utc(d), self.session.today())).unwrap_or_default();
                 let (seen, flagged, attachment, preview) = (m.seen, m.flagged, !m.attachments.is_empty(), m.preview(80));
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
                 let painter = ui.painter_at(rect);
@@ -531,7 +573,10 @@ impl App {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
             ui.label(RichText::new(who).strong().color(t.text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new(m.date.map(|d| d.to_string().replace('T', " ")).unwrap_or_default()).color(t.text_weak));
+                ui.label(
+                    RichText::new(m.date.map(|d| self.session.zone().from_utc(d).to_string().replace('T', " ")).unwrap_or_default())
+                        .color(t.text_weak),
+                );
             });
         });
         if !m.to.is_empty() {
@@ -635,7 +680,7 @@ impl App {
         let t = self.tokens;
         let first = self.session.day.first_of_month();
         let Ok(grid_start) = first.add_days(-i64::from(first.weekday().index())) else { return };
-        let today = self.session.now().date;
+        let today = self.session.today();
         let names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
@@ -687,7 +732,7 @@ impl App {
                         );
                     }
                     let mut y = rect.top() + 26.0;
-                    for o in self.session.store.events_on(day) {
+                    for o in self.session.store.events_on(day, self.session.zone()) {
                         let e = o.event;
                         if y + 16.0 > rect.bottom() {
                             p.text(egui::pos2(rect.left() + 6.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(11.0), t.text_weak);
@@ -732,7 +777,7 @@ impl App {
         let (from, to) = self.session.calendar_range();
         let count = usize::try_from(to.day_number().saturating_sub(from.day_number()).saturating_add(1)).unwrap_or(1).clamp(1, 7);
         let days: Vec<Date> = (0..count).filter_map(|n| from.add_days(i64::try_from(n).unwrap_or(0)).ok()).collect();
-        let now = self.session.now();
+        let now = self.session.local_now();
         let col_w = ((ui.available_width() - GUTTER) / days.len().max(1) as f32).max(60.0);
         let x_of = |left: f32, n: usize| left + GUTTER + col_w * n as f32;
 
@@ -756,7 +801,7 @@ impl App {
             .map(|d| {
                 self.session
                     .store
-                    .events_on(*d)
+                    .events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
                     .map(|o| (o.event.summary.clone(), *d))
@@ -854,7 +899,7 @@ impl App {
                 let occurrences: Vec<_> = self
                     .session
                     .store
-                    .events_on(*day)
+                    .events_on(*day, self.session.zone())
                     .into_iter()
                     .filter_map(|o| o.when.minutes_on(*day).map(|m| (o.event.clone(), o.when, m)))
                     .collect();
@@ -913,7 +958,7 @@ impl App {
         let day = self.session.day;
         ui.label(RichText::new(long_date(day)).heading().color(t.text));
         ui.add_space(8.0);
-        let events: Vec<_> = self.session.store.events_on(day).into_iter().map(|o| (o.event.clone(), o.when)).collect();
+        let events: Vec<_> = self.session.store.events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
             ui.label(RichText::new("No appointments").color(t.text_weak));
         }

@@ -11,7 +11,9 @@ use std::path::Path;
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
-use ibercorreo_core::{Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result};
+use ibercorreo_core::{
+    Account, Calendar, Contact, Date, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result, Zone,
+};
 use serde::{Deserialize, Serialize};
 
 /// Largest store file read back: 1 GiB.
@@ -37,14 +39,20 @@ pub struct Store {
     /// Synced messages deleted here for good, still to be deleted on the server.
     #[serde(default)]
     tombstones: Vec<RemoteRef>,
+    /// The zone the calendar is shown in, chosen by the person; `None` follows the computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time_zone: Option<String>,
 }
 
 /// One occurrence of an event: the event, and when this occurrence happens (for a repeating
-/// event, not the series' first date).
+/// event, not the series' first date) as seen in the zone it was asked for.
 #[derive(Debug, Clone, Copy)]
 pub struct Occurrence<'a> {
     pub event: &'a Event,
     pub when: When,
+    /// The same occurrence in the event's own times; its start date is the one `EXDATE` and
+    /// `RECURRENCE-ID` name.
+    pub own: When,
 }
 
 /// What an `.ics` import did, for the report shown to the person.
@@ -268,14 +276,15 @@ impl Store {
         Ok(())
     }
 
-    /// Occurrences on `day`, all-day first, then by start time. A repeating event's occurrence
-    /// that was changed on its own (`RECURRENCE-ID`) shows as the changed copy instead.
-    pub fn events_on(&self, day: Date) -> Vec<Occurrence<'_>> {
+    /// Occurrences on `day` as seen in zone `view`, all-day first, then by start time. A
+    /// repeating event's occurrence that was changed on its own (`RECURRENCE-ID`) shows as the
+    /// changed copy instead.
+    pub fn events_on(&self, day: Date, view: &Zone) -> Vec<Occurrence<'_>> {
         let mut v: Vec<Occurrence<'_>> = self
             .events
             .iter()
-            .filter_map(|e| e.occurrence_on(day).map(|when| Occurrence { event: e, when }))
-            .filter(|o| o.event.rrule.is_none() || o.event.recurrence_id.is_some() || !self.overridden(o.event, o.when.start_date()))
+            .flat_map(|e| e.occurrences_in(day, day, view).into_iter().map(move |(own, when)| Occurrence { event: e, when, own }))
+            .filter(|o| o.event.rrule.is_none() || o.event.recurrence_id.is_some() || !self.overridden(o.event, o.own.start_date()))
             .collect();
         v.sort_by_key(|o| {
             let minute = match o.when {
@@ -439,7 +448,7 @@ mod tests {
         let r = s.import_ics(&ics.replace("SUMMARY:A", "SUMMARY:B"), 0).unwrap();
         assert_eq!((r.added, r.updated), (0, 1));
         let day = Date::new(2026, 10, 22).unwrap();
-        assert_eq!(s.events_on(day).first().map(|o| o.event.summary.as_str()), Some("B"));
+        assert_eq!(s.events_on(day, &Zone::utc()).first().map(|o| o.event.summary.as_str()), Some("B"));
         assert!(s.import_ics(ics, 42).is_err());
         assert!(s.export_ics(None).contains("SUMMARY:B"));
     }
@@ -455,7 +464,10 @@ SUMMARY:Stand-up (moved)\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         let r = s.import_ics(ics, 0).unwrap();
         assert_eq!((r.added, r.updated), (2, 0), "the changed occurrence is its own event, not an update of the series");
         let on = |s: &Store, d: u8| -> Vec<(String, String)> {
-            s.events_on(Date::new(2026, 10, d).unwrap()).iter().map(|o| (o.event.summary.clone(), o.when.start_date().to_string())).collect()
+            s.events_on(Date::new(2026, 10, d).unwrap(), &Zone::utc())
+                .iter()
+                .map(|o| (o.event.summary.clone(), o.when.start_date().to_string()))
+                .collect()
         };
         assert_eq!(on(&s, 19), [("Stand-up".to_string(), "2026-10-19".to_string())]);
         assert!(on(&s, 21).is_empty(), "EXDATE removes the Wednesday");
@@ -468,6 +480,52 @@ SUMMARY:Stand-up (moved)\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         assert_eq!((r.added, r.updated), (0, 2));
         let out = s.export_ics(None);
         assert!(out.contains("EXDATE;VALUE=DATE:20261021,20261023") && out.contains("RECURRENCE-ID;VALUE=DATE:20261022"), "{out}");
+    }
+
+    #[test]
+    fn events_show_in_the_viewers_zone_and_repeat_in_their_own() {
+        let mut s = Store::new();
+        // Weekly at 09:00 Lisbon time, Mondays; a one-off at 23:30 Lisbon; a UTC call; a floating
+        // reminder; an Outlook-style Windows zone name.
+        let ics = "BEGIN:VCALENDAR\r\n\
+BEGIN:VEVENT\r\nUID:weekly\r\nDTSTART;TZID=Europe/Lisbon:20261019T090000\r\nDTEND;TZID=Europe/Lisbon:20261019T100000\r\n\
+SUMMARY:Weekly\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nEXDATE;TZID=Europe/Lisbon:20261109T090000\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:late\r\nDTSTART;TZID=Europe/Lisbon:20261022T233000\r\nDTEND;TZID=Europe/Lisbon:20261023T000000\r\nSUMMARY:Late\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:utc\r\nDTSTART:20261022T120000Z\r\nDTEND:20261022T130000Z\r\nSUMMARY:UTC call\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:float\r\nDTSTART:20261022T080000\r\nDTEND:20261022T081500\r\nSUMMARY:Pills\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:win\r\nDTSTART;TZID=\"Eastern Standard Time\":20261022T090000\r\nDTEND;TZID=\"Eastern Standard Time\":20261022T093000\r\nSUMMARY:NY\r\nEND:VEVENT\r\n\
+END:VCALENDAR\r\n";
+        s.import_ics(ics, 0).unwrap();
+        let on = |s: &Store, y: i32, m: u8, d: u8, zone: &str| -> Vec<(String, String)> {
+            let z = Zone::named(zone).unwrap();
+            s.events_on(Date::new(y, m, d).unwrap(), &z)
+                .iter()
+                .map(|o| match o.when {
+                    When::Timed { start, .. } => (o.event.summary.clone(), format!("{:02}:{:02}", start.hour(), start.minute())),
+                    When::AllDay { .. } => (o.event.summary.clone(), "all day".into()),
+                })
+                .collect()
+        };
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        // In Kyiv (UTC+3 in October): Lisbon 23:30 is 01:30 the next day; UTC 12:00 is 15:00;
+        // floating stays 08:00; New York 09:00 (EDT) is 16:00.
+        assert_eq!(on(&s, 2026, 10, 22, "Europe/Kyiv"), [pair("Pills", "08:00"), pair("UTC call", "15:00"), pair("NY", "16:00")]);
+        assert_eq!(on(&s, 2026, 10, 23, "Europe/Kyiv"), [pair("Late", "01:30")]);
+        assert_eq!(
+            on(&s, 2026, 10, 22, "Europe/Lisbon"),
+            [pair("Pills", "08:00"), pair("UTC call", "13:00"), pair("NY", "14:00"), pair("Late", "23:30")]
+        );
+        // The weekly event stays 09:00 in Lisbon; seen from New York it moves when Europe changes
+        // its clocks (25 Oct) but America has not yet (1 Nov).
+        assert_eq!(on(&s, 2026, 10, 19, "America/New_York"), [pair("Weekly", "04:00")]);
+        assert_eq!(on(&s, 2026, 10, 26, "America/New_York"), [pair("Weekly", "05:00")], "the week between the two changes");
+        assert_eq!(on(&s, 2026, 11, 2, "America/New_York"), [pair("Weekly", "04:00")]);
+        assert!(on(&s, 2026, 11, 9, "America/New_York").is_empty(), "EXDATE in Lisbon time");
+        assert_eq!(on(&s, 2026, 11, 2, "Europe/Lisbon"), [pair("Weekly", "09:00")]);
+        // A one-off in a zone is exported in UTC; the repeating one keeps its zone.
+        let out = s.export_ics(None);
+        assert!(out.contains("DTSTART:20261022T223000Z"), "{out}");
+        assert!(out.contains("DTSTART;TZID=Europe/Lisbon:20261019T090000"), "{out}");
     }
 
     #[test]

@@ -11,7 +11,7 @@ pub mod sample;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 
-use ibercorreo_core::{Date, DateTime, Error, EventId, FolderId, FolderRole, MessageId, Result};
+use ibercorreo_core::{Date, DateTime, Error, EventId, FolderId, FolderRole, MessageId, Result, Zone};
 use ibercorreo_store::Store;
 use serde_json::Value;
 
@@ -72,6 +72,11 @@ pub struct Session {
     /// The current time in UTC, set by the front end (the engine never reads the clock, so it runs
     /// the same in tests, scripts and wasm).
     now: DateTime,
+    /// The computer's zone, set by the front end (UTC until it does).
+    system_zone: Zone,
+    /// The zone times are shown in: the store's choice, else the computer's. Kept in step with
+    /// the store after every command.
+    zone: Zone,
     undo: Vec<Store>,
     redo: Vec<Store>,
 }
@@ -79,7 +84,7 @@ pub struct Session {
 impl Session {
     pub fn new(store: Store, today: Date) -> Session {
         let folder = store.folder_by_role(FolderRole::Inbox).unwrap_or(FolderId(0));
-        Session {
+        let mut s = Session {
             store,
             path: None,
             view: View::Mail,
@@ -94,9 +99,13 @@ impl Session {
             sync_requested: false,
             plain_text: false,
             now: DateTime::midnight(today),
+            system_zone: Zone::utc(),
+            zone: Zone::utc(),
             undo: Vec::new(),
             redo: Vec::new(),
-        }
+        };
+        s.refresh_zone();
+        s
     }
 
     /// Run command `id` with `params` (a JSON object; `null` counts as `{}`).
@@ -104,6 +113,12 @@ impl Session {
     /// An unknown id or bad parameter is an `Err`. A panic that escapes a command is turned into an
     /// error and the store is put back as it was: a safety net, not a licence.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value> {
+        let out = self.run_inner(id, params);
+        self.refresh_zone();
+        out
+    }
+
+    fn run_inner(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = commands::find(id).ok_or_else(|| Error::not_found("command", id))?;
         let empty = Value::Object(serde_json::Map::new());
         let params = if params.is_null() { &empty } else { params };
@@ -152,6 +167,39 @@ impl Session {
                 span(first, i64::from(ibercorreo_core::date::days_in_month(first.year(), first.month())) - 1)
             }
         }
+    }
+
+    /// The zone times are shown in.
+    pub fn zone(&self) -> &Zone {
+        &self.zone
+    }
+
+    /// Tell the session the computer's zone. Front ends call this at start.
+    pub fn set_system_zone(&mut self, zone: Zone) {
+        self.system_zone = zone;
+        self.refresh_zone();
+    }
+
+    pub fn system_zone(&self) -> &Zone {
+        &self.system_zone
+    }
+
+    fn refresh_zone(&mut self) {
+        let chosen = self.store.time_zone.as_deref().and_then(Zone::named);
+        let zone = chosen.unwrap_or_else(|| self.system_zone.clone());
+        if zone != self.zone {
+            self.zone = zone;
+        }
+    }
+
+    /// Now, as wall-clock time in the zone times are shown in.
+    pub fn local_now(&self) -> DateTime {
+        self.zone.from_utc(self.now)
+    }
+
+    /// Today's date where the person is.
+    pub fn today(&self) -> Date {
+        self.local_now().date
     }
 
     pub fn now(&self) -> DateTime {

@@ -13,12 +13,14 @@ pub mod error;
 pub mod mail;
 pub mod recur;
 pub mod rich;
+pub mod zone;
 
 pub use calendar::{Calendar, Event, EventId};
 pub use contact::Contact;
 pub use date::{Date, DateTime, Weekday};
 pub use error::{Error, Result};
 pub use mail::{Account, Address, Folder, FolderId, FolderRole, Message, MessageId, RemoteFolder, RemoteRef, Security};
+pub use zone::Zone;
 
 /// Upper bound on any single text field taken from input (subject, name, location): 64 KiB.
 /// Longer values are cut at a char boundary rather than rejected, and the cut is recorded by the caller.

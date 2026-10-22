@@ -115,7 +115,9 @@ fn run(args: &[String]) -> Result<(), String> {
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
-    let today = now().date;
+    // The computer's zone (the TZ variable overrides it, as everywhere).
+    let zone = ibercorreo_core::Zone::system();
+    let today = zone.from_utc(now()).date;
     let store = match (&store_path, sample) {
         (_, true) => ibercorreo_engine::sample::store(today).map_err(|e| e.to_string())?,
         (Some(p), false) if p.exists() => Store::load(p).map_err(|e| e.to_string())?,
@@ -123,6 +125,8 @@ fn run(args: &[String]) -> Result<(), String> {
     };
     let mut s = Session::new(store, today);
     s.set_now(now());
+    s.set_system_zone(zone);
+    s.day = s.today();
     s.path = store_path.clone();
     if let Ok(inbox) = s.store.folder_by_role(FolderRole::Inbox) {
         s.folder = inbox;

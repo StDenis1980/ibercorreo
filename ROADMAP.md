@@ -6,7 +6,7 @@ Status: 2026-10-22 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 45 |
+| Commands in the registry | 46 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
 
@@ -40,6 +40,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M2.2: Day, Work Week and Week views (a time grid with overlapping appointments side
   by side, an all-day strip and a now line), `calendar.view*` (Ctrl+Alt+1…4), `calendar.next`/`prev`
   stepping by the view, `event.list` over a range (`from`/`to`, or `from: "view"`). 45 commands.
+- 2026-10-22 — M2.3: time zones (`core::zone` over `jiff` with the IANA database bundled; Windows
+  zone names and vendor ids understood): events shown in the chosen zone (`calendar.timeZone`,
+  default the computer's), repeating events expand in their own zone across summer time, new
+  appointments carry the calendar's zone, one-off zoned events export in UTC, mail `Date:` kept in
+  UTC and shown locally, a zone picker on the calendar ribbon. 46 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -51,3 +56,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.6; M1 done.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
+- 2026-10-22 — M2.3.

@@ -382,6 +382,12 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
                 push_folded(&mut out, &format!("DTEND;VALUE=DATE:{}", basic_date(end)));
             }
             When::Timed { start, end, utc } => {
+                // A one-off event in a known zone is written in UTC: exact anywhere, and no
+                // VTIMEZONE needed. A repeating one keeps its zone, so it follows summer time.
+                let (start, end, utc) = match e.zone() {
+                    Some(z) if !utc && e.rrule.is_none() && e.recurrence_id.is_none() => (z.to_utc(start), z.to_utc(end), true),
+                    _ => (start, end, utc),
+                };
                 let tz = if utc { "" } else { tz.as_str() };
                 push_folded(&mut out, &format!("DTSTART{tz}:{}", basic_time(start, utc)));
                 push_folded(&mut out, &format!("DTEND{tz}:{}", basic_time(end, utc)));
