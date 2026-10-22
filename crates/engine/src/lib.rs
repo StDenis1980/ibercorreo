@@ -143,6 +143,27 @@ impl Session {
         Ok(())
     }
 
+    /// What a mail sync needs from the store: run [`ibercorreo_sync::run`] with it on a connection
+    /// (off the interface thread), then give the result to [`Session::apply_sync`].
+    pub fn sync_state(&self) -> ibercorreo_sync::State {
+        ibercorreo_sync::state(&self.store)
+    }
+
+    /// Fold a sync result into the store. Undo history is cleared: stepping back past a sync would
+    /// bring back mail the server has since changed. (Operation-level undo will lift this; `docs/gaps.md`.)
+    pub fn apply_sync(&mut self, batch: ibercorreo_sync::Batch) -> ibercorreo_sync::Report {
+        let report = ibercorreo_sync::apply(&mut self.store, batch);
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = true;
+        self.fix_selection();
+        self.status = format!("Synced: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        if !report.errors.is_empty() {
+            self.status.push_str(&format!(" ({} problems)", report.errors.len()));
+        }
+        report
+    }
+
     /// Drop a selection that no longer exists (after undo, delete or a move).
     fn fix_selection(&mut self) {
         if self.store.folder(self.folder).is_err() {

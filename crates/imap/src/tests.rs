@@ -96,7 +96,7 @@ a11 OK bye
     assert_eq!(f.internal_date.as_deref(), Some("22-Oct-2026 09:00:00 +0200"));
 
     c.uid_store("4390", true, &["\\Flagged"]).unwrap();
-    c.uid_move("4390:4391", "Архів").unwrap();
+    c.uid_move("4390:4391", &utf7::encode("Архів")).unwrap();
     c.append("Sent Items", &["\\Seen"], b"Subject: x\r\n\r\nbody").unwrap();
     let _ = c.run(&Command::new("LOGOUT")).unwrap();
 

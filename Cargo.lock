@@ -1437,7 +1437,9 @@ version = "0.1.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
+ "ibercorreo-net",
  "ibercorreo-store",
+ "ibercorreo-sync",
  "serde_json",
 ]
 
@@ -1458,6 +1460,7 @@ dependencies = [
  "ibercorreo-ical",
  "ibercorreo-mime",
  "ibercorreo-store",
+ "ibercorreo-sync",
  "serde",
  "serde_json",
 ]
@@ -1492,6 +1495,8 @@ version = "0.1.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-imap",
+ "ibercorreo-store",
+ "ibercorreo-sync",
  "rcgen",
  "rustls",
  "rustls-platform-verifier",
@@ -1507,6 +1512,17 @@ dependencies = [
  "ibercorreo-mime",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "ibercorreo-sync"
+version = "0.1.0"
+dependencies = [
+ "ibercorreo-core",
+ "ibercorreo-imap",
+ "ibercorreo-mime",
+ "ibercorreo-store",
+ "serde",
 ]
 
 [[package]]

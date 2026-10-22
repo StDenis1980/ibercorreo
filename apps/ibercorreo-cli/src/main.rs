@@ -5,6 +5,9 @@
 //! ibercorreo-cli run [--store FILE | --sample] [--save] --cmd 'id={json}'...
 //! ibercorreo-cli eml FILE.eml                     a message as JSON
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
+//! ibercorreo-cli sync --store FILE --host H --user U [--port N] [--security tls|starttls] [--ca CERT.der]
+//!                                                 two-way IMAP sync of a store file; the password
+//!                                                 is read from IBERCORREO_PASSWORD, never an argument
 //! ```
 //!
 //! `run` prints each command's result as one JSON line and stops at the first error (exit code 1).
@@ -41,7 +44,9 @@ fn print(v: &Value) {
 }
 
 fn usage() -> ExitCode {
-    eprintln!("usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE");
+    eprintln!(
+        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE --host H --user U [--port N] [--security tls|starttls] [--ca CERT.der]"
+    );
     ExitCode::from(2)
 }
 
@@ -70,6 +75,7 @@ fn main() -> ExitCode {
             None => return usage(),
         },
         Some("run") => run(args.get(1..).unwrap_or(&[])),
+        Some("sync") => sync(args.get(1..).unwrap_or(&[])),
         _ => return usage(),
     };
     match result {
@@ -134,5 +140,60 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+fn sync(args: &[String]) -> Result<(), String> {
+    use ibercorreo_net::{Endpoint, Security, Tls};
+    let mut store_path: Option<PathBuf> = None;
+    let mut host = None;
+    let mut user = None;
+    let mut port = None;
+    let mut security = Security::Tls;
+    let mut ca = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or(format!("{a} needs a value"));
+        match a.as_str() {
+            "--store" => store_path = Some(PathBuf::from(value()?)),
+            "--host" => host = Some(value()?.clone()),
+            "--user" => user = Some(value()?.clone()),
+            "--port" => port = Some(value()?.parse::<u16>().map_err(|e| format!("--port: {e}"))?),
+            "--ca" => ca = Some(value()?.clone()),
+            "--security" => {
+                security = match value()?.as_str() {
+                    "tls" => Security::Tls,
+                    "starttls" => Security::StartTls,
+                    other => return Err(format!("--security: {other:?} is not tls or starttls")),
+                }
+            }
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let store_path = store_path.ok_or("sync needs --store FILE")?;
+    let host = host.ok_or("sync needs --host")?;
+    let user = user.ok_or("sync needs --user")?;
+    let password = std::env::var("IBERCORREO_PASSWORD").map_err(|_| "set IBERCORREO_PASSWORD to the account password")?;
+    let port = port.unwrap_or(if security == Security::Tls { 993 } else { 143 });
+    let tls = match ca {
+        Some(path) => {
+            let der = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+            Tls::with_roots(&[der])
+        }
+        None => Tls::platform(),
+    }
+    .map_err(|e| e.to_string())?;
+
+    let store = if store_path.exists() { Store::load(&store_path).map_err(|e| e.to_string())? } else { Store::new() };
+    let mut s = Session::new(store, now().date);
+    s.set_now(now());
+    s.path = Some(store_path);
+    let mut client = ibercorreo_net::imap(&Endpoint { host, port, security }, &tls).map_err(|e| e.to_string())?;
+    client.login(&user, &password).map_err(|e| e.to_string())?;
+    let batch = ibercorreo_sync::run(&mut client, &s.sync_state(), &ibercorreo_sync::Limits::default()).map_err(|e| e.to_string())?;
+    let _ = client.logout();
+    let report = s.apply_sync(batch);
+    s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
+    print(&json!(report));
     Ok(())
 }

@@ -16,14 +16,23 @@ const LAYERS: &[(&str, u8)] = &[
     ("ibercorreo-store", 2),
     ("ibercorreo-imap", 2),
     ("ibercorreo-net", 3),
+    ("ibercorreo-sync", 3),
     ("ibercorreo-engine", 4),
     ("ibercorreo-ui-egui", 6),
     ("ibercorreo", 7),
     ("ibercorreo-cli", 7),
 ];
 const UI_CRATES: &[&str] = &["egui", "eframe", "winit", "rfd", "egui-winit"];
-const WASM_CRATES: &[&str] =
-    &["ibercorreo-core", "ibercorreo-mime", "ibercorreo-ical", "ibercorreo-store", "ibercorreo-imap", "ibercorreo-engine", "ibercorreo-ui-egui"];
+const WASM_CRATES: &[&str] = &[
+    "ibercorreo-core",
+    "ibercorreo-mime",
+    "ibercorreo-ical",
+    "ibercorreo-store",
+    "ibercorreo-imap",
+    "ibercorreo-sync",
+    "ibercorreo-engine",
+    "ibercorreo-ui-egui",
+];
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(Path::to_path_buf).unwrap_or_else(|| PathBuf::from("."))

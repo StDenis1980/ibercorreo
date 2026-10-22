@@ -45,6 +45,29 @@ pub struct Folder {
     pub id: FolderId,
     pub name: String,
     pub role: FolderRole,
+    /// The server mailbox this folder mirrors; `None` for a folder that only exists here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteFolder>,
+}
+
+/// Where a folder lives on the account's IMAP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteFolder {
+    /// The mailbox name as the server spells it (modified UTF-7), used in commands.
+    pub path: String,
+    /// `UIDVALIDITY`: when the server changes it, every UID it gave before is void (RFC 9051 §2.3.1.1).
+    pub uid_validity: u32,
+}
+
+/// What the server last reported for a message. Where the message's own fields differ (it was
+/// read, flagged or moved here), the change is still to be sent to the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteRef {
+    /// The folder whose server mailbox holds the message.
+    pub folder: FolderId,
+    pub uid: u32,
+    pub seen: bool,
+    pub flagged: bool,
 }
 
 /// How an account reaches its server. Only `Local` works in M0; the others are recorded so
@@ -171,6 +194,9 @@ pub struct Message {
     pub attachments: Vec<Attachment>,
     pub seen: bool,
     pub flagged: bool,
+    /// The server copy, for a synced message; `None` for one that only exists here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<RemoteRef>,
 }
 
 impl Message {
@@ -188,6 +214,7 @@ impl Message {
             attachments: Vec::new(),
             seen: false,
             flagged: false,
+            remote: None,
         }
     }
 

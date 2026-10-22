@@ -2,13 +2,13 @@
 
 Status: 2026-10-22 · M1 (IMAP/SMTP) in progress
 
-**Stage:** M1. Offline mail, calendar and people in one window; the IMAP client connects to real servers over TLS but does not sync into the app yet.
+**Stage:** M1. Offline mail, calendar and people in one window; two-way IMAP sync works from the CLI; the window gets account setup in M1.5.
 
 | Number | Value |
 |---|---|
 | Commands in the registry | 35 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 over TLS/STARTTLS (not yet synced into the app); files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 over TLS/STARTTLS with two-way sync (CLI); files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -22,8 +22,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.2: `ibercorreo-net` — TCP with timeouts, rustls (ring) with the OS certificate
   verifier, implicit TLS and STARTTLS IMAP sessions; local-TLS tests and a real Dovecot check
   (`docs/testing.md`). IMAP `CREATE`.
+- 2026-10-22 — M1.3: `ibercorreo-sync` — two-way sync (new mail newest first, flags both ways,
+  moves, deletes with tombstones, UIDVALIDITY resets), store format 2 (`remote` on folders and
+  messages), `Session::apply_sync`, `ibercorreo-cli sync`; checked end to end against Dovecot.
 
 ## Revision history
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
+- 2026-10-22 — M1.3.

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/mime", "crates/ical", "crates/store", "crates/imap", "crates/net", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
+members = ["crates/core", "crates/mime", "crates/ical", "crates/store", "crates/imap", "crates/net", "crates/sync", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,6 +17,7 @@ ibercorreo-ical = { path = "crates/ical" }
 ibercorreo-store = { path = "crates/store" }
 ibercorreo-imap = { path = "crates/imap" }
 ibercorreo-net = { path = "crates/net" }
+ibercorreo-sync = { path = "crates/sync" }
 ibercorreo-engine = { path = "crates/engine" }
 ibercorreo-ui-egui = { path = "crates/ui-egui" }
 

@@ -163,15 +163,16 @@ fn real_server_when_configured() {
     assert!(matches!(c.login(user, "wrong"), Err(imap::Error::No(_))));
     c.login(user, password).unwrap();
     let folder = "Iber тест & Co";
-    let _ = c.create(folder);
+    let raw = imap::utf7::encode(folder);
+    let _ = c.create(&raw);
     let boxes = c.list().unwrap();
     assert!(boxes.iter().any(|m| m.name == folder), "{boxes:?}");
     assert!(boxes.iter().any(|m| m.role() == ibercorreo_core::FolderRole::Sent));
 
-    let before = c.select(folder, false).unwrap();
+    let before = c.select(&raw, false).unwrap();
     let message = "From: a@example.org\r\nTo: b@example.org\r\nSubject: Привіт\r\n\r\nТіло листа\r\n".as_bytes();
-    c.append(folder, &["\\Seen"], message).unwrap();
-    let s = c.select(folder, false).unwrap();
+    c.append(&raw, &["\\Seen"], message).unwrap();
+    let s = c.select(&raw, false).unwrap();
     assert_eq!(s.exists, before.exists + 1);
     let uids = c.uid_search("1:*").unwrap();
     let last = *uids.last().unwrap();
@@ -184,5 +185,65 @@ fn real_server_when_configured() {
     assert!(f.first().unwrap().flags.as_ref().unwrap().iter().any(|x| x == "\\Flagged"));
     c.uid_move(&last.to_string(), "Trash").unwrap();
     assert!(!c.uid_search("1:*").unwrap().contains(&last));
+    c.logout().unwrap();
+}
+
+/// Two-way sync against the same real server: what is read, flagged, moved and deleted here
+/// reaches the server, and what changes there reaches the store.
+#[test]
+fn real_server_sync_when_configured() {
+    use ibercorreo_core::FolderRole;
+    let Ok(spec) = std::env::var("IBERCORREO_TEST_IMAP") else { return };
+    let parts: Vec<&str> = spec.split_whitespace().collect();
+    let [host, tls_port, _, _, password, cert] = parts.as_slice() else { panic!("bad IBERCORREO_TEST_IMAP: {spec}") };
+    let tls = Tls::with_roots(&[std::fs::read(cert).unwrap()]).unwrap();
+    // A fresh mailbox per run (the test Dovecot accepts any user name).
+    let user = format!("sync{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+    let connect = || {
+        let mut c = imap(&endpoint(host, tls_port.parse().unwrap(), Security::Tls), &tls).unwrap();
+        c.login(&user, password).unwrap();
+        c
+    };
+    let mut c = connect();
+    for n in 1..=3 {
+        let raw = format!("From: a@example.org\r\nSubject: m{n}\r\nDate: Thu, 22 Oct 2026 0{n}:00:00 +0000\r\n\r\nbody {n}\r\n");
+        c.append("INBOX", &[], raw.as_bytes()).unwrap();
+    }
+    let sync = |store: &mut ibercorreo_store::Store| {
+        let mut c = connect();
+        let batch = ibercorreo_sync::run(&mut c, &ibercorreo_sync::state(store), &ibercorreo_sync::Limits::default()).unwrap();
+        c.logout().unwrap();
+        ibercorreo_sync::apply(store, batch)
+    };
+    let mut store = ibercorreo_store::Store::new();
+    let r = sync(&mut store);
+    assert_eq!((r.added, r.errors.len()), (3, 0), "{r:?}");
+    let inbox = store.folder_by_role(FolderRole::Inbox).unwrap();
+    let trash = store.folder_by_role(FolderRole::Trash).unwrap();
+    let id = |store: &ibercorreo_store::Store, subject: &str| store.all_messages().iter().find(|m| m.subject == subject).map(|m| m.id);
+    let m1 = id(&store, "m1").unwrap();
+    let m2 = id(&store, "m2").unwrap();
+    store.message_mut(m1).unwrap().seen = true;
+    store.message_mut(m2).unwrap().flagged = true;
+    store.move_message(id(&store, "m3").unwrap(), trash).unwrap();
+    let r = sync(&mut store);
+    assert_eq!((r.pushed, r.errors.len()), (3, 0), "{r:?}");
+
+    c.select("INBOX", false).unwrap();
+    let flags: Vec<_> = c.uid_fetch("1:*", imap::Items::Summary).unwrap().into_iter().map(|f| (f.uid.unwrap(), f.flags.unwrap())).collect();
+    assert_eq!(flags, [(1, vec!["\\Seen".to_string()]), (2, vec!["\\Flagged".to_string()])]);
+    // Changed on the server: the store follows.
+    c.uid_store("2", false, &["\\Flagged"]).unwrap();
+    let r = sync(&mut store);
+    assert_eq!(r.updated, 1);
+    assert!(!store.message(m2).unwrap().flagged);
+    // Deleted for good here: gone from the server's Trash too.
+    let in_trash = store.messages_in(trash).first().map(|m| m.id).unwrap();
+    store.remove_message(in_trash).unwrap();
+    sync(&mut store);
+    c.select("Trash", false).unwrap();
+    assert_eq!(c.uid_search("1:*").unwrap(), Vec::<u32>::new());
+    assert_eq!(store.messages_in(inbox).len(), 2);
+    assert!(ibercorreo_sync::state(&store).pushes.is_empty());
     c.logout().unwrap();
 }
