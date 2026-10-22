@@ -42,6 +42,8 @@ pub struct Session {
     pub dirty: bool,
     /// The last status line (what the last command did), for the status bar.
     pub status: String,
+    /// Set by `account.sync`: the front end runs the sync (it owns the network) and clears it.
+    pub sync_requested: bool,
     /// The current time in UTC, set by the front end (the engine never reads the clock, so it runs
     /// the same in tests, scripts and wasm).
     now: DateTime,
@@ -63,6 +65,7 @@ impl Session {
             search: String::new(),
             dirty: false,
             status: String::new(),
+            sync_requested: false,
             now: DateTime::midnight(today),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -162,6 +165,12 @@ impl Session {
             self.status.push_str(&format!(" ({} problems)", report.errors.len()));
         }
         report
+    }
+
+    /// The server mailbox that holds sent copies, once the Sent folder is linked to one.
+    pub fn sent_path(&self) -> Option<String> {
+        let sent = self.store.folder_by_role(FolderRole::Sent).ok()?;
+        self.store.folder(sent).ok()?.remote.as_ref().map(|r| r.path.clone())
     }
 
     /// The Outbox, rendered for sending ([`ibercorreo_sync::outbox::send`]). Messages that cannot be

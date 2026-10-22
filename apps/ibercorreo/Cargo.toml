@@ -12,11 +12,15 @@ path = "src/main.rs"
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-engine.workspace = true
+ibercorreo-net.workspace = true
+ibercorreo-sync.workspace = true
 ibercorreo-store.workspace = true
 ibercorreo-ui-egui.workspace = true
 egui.workspace = true
 serde_json.workspace = true
 eframe = { workspace = true, features = ["default_fonts", "glow", "accesskit", "wayland", "x11"] }
+# The system credential store: Keychain, Windows Credential Manager, Secret Service.
+keyring = "4"
 
 [lints]
 workspace = true

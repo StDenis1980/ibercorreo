@@ -46,8 +46,31 @@ struct ContactForm {
     organization: String,
 }
 
+/// The Account settings dialog. The password is held only while the dialog is open and then
+/// handed to the app shell ([`App::take_password`]), which keeps it in the system's credential store.
+#[derive(Default)]
+struct AccountForm {
+    open: bool,
+    name: String,
+    email: String,
+    user: String,
+    password: String,
+    imap_host: String,
+    imap_port: String,
+    imap_starttls: bool,
+    smtp_host: String,
+    smtp_port: String,
+    smtp_starttls: bool,
+    /// Why the dialog opened by itself (a missing or refused password).
+    note: String,
+}
+
 pub struct App {
     pub session: Session,
+    /// Set by the shell while a Send/Receive runs in the background.
+    pub syncing: bool,
+    account_form: AccountForm,
+    password: Option<String>,
     tokens: Tokens,
     draft: Option<Draft>,
     event_form: EventForm,
@@ -60,6 +83,9 @@ impl App {
     pub fn new(session: Session) -> App {
         App {
             session,
+            syncing: false,
+            account_form: AccountForm::default(),
+            password: None,
             tokens: Tokens::light(),
             draft: None,
             event_form: EventForm::default(),
@@ -67,6 +93,119 @@ impl App {
             contact_query: String::new(),
             search: String::new(),
         }
+    }
+
+    /// A password typed in Account settings, for the shell to store. Taken once.
+    pub fn take_password(&mut self) -> Option<String> {
+        self.password.take()
+    }
+
+    /// Open Account settings, with a note saying why (`""` when the person asked for it).
+    pub fn open_account_settings(&mut self, note: &str) {
+        let v = self.session.run("account.get", &Value::Null).unwrap_or(Value::Null);
+        let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let port = |k: &str| v.get(k).and_then(Value::as_u64).map(|n| n.to_string()).unwrap_or_default();
+        self.account_form = AccountForm {
+            open: true,
+            name: text("displayName"),
+            email: text("email"),
+            user: text("user"),
+            password: String::new(),
+            imap_host: text("imapHost"),
+            imap_port: port("imapPort"),
+            imap_starttls: text("imapSecurity") == "starttls",
+            smtp_host: text("smtpHost"),
+            smtp_port: port("smtpPort"),
+            smtp_starttls: text("smtpSecurity") == "starttls",
+            note: note.to_string(),
+        };
+        if self.account_form.user == self.account_form.email {
+            self.account_form.user.clear();
+        }
+    }
+
+    fn account_window(&mut self, ui: &mut Ui) {
+        if !self.account_form.open {
+            return;
+        }
+        let mut open = true;
+        let mut save = false;
+        egui::Window::new("Account settings")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                let f = &mut self.account_form;
+                if !f.note.is_empty() {
+                    ui.label(RichText::new(&f.note).color(self.tokens.unread));
+                    ui.add_space(4.0);
+                }
+                egui::Grid::new("account-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                    for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")]
+                    {
+                        ui.label(label);
+                        ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(280.0));
+                        ui.end_row();
+                    }
+                    ui.label("Password");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut f.password)
+                            .password(true)
+                            .hint_text("kept in the system's credential store")
+                            .desired_width(280.0),
+                    );
+                    ui.end_row();
+                    ui.label("Sign-in name");
+                    ui.add(egui::TextEdit::singleline(&mut f.user).hint_text("if not the email address").desired_width(280.0));
+                    ui.end_row();
+                    for (title, host, port, starttls, tls_port, starttls_port) in [
+                        ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
+                        ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
+                    ] {
+                        ui.label(RichText::new(title).strong());
+                        ui.end_row();
+                        ui.label("Server");
+                        ui.add(egui::TextEdit::singleline(host).hint_text("mail.example.org").desired_width(280.0));
+                        ui.end_row();
+                        ui.label("Port");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
+                            ui.radio_value(starttls, false, "TLS");
+                            ui.radio_value(starttls, true, "STARTTLS");
+                        });
+                        ui.end_row();
+                    }
+                });
+                ui.add_space(6.0);
+                save = ui.add(egui::Button::new(RichText::new("Save and Send/Receive").strong())).clicked();
+            });
+        if save {
+            let f = &self.account_form;
+            let mut p = json!({
+                "name": f.name, "email": f.email, "user": f.user,
+                "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
+                "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
+            });
+            if let Some(o) = p.as_object_mut() {
+                for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
+                    if !v.trim().is_empty() {
+                        o.insert(k.into(), Value::String(v.trim().to_string()));
+                    }
+                }
+            }
+            if self.run("account.set", p).is_some() {
+                if !self.account_form.password.is_empty() {
+                    self.password = Some(std::mem::take(&mut self.account_form.password));
+                }
+                self.run("account.sync", json!({}));
+                open = false;
+            }
+        }
+        if !open {
+            self.account_form.password.clear();
+        }
+        self.account_form.open = open;
     }
 
     /// Run a command; a failure is shown in the status bar (the session records it).
@@ -87,6 +226,7 @@ impl App {
             View::Calendar => self.calendar(ui),
             View::Contacts => self.people(ui),
         }
+        self.account_window(ui);
     }
 
     fn shortcuts(&mut self, ui: &mut Ui) {
@@ -96,6 +236,9 @@ impl App {
         }
         let pressed =
             |ui: &Ui, cmd: bool, shift: bool, key: Key| ui.input(|i| i.key_pressed(key) && i.modifiers.command == cmd && i.modifiers.shift == shift);
+        if pressed(ui, false, false, Key::F9) && !self.syncing {
+            self.run("account.sync", json!({}));
+        }
         let actions: [(bool, bool, Key, &str); 10] = [
             (true, false, Key::N, "message.compose"),
             (true, false, Key::R, "message.reply"),
@@ -177,6 +320,18 @@ impl App {
                     self.button(ui, "Unread", "message.markRead", has_message);
                     if has_message && ui.small_button("↺").on_hover_text("Mark as unread").clicked() {
                         self.run("message.markRead", json!({ "read": false }));
+                    }
+                    ui.separator();
+                    let label = if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" };
+                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Send the Outbox and get new mail (F9)").clicked() {
+                        if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
+                            self.run("account.sync", json!({}));
+                        } else {
+                            self.open_account_settings("Set up your mail server to send and receive.");
+                        }
+                    }
+                    if ui.button("Account…").clicked() {
+                        self.open_account_settings("");
                     }
                 }
                 View::Calendar => {

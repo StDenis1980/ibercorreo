@@ -155,3 +155,31 @@ fn outbox_renders_and_sending_results_move_mail() {
     assert!(!s.can_undo(), "undo must never put sent mail back in the Outbox");
     assert!(s.status.contains("Sent 2") && s.status.contains("550"), "{}", s.status);
 }
+
+#[test]
+fn account_settings_and_sync_request() {
+    let mut s = session();
+    assert!(s.run("account.sync", &Value::Null).is_err(), "the sample account is local only");
+    assert!(!s.sync_requested);
+    let v = s
+        .run("account.set", &json!({"email": "denys@example.org", "name": "Denys", "imapHost": "IMAP.Example.org.", "smtpHost": "smtp.example.org", "smtpSecurity": "starttls"}))
+        .unwrap();
+    assert_eq!(v["imapHost"], "imap.example.org");
+    assert_eq!((v["imapPort"].as_u64(), v["smtpPort"].as_u64()), (Some(993), Some(587)));
+    assert_eq!(v["user"], "denys@example.org");
+    assert_eq!(s.store.accounts.len(), 1, "the first account is replaced");
+    s.run("account.sync", &Value::Null).unwrap();
+    assert!(s.sync_requested);
+    for bad in [
+        json!({"email": "x", "imapHost": "a", "smtpHost": "b"}),
+        json!({"email": "a@b.c", "imapHost": "bad host", "smtpHost": "b"}),
+        json!({"email": "a@b.c", "imapHost": "a\r\nb", "smtpHost": "b"}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "imapPort": 0}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "imapPort": 70000}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "imapSecurity": "none"}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "user": "a\u{0}b"}),
+    ] {
+        assert!(s.run("account.set", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.run("account.get", &Value::Null).unwrap()["imapHost"], "imap.example.org");
+}

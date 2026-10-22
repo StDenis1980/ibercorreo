@@ -3,19 +3,19 @@ name = "ibercorreo-net"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L3: TCP and TLS (rustls) connections to mail servers, and opening IMAP sessions on them"
+description = "Iber Correo L4: TCP and TLS (rustls) connections to mail servers, IMAP and SMTP sessions on them, and the Send/Receive job"
 
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-imap.workspace = true
 ibercorreo-smtp.workspace = true
+ibercorreo-sync.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.6"
 thiserror.workspace = true
 
 [dev-dependencies]
 ibercorreo-store.workspace = true
-ibercorreo-sync.workspace = true
 rcgen = "0.14"
 
 [lints]
