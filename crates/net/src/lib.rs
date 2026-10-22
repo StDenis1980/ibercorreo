@@ -1,4 +1,4 @@
-//! Iber Correo's connections to mail servers, L3: TCP with timeouts, TLS through rustls (ring
+//! Iber Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
 //! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587).
 //!
@@ -15,6 +15,8 @@ use std::time::Duration;
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use thiserror::Error;
+
+pub mod job;
 
 pub use ibercorreo_imap as imap;
 pub use ibercorreo_smtp as smtp;

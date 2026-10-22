@@ -1,7 +1,8 @@
 //! The command registry. Each entry is everything a front end needs to show and run one action.
 
 use ibercorreo_core::calendar::When;
-use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result};
+use ibercorreo_core::mail::{Account, AccountKind};
+use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result, Security};
 use serde_json::{Value, json};
 
 use crate::{Session, View};
@@ -312,6 +313,25 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "",
         edits: false,
         run: |s, _| s.redo().map(|()| json!({})),
+    },
+    CommandSpec {
+        id: "account.set",
+        label: "Account settings",
+        group: "File/Account",
+        shortcut: None,
+        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\n(The password is never a parameter: the app keeps it in the system's credential store.)",
+        edits: true,
+        run: account_set,
+    },
+    CommandSpec { id: "account.get", label: "Show account", group: "File/Account", shortcut: None, params: "", edits: false, run: account_get },
+    CommandSpec {
+        id: "account.sync",
+        label: "Send/Receive",
+        group: "Send-Receive/Send & Receive",
+        shortcut: Some("F9"),
+        params: "",
+        edits: false,
+        run: account_sync,
     },
     CommandSpec {
         id: "file.save",
@@ -776,6 +796,92 @@ fn contact_list(s: &mut Session, p: &Value) -> Result<Value> {
             .map(|c| json!({ "id": c.id, "name": c.name, "emails": c.emails.iter().map(ToString::to_string).collect::<Vec<_>>(), "phone": c.phone, "organization": c.organization }))
             .collect(),
     ))
+}
+
+// ---- account ----
+
+/// A server name: letters, digits, dots, hyphens (or an IPv6 literal's colons), at most 253 bytes.
+fn host_param(p: &Value, key: &str) -> Result<String> {
+    let h = required_str(p, key)?.trim().trim_end_matches('.');
+    let ok = !h.is_empty() && h.len() <= 253 && h.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':' | b'[' | b']'));
+    if ok { Ok(h.to_ascii_lowercase()) } else { Err(Error::invalid("params", format!("{key} is not a server name"))) }
+}
+
+fn security_param(p: &Value, key: &str) -> Result<Security> {
+    match str_param(p, key)?.map(str::to_ascii_lowercase).as_deref() {
+        None | Some("tls" | "ssl") => Ok(Security::Tls),
+        Some("starttls") => Ok(Security::StartTls),
+        Some(other) => Err(Error::invalid("params", format!("{key} must be tls or starttls, not {other:?}"))),
+    }
+}
+
+fn port_param(p: &Value, key: &str, default: u16) -> Result<u16> {
+    match u64_param(p, key)? {
+        None => Ok(default),
+        Some(n) => u16::try_from(n).ok().filter(|&n| n > 0).ok_or_else(|| Error::invalid("params", format!("{key} must be 1–65535"))),
+    }
+}
+
+fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let email = required_str(p, "email")?;
+    let name = str_param(p, "name")?.map(str::trim).filter(|n| !n.is_empty());
+    let address = Address::new(name, email)?;
+    let imap_security = security_param(p, "imapSecurity")?;
+    let smtp_security = security_param(p, "smtpSecurity")?;
+    let user = str_param(p, "user")?.map(str::trim).unwrap_or("");
+    if user.len() > 320 || user.chars().any(char::is_control) {
+        return Err(Error::invalid("params", "user is not a sign-in name"));
+    }
+    let kind = AccountKind::Imap {
+        imap_host: host_param(p, "imapHost")?,
+        imap_port: port_param(p, "imapPort", imap_security.default_imap_port())?,
+        smtp_host: host_param(p, "smtpHost")?,
+        smtp_port: port_param(p, "smtpPort", smtp_security.default_smtp_port())?,
+        user: user.to_string(),
+        imap_security,
+        smtp_security,
+    };
+    let account = Account { name: address.display().to_string(), address, kind };
+    // One account for now (several arrive in M3): the first is replaced.
+    match s.store.accounts.first_mut() {
+        Some(a) => *a = account,
+        None => s.store.accounts.push(account),
+    }
+    s.status = "Account saved".into();
+    account_get(s, &Value::Null)
+}
+
+fn account_get(s: &mut Session, _: &Value) -> Result<Value> {
+    let a = s.store.accounts.first().ok_or_else(|| Error::not_found("account", "none set up"))?;
+    let mut v = json!({ "name": a.name, "email": a.address.email, "displayName": a.address.name });
+    if let (AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. }, Some(obj)) =
+        (&a.kind, v.as_object_mut())
+    {
+        let sec = |x: &Security| if *x == Security::Tls { "tls" } else { "starttls" };
+        for (k, val) in [
+            ("imapHost", json!(imap_host)),
+            ("imapPort", json!(imap_port)),
+            ("imapSecurity", json!(sec(imap_security))),
+            ("smtpHost", json!(smtp_host)),
+            ("smtpPort", json!(smtp_port)),
+            ("smtpSecurity", json!(sec(smtp_security))),
+            ("user", json!(a.login())),
+        ] {
+            obj.insert(k.into(), val);
+        }
+    }
+    Ok(v)
+}
+
+/// Ask the front end to send the Outbox and sync: the engine never touches the network itself.
+fn account_sync(s: &mut Session, _: &Value) -> Result<Value> {
+    let has_server = s.store.accounts.first().is_some_and(|a| matches!(a.kind, AccountKind::Imap { .. }));
+    if !has_server {
+        return Err(Error::invalid("account", "no mail server set up: open Account settings"));
+    }
+    s.sync_requested = true;
+    s.status = "Sending and receiving…".into();
+    Ok(json!({ "requested": true }))
 }
 
 // ---- file ----

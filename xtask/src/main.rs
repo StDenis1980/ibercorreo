@@ -16,7 +16,7 @@ const LAYERS: &[(&str, u8)] = &[
     ("ibercorreo-store", 2),
     ("ibercorreo-imap", 2),
     ("ibercorreo-smtp", 2),
-    ("ibercorreo-net", 3),
+    ("ibercorreo-net", 4),
     ("ibercorreo-sync", 3),
     ("ibercorreo-engine", 4),
     ("ibercorreo-ui-egui", 6),

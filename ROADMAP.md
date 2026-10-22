@@ -2,13 +2,13 @@
 
 Status: 2026-10-22 · M1 (IMAP/SMTP) in progress
 
-**Stage:** M1. Offline mail, calendar and people in one window; two-way IMAP sync and SMTP sending work from the CLI; the window gets account setup in M1.5.
+**Stage:** M1. Offline mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 35 |
+| Commands in the registry | 37 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS (CLI); files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -28,6 +28,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.4: `ibercorreo-smtp` (RFC 5321/6409: EHLO, STARTTLS, AUTH PLAIN/LOGIN, SIZE,
   8BITMIME, dot-stuffing, injection-safe addresses), `net::smtp`, Outbox sending with Sent copies
   (`sync::outbox`, `Session::outbox`/`apply_sent`); checked against Postfix 3.8 delivering to Dovecot.
+- 2026-10-22 — M1.5: `account.set`/`account.get`/`account.sync` (F9), Account settings dialog,
+  Send/Receive on a background thread (`net::job`) at start, every 5 minutes and on request,
+  passwords in the system credential store (`keyring`); `ibercorreo-cli sync` uses the store's account.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -35,3 +38,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.2.
 - 2026-10-22 — M1.3.
 - 2026-10-22 — M1.4.
+- 2026-10-22 — M1.5.

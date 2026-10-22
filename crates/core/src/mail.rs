@@ -70,12 +70,62 @@ pub struct RemoteRef {
     pub flagged: bool,
 }
 
-/// How an account reaches its server. Only `Local` works in M0; the others are recorded so
-/// settings files written now stay valid.
+/// How a connection to a server is encrypted. There is no unencrypted choice: passwords never
+/// travel in the clear.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Security {
+    /// TLS from the first byte (IMAP 993, SMTP 465); RFC 8314 recommends it.
+    #[default]
+    Tls,
+    /// Plain first, then `STARTTLS` (IMAP 143, SMTP 587).
+    StartTls,
+}
+
+impl Security {
+    pub fn default_imap_port(self) -> u16 {
+        match self {
+            Security::Tls => 993,
+            Security::StartTls => 143,
+        }
+    }
+
+    pub fn default_smtp_port(self) -> u16 {
+        match self {
+            Security::Tls => 465,
+            Security::StartTls => 587,
+        }
+    }
+}
+
+/// How an account reaches its server. The password is never here: it lives in the operating
+/// system's credential store, under the account's user name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AccountKind {
     Local,
-    Imap { imap_host: String, imap_port: u16, smtp_host: String, smtp_port: u16 },
+    Imap {
+        imap_host: String,
+        imap_port: u16,
+        smtp_host: String,
+        smtp_port: u16,
+        /// The sign-in name; empty means the email address.
+        #[serde(default)]
+        user: String,
+        #[serde(default)]
+        imap_security: Security,
+        #[serde(default)]
+        smtp_security: Security,
+    },
+}
+
+impl Account {
+    /// The sign-in name for an IMAP account: `user`, or the address when that is empty.
+    pub fn login(&self) -> Option<&str> {
+        match &self.kind {
+            AccountKind::Imap { user, .. } if !user.is_empty() => Some(user),
+            AccountKind::Imap { .. } => Some(&self.address.email),
+            AccountKind::Local => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,9 +2,10 @@
 
 Status: 2026-10-22 · Pick from the top.
 
-1. **Sync and sending only from the CLI.** Two-way IMAP sync (`crates/sync`, checked against
-   Dovecot) and SMTP sending (`ibercorreo-cli sync --smtp-host`, checked against Postfix) work, but
-   the window has no account setup or sync button yet (M1.5). No IDLE (push) yet. Sent copies are
+1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
+   every 5 minutes, F9) and the password in the system credential store work, checked against
+   Dovecot and Postfix. Missing: IDLE (push), autodiscovery and OAuth (M3: Gmail and Microsoft 365
+   need it), more than one account, a progress bar. Sent copies are
    always saved to the server's Sent (servers that save them themselves, like Gmail, will need an
    account setting); no Bcc field; a message is refused as a whole if any recipient is.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
@@ -12,7 +13,8 @@ Status: 2026-10-22 · Pick from the top.
    downloaded (no header-first fetch).
 2. **HTML mail** is reduced to plain text; links, inline images (`cid:`) and tables are lost. Needs a
    safe HTML-to-rich-text renderer (no remote fetch by default).
-3. **Credentials**: no keychain integration yet (must never be stored in the store file).
+3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
+   session) they last only until the app closes. No OAuth yet (M3).
 4. **Recurring events** are stored (raw `RRULE`) but not expanded; only the first occurrence shows.
 5. **Time zones**: `TZID` is kept, times are shown as written; `Date:` offsets of incoming mail are
    not applied.
@@ -31,3 +33,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 1 narrowed: TLS connections.
 - 2026-10-22 — gap 1 narrowed: two-way sync (CLI); gap 6 notes undo is cleared by sync.
 - 2026-10-22 — gap 1 narrowed: SMTP sending (CLI).
+- 2026-10-22 — gap 1 narrowed: accounts in the window (M1.5); gap 3 closed (keychain).
