@@ -136,6 +136,8 @@ pub fn store(today: Date) -> Result<Store> {
         when,
         tzid: None,
         rrule: None,
+        exdates: Vec::new(),
+        recurrence_id: None,
     };
     let at = |d: Date, h: u8, m: u8| DateTime::new(d, h, m, 0);
     s.add_event(event("Reunión de presupuesto", "Sala 1", When::timed(at(today, 10, 0)?, at(today, 11, 0)?, false)?))?;
@@ -144,6 +146,11 @@ pub fn store(today: Date) -> Result<Store> {
     s.add_event(event("Formação Iber Texto", "Sala 2", When::timed(at(d2, 10, 0)?, at(d2, 13, 0)?, false)?))?;
     let d5 = today.add_days(5)?;
     s.add_event(event("Відпустка", "", When::all_day(d5, d5.add_days(3)?)?))?;
+    // A repeating event: every weekday morning, starting a week ago.
+    let first = today.add_days(-7)?;
+    let mut standup = event("Stand-up", "Online", When::timed(at(first, 9, 15)?, at(first, 9, 30)?, false)?);
+    standup.rrule = Some("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR".into());
+    s.add_event(standup)?;
 
     for (name, email, org) in [
         ("Marta Iglesias", "marta@example.es", "Iglesias Consultores"),

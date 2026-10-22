@@ -38,6 +38,8 @@ struct EventForm {
     start: String,
     end: String,
     location: String,
+    /// `repeat` for `event.add`: none, daily, weekdays, weekly, monthly, yearly.
+    repeat: String,
 }
 
 #[derive(Default)]
@@ -646,15 +648,19 @@ impl App {
                         );
                     }
                     let mut y = rect.top() + 26.0;
-                    for e in self.session.store.events_on(day) {
+                    for o in self.session.store.events_on(day) {
+                        let e = o.event;
                         if y + 16.0 > rect.bottom() {
                             p.text(egui::pos2(rect.left() + 6.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(11.0), t.text_weak);
                             break;
                         }
                         let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0, y), vec2(rect.width() - 6.0, 16.0));
-                        let label = match e.when {
-                            When::Timed { start, .. } if start.date == day => format!("{:02}:{:02} {}", start.hour(), start.minute(), e.summary),
-                            _ => e.summary.clone(),
+                        let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
+                        let label = match o.when {
+                            When::Timed { start, .. } if start.date == day => {
+                                format!("{:02}:{:02} {repeat}{}", start.hour(), start.minute(), e.summary)
+                            }
+                            _ => format!("{repeat}{}", e.summary),
                         };
                         p.rect_filled(chip, 3.0, t.accent.gamma_multiply(0.85));
                         p.with_clip_rect(chip).text(
@@ -682,12 +688,12 @@ impl App {
         let day = self.session.day;
         ui.label(RichText::new(long_date(day)).heading().color(t.text));
         ui.add_space(8.0);
-        let events: Vec<_> = self.session.store.events_on(day).into_iter().cloned().collect();
+        let events: Vec<_> = self.session.store.events_on(day).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
             ui.label(RichText::new("No appointments").color(t.text_weak));
         }
-        for e in events {
-            let when = match e.when {
+        for (e, occurrence) in events {
+            let when = match occurrence {
                 When::AllDay { .. } => "All day".to_string(),
                 When::Timed { start, end, .. } => format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute()),
             };
@@ -696,12 +702,23 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(when).small().color(t.accent));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.small_button("🗑").on_hover_text("Delete appointment").clicked() {
+                        if e.rrule.is_some() {
+                            if ui.small_button("🗑 Series").on_hover_text("Delete every occurrence").clicked() {
+                                self.run("event.delete", json!({ "id": e.id.0 }));
+                            }
+                            if ui.small_button("🗑").on_hover_text("Delete this occurrence only").clicked() {
+                                self.run("event.delete", json!({ "id": e.id.0, "occurrence": occurrence.start_date().to_string() }));
+                            }
+                        } else if ui.small_button("🗑").on_hover_text("Delete appointment").clicked() {
                             self.run("event.delete", json!({ "id": e.id.0 }));
                         }
                     });
                 });
                 ui.label(RichText::new(&e.summary).strong().color(t.text));
+                if let Some(r) = &e.rrule {
+                    let text = e.rule().map_or_else(|| format!("Repeats ({r}), shown once"), |rule| format!("⟳ {}", describe_rule(&rule)));
+                    ui.label(RichText::new(text).small().color(t.text_weak));
+                }
                 if !e.location.is_empty() {
                     ui.label(RichText::new(format!("📍 {}", e.location)).small().color(t.text_weak));
                 }
@@ -729,12 +746,20 @@ impl App {
                     ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(260.0));
                     ui.end_row();
                 }
+                ui.label("Repeat");
+                let shown = REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label);
+                egui::ComboBox::from_id_salt("event-repeat").selected_text(shown).show_ui(ui, |ui| {
+                    for (id, label) in REPEATS {
+                        ui.selectable_value(&mut f.repeat, id.to_string(), label);
+                    }
+                });
+                ui.end_row();
             });
             save = ui.button("Save").clicked();
         });
         if save {
             let f = &self.event_form;
-            let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location });
+            let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location, "repeat": f.repeat });
             if !f.end.trim().is_empty()
                 && let Some(o) = p.as_object_mut()
             {
@@ -919,6 +944,67 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
     if ui.add(shown).on_hover_text(hover).clicked() {
         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
     }
+}
+
+/// A rule in words: "Every week on Mon, Thu until 2026-12-31".
+fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
+    use ibercorreo_core::recur::Freq;
+    let unit = match r.freq {
+        Freq::Daily => "day",
+        Freq::Weekly => "week",
+        Freq::Monthly => "month",
+        Freq::Yearly => "year",
+    };
+    let mut out = if r.interval == 1 { format!("Every {unit}") } else { format!("Every {} {unit}s", r.interval) };
+    if !r.by_day.is_empty() {
+        let days: Vec<String> = r
+            .by_day
+            .iter()
+            .map(|(n, w)| {
+                let name = WEEKDAYS.get(usize::from(w.index())).copied().unwrap_or("?");
+                match n {
+                    Some(-1) => format!("last {name}"),
+                    Some(n) => format!("{} {name}", ordinal(*n)),
+                    None => name.to_string(),
+                }
+            })
+            .collect();
+        out.push_str(&format!(" on {}", days.join(", ")));
+    }
+    if !r.by_month_day.is_empty() {
+        let days: Vec<String> = r.by_month_day.iter().map(|d| if *d == -1 { "the last day".into() } else { format!("day {d}") }).collect();
+        out.push_str(&format!(" on {}", days.join(", ")));
+    }
+    if let Some(c) = r.count {
+        out.push_str(&format!(", {c} times"));
+    }
+    if let Some((d, _)) = r.until {
+        out.push_str(&format!(" until {d}"));
+    }
+    out
+}
+
+/// The Repeat choices in the appointment form: `event.add` values and their labels.
+const REPEATS: [(&str, &str); 6] = [
+    ("", "Never"),
+    ("daily", "Every day"),
+    ("weekdays", "Every weekday"),
+    ("weekly", "Every week"),
+    ("monthly", "Every month"),
+    ("yearly", "Every year"),
+];
+
+const WEEKDAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+fn ordinal(n: i8) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (1, 11) | (2, 12) | (3, 13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
 }
 
 fn human_size(bytes: usize) -> String {

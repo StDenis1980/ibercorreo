@@ -107,17 +107,17 @@ fn reply_all_skips_me_and_prefixes_once() {
 fn calendar_commands() {
     let mut s = session();
     let n = s.run("event.list", &json!({"date": "2026-10-22"})).unwrap().as_array().unwrap().len();
-    assert_eq!(n, 2);
+    assert_eq!(n, 3, "two appointments and the weekday stand-up");
     s.run("event.add", &json!({"summary": "Late call", "start": "2026-10-22T23:30"})).unwrap();
     let late = s.run("event.list", &json!({"date": "2026-10-23"})).unwrap();
-    assert_eq!(late.as_array().unwrap().len(), 1, "an hour from 23:30 runs into the next day");
+    assert!(late.as_array().unwrap().iter().any(|e| e["summary"] == "Late call"), "an hour from 23:30 runs into the next day");
     s.run("calendar.goto", &json!({"date": "2026-01-31"})).unwrap();
     s.run("calendar.nextMonth", &Value::Null).unwrap();
     assert_eq!(s.day, Date::new(2026, 2, 28).unwrap());
     let ics = s.run("calendar.exportIcs", &Value::Null).unwrap();
     let mut fresh = Session::new(ibercorreo_store::Store::new(), today());
     let report = fresh.run("calendar.importIcs", &json!({"text": ics})).unwrap();
-    assert_eq!(report["added"], json!(5));
+    assert_eq!(report["added"], json!(6), "four sample appointments, the stand-up and the late call");
 }
 
 #[test]
@@ -199,4 +199,39 @@ fn html_mail_reads_safely_and_can_show_as_plain_text() {
     assert_eq!(s.run("view.plainText", &Value::Null).unwrap()["plainText"], true);
     assert_eq!(s.run("view.plainText", &json!({ "on": false })).unwrap()["plainText"], false);
     assert!(s.run("view.plainText", &json!({ "on": "yes" })).is_err());
+}
+
+#[test]
+fn repeating_appointments_and_deleting_one_occurrence() {
+    let mut s = session();
+    let v = s.run("event.add", &json!({"summary": "Gym", "start": "2026-10-20T18:00", "repeat": "weekly", "until": "2026-11-10"})).unwrap();
+    assert_eq!(v["repeat"], "FREQ=WEEKLY;UNTIL=20261110");
+    let id = v["id"].as_u64().unwrap();
+    let gym_on = |s: &mut Session, d: &str| {
+        s.run("event.list", &json!({ "date": d })).unwrap().as_array().unwrap().iter().filter(|e| e["summary"] == "Gym").cloned().collect::<Vec<_>>()
+    };
+    let on_27 = gym_on(&mut s, "2026-10-27");
+    assert_eq!(on_27.len(), 1);
+    assert_eq!(on_27[0]["start"], "2026-10-27T18:00", "the occurrence's own date, not the series start");
+    assert!(gym_on(&mut s, "2026-11-17").is_empty(), "until is the last day");
+    s.run("event.delete", &json!({ "id": id, "occurrence": "2026-10-27" })).unwrap();
+    assert!(gym_on(&mut s, "2026-10-27").is_empty());
+    assert_eq!(gym_on(&mut s, "2026-11-03").len(), 1, "the rest of the series stays");
+    assert!(s.run("event.delete", &json!({ "id": id, "occurrence": "2026-10-28" })).is_err(), "no occurrence that day");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(gym_on(&mut s, "2026-10-27").len(), 1, "undo brings the occurrence back");
+    for bad in [
+        json!({"repeat": "hourly"}),
+        json!({"rrule": "FREQ=HOURLY"}),
+        json!({"rrule": "FREQ=DAILY\r\nX:1"}),
+        json!({"repeat": "daily", "until": "2026-01-01"}),
+    ] {
+        let mut p = json!({"summary": "x", "start": "2026-10-20T18:00"});
+        p.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
+        assert!(s.run("event.add", &p).is_err(), "{p}");
+    }
+    // The sample's weekday stand-up shows on a weekday, not at the weekend.
+    let list = |s: &mut Session, d: &str| s.run("event.list", &json!({ "date": d })).unwrap();
+    assert!(list(&mut s, "2026-10-23").as_array().unwrap().iter().any(|e| e["summary"] == "Stand-up"));
+    assert!(!list(&mut s, "2026-10-24").as_array().unwrap().iter().any(|e| e["summary"] == "Stand-up"));
 }
