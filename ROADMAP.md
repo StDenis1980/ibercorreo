@@ -6,7 +6,7 @@ Status: 2026-10-22 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 39 |
+| Commands in the registry | 45 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
 
@@ -37,6 +37,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M2.1: repeating events (`core::recur`: RFC 5545 `RRULE` expansion, bounded), `EXDATE`
   and `RECURRENCE-ID` in `.ics`, occurrences in the month view and agenda, `event.add` `repeat`/`rrule`/
   `until`, `event.delete` `occurrence`, a Repeat choice in the appointment form.
+- 2026-10-22 — M2.2: Day, Work Week and Week views (a time grid with overlapping appointments side
+  by side, an all-day strip and a now line), `calendar.view*` (Ctrl+Alt+1…4), `calendar.next`/`prev`
+  stepping by the view, `event.list` over a range (`from`/`to`, or `from: "view"`). 45 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -47,4 +50,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.5.
 - 2026-10-22 — M1.6; M1 done.
 - 2026-10-22 — M2.1.
-- 2026-10-22 — M1.5.
+- 2026-10-22 — M2.2.

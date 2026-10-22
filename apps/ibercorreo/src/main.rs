@@ -1,7 +1,7 @@
 //! The Iber Correo desktop app.
 //!
 //! ```text
-//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts] [FILE.eml | FILE.ics]...
+//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics]...
 //! ```
 //!
 //! The mailbox is one store file in the platform's data folder (`--store` picks another).
@@ -204,7 +204,9 @@ fn main() -> eframe::Result {
             // Opens on a view (mail, calendar, contacts): for screenshots and launchers.
             Some("--view") => view = args.next().and_then(|v| v.into_string().ok()),
             Some("--help" | "-h") => {
-                println!("{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts] [FILE.eml | FILE.ics]...");
+                println!(
+                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics]..."
+                );
                 return Ok(());
             }
             _ => imports.push(PathBuf::from(a)),
@@ -256,7 +258,15 @@ fn main() -> eframe::Result {
         }
     }
     if let Some(v) = view {
-        let _ = session.run(&format!("view.{v}"), &serde_json::Value::Null);
+        // The calendar's own views open the calendar on that view.
+        let id = match v.as_str() {
+            "day" => "calendar.viewDay".to_string(),
+            "workweek" => "calendar.viewWorkWeek".to_string(),
+            "week" => "calendar.viewWeek".to_string(),
+            "month" => "calendar.viewMonth".to_string(),
+            other => format!("view.{other}"),
+        };
+        let _ = session.run(&id, &serde_json::Value::Null);
     }
     if !status.is_empty() {
         session.status = status;
