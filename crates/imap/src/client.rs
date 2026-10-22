@@ -284,6 +284,11 @@ impl<S: Read + Write> Client<S> {
             .collect())
     }
 
+    /// Create a mailbox (`CREATE`), e.g. a folder someone made in the folder pane.
+    pub fn create(&mut self, mailbox: &str) -> Result<()> {
+        self.run(&Command::new("CREATE").mailbox(mailbox)).map(drop)
+    }
+
     /// `SELECT` (read-write) or, with `read_only`, `EXAMINE`.
     pub fn select(&mut self, mailbox: &str, read_only: bool) -> Result<Selected> {
         let done = self.run(&Command::new(if read_only { "EXAMINE" } else { "SELECT" }).mailbox(mailbox))?;
