@@ -369,7 +369,7 @@ fn real_caldav_sync_when_configured() {
         assert!(r.is_success(), "PUT {name}: {}", r.status);
     };
     // Start from an empty calendar.
-    for name in ["iber-a.ics", "iber-b.ics", "iber-c.ics"] {
+    for name in ["iber-a.ics", "iber-b.ics", "iber-c.ics", "iber-d.ics"] {
         let _ = client.send("DELETE", &format!("{}{name}", url.path), &[], b"");
     }
     put(&mut client, "iber-a.ics", &ics("iber-a", "Planning"));
@@ -377,7 +377,7 @@ fn real_caldav_sync_when_configured() {
 
     let mut store = Store::new();
     let sync = |client: &mut dyn dav::caldav::Http, store: &mut Store| {
-        let batch = calendar::run(client, &url, &calendar::state(store)).unwrap();
+        let batch = calendar::run(client, &url, &calendar::state(store, ibercorreo_core::DateTime::from_unix(1_792_000_000).unwrap())).unwrap();
         calendar::apply(store, batch)
     };
     let r = sync(&mut client, &mut store);
@@ -397,6 +397,30 @@ fn real_caldav_sync_when_configured() {
     let mut names: Vec<&str> = store.events().iter().map(|e| e.summary.as_str()).collect();
     names.sort();
     assert_eq!(names, ["Planning (moved)", "Retro"]);
+
+    // Changes made here go to the server: an edit, a new appointment, a deletion.
+    let id_of = |store: &Store, summary: &str| store.events().iter().find(|e| e.summary == summary).unwrap().id;
+    let moved = id_of(&store, "Planning (moved)");
+    store.event_mut(moved).unwrap().summary = "Planning (room 2)".into();
+    let mut lunch = store.event(moved).unwrap().clone();
+    lunch.uid = "iber-d".into();
+    lunch.summary = "Lunch".into();
+    lunch.remote = None;
+    store.add_event(lunch).unwrap();
+    store.remove_event(id_of(&store, "Retro")).unwrap();
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.sent, r.conflicts), (3, 0), "{r:?}");
+    assert!(r.errors.is_empty(), "{r:?}");
+    let mut names: Vec<&str> = store.events().iter().map(|e| e.summary.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["Lunch", "Planning (room 2)"]);
+    // A fresh store sees the same on the server.
+    let mut fresh = Store::new();
+    sync(&mut client, &mut fresh);
+    let mut names: Vec<&str> = fresh.events().iter().map(|e| e.summary.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["Lunch", "Planning (room 2)"]);
+    let _ = client.send("DELETE", &format!("{}iber-d.ics", url.path), &[], b"");
 
     let mut wrong = dav(&url, &tls, user, "wrong");
     assert!(matches!(calendar::run(&mut wrong, &url, &calendar::State::default()), Err(dav::Error::Auth(401))));

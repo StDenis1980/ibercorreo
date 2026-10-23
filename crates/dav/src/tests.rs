@@ -284,3 +284,26 @@ fn listing_and_fetching_events() {
     assert!(fake.asked[1].2.contains("<d:href>/cal/work/0&amp;.ics</d:href>"), "hrefs are escaped");
     assert_eq!(got[0].data, "BEGIN:VCALENDAR\r\nEND:VCALENDAR");
 }
+
+#[test]
+fn writes_carry_preconditions_and_read_conflicts() {
+    struct One(Response, Vec<String>);
+    impl Http for One {
+        fn send(&mut self, method: &str, path: &str, headers: &[(&str, &str)], _body: &[u8]) -> Result<Response> {
+            self.1.push(format!("{method} {path} {headers:?}"));
+            Ok(self.0.clone())
+        }
+    }
+    let mut ok = One(reply(201, "", &[("ETag", "\"7\"")]), Vec::new());
+    assert_eq!(caldav::put(&mut ok, "/c/a.ics", "X", None).unwrap(), caldav::Written::Done { etag: Some("\"7\"".into()) });
+    assert!(ok.1[0].contains("(\"If-None-Match\", \"*\")"), "{:?}", ok.1);
+    assert_eq!(caldav::put(&mut ok, "/c/a.ics", "X", Some("\"6\"")).unwrap(), caldav::Written::Done { etag: Some("\"7\"".into()) });
+    assert!(ok.1[1].contains("(\"If-Match\", \"\\\"6\\\"\")"), "{:?}", ok.1);
+    let mut changed = One(reply(412, "", &[]), Vec::new());
+    assert_eq!(caldav::put(&mut changed, "/c/a.ics", "X", Some("\"6\"")).unwrap(), caldav::Written::Conflict);
+    assert_eq!(caldav::delete(&mut changed, "/c/a.ics", "\"6\"").unwrap(), caldav::Written::Conflict);
+    let mut gone = One(reply(404, "", &[]), Vec::new());
+    assert_eq!(caldav::delete(&mut gone, "/c/a.ics", "\"6\"").unwrap(), caldav::Written::Gone);
+    let mut no = One(reply(403, "", &[]), Vec::new());
+    assert!(caldav::put(&mut no, "/c/a.ics", "X", None).is_err());
+}

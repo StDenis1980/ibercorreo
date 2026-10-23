@@ -1,19 +1,23 @@
-//! Calendar sync over CalDAV (RFC 4791): the server's calendars and events mirrored into the
-//! store. Pull only for now: changes made here to a server calendar are not sent back yet
-//! (`docs/gaps.md`).
+//! Calendar sync over CalDAV (RFC 4791): the server's calendars mirrored into the store, both ways.
 //!
 //! The same three parts as mail sync:
-//! 1. [`state`] (on the store): the calendars this store mirrors, their change markers, and the
-//!    version (ETag) of every event resource.
-//! 2. [`run`] (on the connection): find the calendars; for each whose marker changed, list the
-//!    ETags and fetch only the resources that are new or changed.
-//! 3. [`apply`] (on the store): add, update and remove calendars and events.
+//! 1. [`state`] (on the store): the calendars this store mirrors, their change markers, the
+//!    version (ETag) of every event resource, and the changes made here: appointments added to a
+//!    server calendar, changed, or deleted.
+//! 2. [`run`] (on the connection): send those changes, each only if the server's copy is still
+//!    the version last seen; then find the calendars, and for each whose marker changed list
+//!    the ETags and fetch only the resources that are new or changed.
+//! 3. [`apply`] (on the store): link what was sent, then add, update and remove calendars and
+//!    events.
+//!
+//! When the same appointment changed on both sides, the server's copy wins: the write is refused
+//! (`412`), and the server's version comes down in the same sync.
 
 use std::collections::BTreeMap;
 
-use ibercorreo_core::{CalendarRemote, EventId, EventRemote};
+use ibercorreo_core::{CalendarRemote, DateTime, Event, EventId, EventRemote};
 use ibercorreo_dav::Url;
-use ibercorreo_dav::caldav::{self, FetchedItem, Http, RemoteCalendar};
+use ibercorreo_dav::caldav::{self, FetchedItem, Http, RemoteCalendar, Written};
 use ibercorreo_store::Store;
 use serde::Serialize;
 
@@ -25,25 +29,86 @@ pub struct Known {
     pub items: BTreeMap<String, String>,
 }
 
-/// What the store holds of the server's calendars, by collection href.
+/// A change made here, to send.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Change {
+    /// Write resource `href` in `calendar`: new when `etag` is `None`. `uid` names the events it
+    /// holds.
+    Put { calendar: String, href: String, etag: Option<String>, uid: String, body: String },
+    /// Delete resource `href`, last seen as `etag`.
+    Delete { calendar: String, href: String, etag: String },
+}
+
+/// What the store holds of the server's calendars, by collection href, and the changes to send.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
     pub calendars: BTreeMap<String, Known>,
+    pub changes: Vec<Change>,
 }
 
-pub fn state(store: &Store) -> State {
+/// Most changes sent in one sync; the rest go in the next.
+pub const MAX_CHANGES: usize = 500;
+
+/// The resource name for a new appointment: its UID with anything but letters, digits and `-_.`
+/// replaced, so it is a safe path segment that servers list back exactly as sent (no `%40`).
+fn resource_name(uid: &str) -> String {
+    let name: String = uid.chars().take(120).map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
+    let name = name.trim_matches('.');
+    if name.is_empty() { "event".to_string() } else { name.to_string() }
+}
+
+/// `now` (UTC) is written as the changes' `DTSTAMP`.
+pub fn state(store: &Store, now: DateTime) -> State {
     let mut out = State::default();
     for c in store.calendars() {
         let Some(remote) = &c.remote else { continue };
         let mut known = Known { ctag: remote.ctag.clone(), items: BTreeMap::new() };
-        for e in store.events().iter().filter(|e| e.calendar == c.id) {
+        let events: Vec<&Event> = store.events().iter().filter(|e| e.calendar == c.id).collect();
+        for e in &events {
             if let Some(r) = &e.remote {
                 known.items.insert(r.href.clone(), r.etag.clone());
             }
         }
+        // Changed resources: everything that shares the href goes back together.
+        let mut dirty: Vec<&str> = events.iter().filter_map(|e| e.remote.as_ref().filter(|r| r.dirty).map(|r| r.href.as_str())).collect();
+        dirty.sort_unstable();
+        dirty.dedup();
+        for href in dirty {
+            let group: Vec<&Event> = events.iter().copied().filter(|e| e.remote.as_ref().is_some_and(|r| r.href == href)).collect();
+            let Some(first) = group.first().and_then(|e| e.remote.as_ref()) else { continue };
+            let etag = Some(first.etag.clone()).filter(|e| !e.is_empty());
+            let body = ibercorreo_ical::write_resource(group.iter().copied(), &first.raw, now);
+            let uid = group.first().map(|e| e.uid.clone()).unwrap_or_default();
+            out.changes.push(Change::Put { calendar: remote.href.clone(), href: href.to_string(), etag, uid, body });
+        }
+        // New appointments: one resource per UID.
+        let mut uids: Vec<&str> = events.iter().filter(|e| e.remote.is_none()).map(|e| e.uid.as_str()).collect();
+        uids.sort_unstable();
+        uids.dedup();
+        for uid in uids {
+            let group: Vec<&Event> = events.iter().copied().filter(|e| e.remote.is_none() && e.uid == uid).collect();
+            let href = format!("{}{}.ics", remote.href, resource_name(uid));
+            let body = ibercorreo_ical::write_resource(group.iter().copied(), "", now);
+            out.changes.push(Change::Put { calendar: remote.href.clone(), href, etag: None, uid: uid.to_string(), body });
+        }
         out.calendars.insert(remote.href.clone(), known);
     }
+    for d in store.remote_deletions() {
+        out.changes.push(Change::Delete { calendar: d.calendar.clone(), href: d.href.clone(), etag: d.etag.clone() });
+    }
+    out.changes.truncate(MAX_CHANGES);
     out
+}
+
+/// What became of one [`Change`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum Pushed {
+    /// Written; the events of `uid` in `calendar` now live at `href`.
+    Put { calendar: String, href: String, uid: String },
+    /// Deleted, or already gone.
+    Deleted { href: String },
+    /// The server's copy changed meanwhile, so it wins: it comes down in this sync.
+    Conflict { href: String },
 }
 
 /// One server calendar after [`run`].
@@ -60,9 +125,58 @@ pub struct CalendarSync {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Batch {
+    /// The changes sent, and what became of them. A change that failed is not here, and is sent
+    /// again next time.
+    pub pushed: Vec<Pushed>,
     /// Every calendar the server has (that can hold events), changed or not.
     pub calendars: Vec<CalendarSync>,
     pub errors: Vec<String>,
+}
+
+/// Send `state`'s changes; returns the state as it stands after them (what was written must be
+/// fetched again, since the server may store its own version of it).
+fn push(http: &mut dyn Http, url: &Url, state: &State, batch: &mut Batch) -> ibercorreo_dav::Result<State> {
+    let mut after = state.clone();
+    after.changes.clear();
+    for change in &state.changes {
+        let (calendar, href) = match change {
+            Change::Put { calendar, href, .. } | Change::Delete { calendar, href, .. } => (calendar, href),
+        };
+        // Only resources inside their calendar, on this server.
+        let inside = url.join(href).is_some_and(|p| p.starts_with(calendar.as_str()) && p.len() > calendar.len());
+        if !inside {
+            batch.errors.push(format!("{href}: not inside its calendar; not sent"));
+            continue;
+        }
+        let result = match change {
+            Change::Put { body, etag, .. } => caldav::put(http, href, body, etag.as_deref()),
+            Change::Delete { etag, .. } => caldav::delete(http, href, etag),
+        };
+        let known = after.calendars.entry(calendar.clone()).or_default();
+        // Whatever happened, the calendar changed or may have: list it again.
+        known.ctag = None;
+        match (change, result) {
+            // Signed out or offline: stop, and send everything next time.
+            (_, Err(e @ (ibercorreo_dav::Error::Auth(_) | ibercorreo_dav::Error::Io(_)))) => return Err(e),
+            (_, Err(e)) => batch.errors.push(format!("{href}: {e}")),
+            (Change::Put { uid, .. }, Ok(Written::Done { .. })) => {
+                known.items.insert(href.clone(), String::new());
+                batch.pushed.push(Pushed::Put { calendar: calendar.clone(), href: href.clone(), uid: uid.clone() });
+            }
+            (Change::Put { etag: None, .. }, Ok(Written::Conflict)) => {
+                batch.errors.push(format!("{href}: the server already has an appointment there; not sent"));
+            }
+            (Change::Delete { .. }, Ok(Written::Done { .. } | Written::Gone)) => {
+                known.items.remove(href);
+                batch.pushed.push(Pushed::Deleted { href: href.clone() });
+            }
+            (_, Ok(Written::Conflict | Written::Gone)) => {
+                known.items.insert(href.clone(), String::new());
+                batch.pushed.push(Pushed::Conflict { href: href.clone() });
+            }
+        }
+    }
+    Ok(after)
 }
 
 /// Find the calendars at `url` and fetch what changed since `state`. Failing to reach or sign in
@@ -70,6 +184,7 @@ pub struct Batch {
 /// [`Batch::errors`] and left as it is.
 pub fn run(http: &mut dyn Http, url: &Url, state: &State) -> ibercorreo_dav::Result<Batch> {
     let mut batch = Batch::default();
+    let state = &push(http, url, state, &mut batch)?;
     for cal in caldav::discover(http, url)? {
         let known = state.calendars.get(&cal.href);
         if let Some(k) = known
@@ -112,6 +227,10 @@ pub fn run(http: &mut dyn Http, url: &Url, state: &State) -> ibercorreo_dav::Res
 /// What [`apply`] changed, for the status bar.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Report {
+    /// Changes made here and written to the server.
+    pub sent: usize,
+    /// Changes made here that the server's newer copy replaced.
+    pub conflicts: usize,
     pub calendars_added: usize,
     pub calendars_removed: usize,
     pub added: usize,
@@ -126,6 +245,24 @@ const DEFAULT_COLOR: &str = "#1F7A8C";
 /// Fold a [`run`] result into the store. Calendars the server no longer has are removed here too.
 pub fn apply(store: &mut Store, batch: Batch) -> Report {
     let mut report = Report { errors: batch.errors, ..Report::default() };
+    for p in &batch.pushed {
+        match p {
+            Pushed::Put { calendar, href, uid } => {
+                report.sent = report.sent.saturating_add(1);
+                if let Some(id) = store.calendar_by_href(calendar) {
+                    store.mark_remote_sent(id, uid, href);
+                }
+            }
+            Pushed::Deleted { href } => {
+                report.sent = report.sent.saturating_add(1);
+                store.forget_remote_deletion(href);
+            }
+            Pushed::Conflict { href } => {
+                report.conflicts = report.conflicts.saturating_add(1);
+                store.forget_remote_deletion(href);
+            }
+        }
+    }
     let hrefs: Vec<String> = batch.calendars.iter().map(|cs| cs.calendar.href.clone()).collect();
     for cs in batch.calendars {
         let cal = &cs.calendar;
@@ -161,7 +298,7 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
                     continue;
                 }
             };
-            let remote = EventRemote { href: item.href.clone(), etag: item.etag.clone() };
+            let remote = EventRemote::new(&item.href, &item.etag, &item.data);
             let events = parsed
                 .events
                 .into_iter()

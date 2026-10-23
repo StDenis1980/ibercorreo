@@ -328,7 +328,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "New Appointment",
         group: "Calendar/New",
         shortcut: Some("Ctrl+Shift+A"),
-        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string\nrepeat?: daily | weekdays | weekly | monthly | yearly\nrrule?: string — an iCalendar RRULE, instead of repeat\nuntil?: YYYY-MM-DD — the last day it repeats\nreminder?: minutes before | \"none\" — default 15, none for all-day",
+        params: "summary: string\nstart: YYYY-MM-DD (all day) | YYYY-MM-DDTHH:MM\nend?: same form — default: one hour, or one day\nlocation?: string\ndescription?: string\nrepeat?: daily | weekdays | weekly | monthly | yearly\nrrule?: string — an iCalendar RRULE, instead of repeat\nuntil?: YYYY-MM-DD — the last day it repeats\nreminder?: minutes before | \"none\" — default 15, none for all-day\ncalendar?: number — the calendar's id (calendar.list), default the first one",
         edits: true,
         run: event_add,
     },
@@ -368,6 +368,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "id?: number, start?: as reminder.list gives it — default: every due reminder\nminutes?: number — default 5, at most a week",
         edits: true,
         run: reminder_snooze,
+    },
+    CommandSpec {
+        id: "calendar.list",
+        label: "Calendars",
+        group: "Calendar/Manage Calendars",
+        shortcut: None,
+        params: "",
+        edits: false,
+        run: calendar_list,
     },
     CommandSpec {
         id: "calendar.importIcs",
@@ -588,7 +597,7 @@ fn event_json(e: &Event, when: When) -> Value {
     };
     json!({
         "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location,
-        "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
+        "calendar": e.calendar, "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
         "timeZone": e.tzid, "timeZoneUnderstood": e.tzid.is_none() || e.zone().is_some(), "reminders": e.reminders,
     })
 }
@@ -978,11 +987,14 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
         };
         When::all_day(st, en)?
     };
-    let seq = s.store.events().len();
+    let calendar = match u32_param(p, "calendar")? {
+        Some(c) => s.store.calendar(c)?.id,
+        None => s.store.calendars().first().map_or(0, |c| c.id),
+    };
     let e = Event {
         id: EventId(0),
-        calendar: 0,
-        uid: format!("{}-{seq}@ibercorreo.local", when.start_date()),
+        calendar,
+        uid: new_uid(s, when, summary),
         summary: ibercorreo_core::clamp_text(summary, ibercorreo_core::MAX_FIELD_LEN).to_string(),
         location: ibercorreo_core::clamp_text(str_param(p, "location")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string(),
         description: ibercorreo_core::clamp_text(str_param(p, "description")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string(),
@@ -1007,6 +1019,27 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
     s.day = when.start_date();
     let e = s.store.event(id)?;
     Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
+}
+
+/// A UID unique enough to share a CalDAV calendar with other devices: the time it was made, the
+/// store's next event number and a hash of them with the title, as RFC 5545 §3.8.4.7 suggests.
+fn new_uid(s: &Session, when: When, summary: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let unix = s.now().to_unix();
+    let seq = s.store.events().len();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (unix, seq, when.start_date().to_string(), summary).hash(&mut h);
+    format!("{}-{unix}-{seq}-{:016x}@ibercorreo", when.start_date(), h.finish())
+}
+
+fn calendar_list(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(Value::Array(
+        s.store
+            .calendars()
+            .iter()
+            .map(|c| json!({ "id": c.id, "name": c.name, "color": c.color, "server": c.remote.as_ref().map(|r| r.href.clone()) }))
+            .collect(),
+    ))
 }
 
 fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {

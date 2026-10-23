@@ -12,8 +12,8 @@ use std::path::Path;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef,
-    Result, Zone, clamp_text,
+    Account, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId, FolderRole, Message, MessageId,
+    RemoteRef, Result, Zone, clamp_text,
 };
 use serde::{Deserialize, Serialize};
 
@@ -46,6 +46,17 @@ pub struct Store {
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,
+    /// Synced events deleted here, still to be deleted on the server.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    remote_deletions: Vec<RemoteDeletion>,
+}
+
+/// A CalDAV resource deleted here: its calendar collection, path and last known version.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteDeletion {
+    pub calendar: String,
+    pub href: String,
+    pub etag: String,
 }
 
 /// A reminder the person dealt with: the occurrence (event UID and start in UTC), and until when
@@ -306,7 +317,11 @@ impl Store {
             return Err(Error::invalid("calendar", "the last calendar cannot be removed"));
         }
         self.events.retain(|e| e.calendar != id);
-        Ok(self.calendars.remove(pos))
+        let removed = self.calendars.remove(pos);
+        if let Some(r) = &removed.remote {
+            self.remote_deletions.retain(|d| d.calendar != r.href);
+        }
+        Ok(removed)
     }
 
     /// Replace the events that came from server resource `href` in `calendar` with `events`
@@ -333,6 +348,22 @@ impl Store {
         Ok(old.is_empty())
     }
 
+    /// Record that the events of `uid` in `calendar` were written to server resource `href`: new
+    /// ones are linked to it, changed ones are no longer marked. The ETag is left empty, so the
+    /// server's copy is fetched again.
+    pub fn mark_remote_sent(&mut self, calendar: u32, uid: &str, href: &str) {
+        for e in self.events.iter_mut().filter(|e| e.calendar == calendar) {
+            match &mut e.remote {
+                Some(r) if r.href == href => {
+                    r.dirty = false;
+                    r.etag.clear();
+                }
+                None if e.uid == uid => e.remote = Some(EventRemote::new(href, "", "")),
+                _ => {}
+            }
+        }
+    }
+
     /// Remove the events that came from server resource `href` in `calendar`; how many.
     pub fn remove_remote_events(&mut self, calendar: u32, href: &str) -> usize {
         let before = self.events.len();
@@ -353,17 +384,55 @@ impl Store {
         self.events.iter().find(|e| e.id == id).ok_or_else(|| Error::not_found("event", id.0.to_string()))
     }
 
+    /// The event, to change it. An event synced from a server is marked to be sent back.
     pub fn event_mut(&mut self, id: EventId) -> Result<&mut Event> {
-        self.events.iter_mut().find(|e| e.id == id).ok_or_else(|| Error::invalid("event", format!("no event {}", id.0)))
+        let e = self.events.iter_mut().find(|e| e.id == id).ok_or_else(|| Error::invalid("event", format!("no event {}", id.0)))?;
+        if let Some(r) = &mut e.remote {
+            r.dirty = true;
+        }
+        Ok(e)
     }
 
+    /// Remove an event. One synced from a server is deleted there at the next sync; when other
+    /// events share its resource (a series and its changed occurrences), the resource is sent
+    /// again without it instead.
     pub fn remove_event(&mut self, id: EventId) -> Result<Event> {
         let pos = self.events.iter().position(|e| e.id == id).ok_or_else(|| Error::not_found("event", id.0.to_string()))?;
-        Ok(self.events.remove(pos))
+        let e = self.events.remove(pos);
+        if let Some(r) = &e.remote {
+            let mut shared = false;
+            for other in self.events.iter_mut().filter(|o| o.calendar == e.calendar) {
+                if let Some(or) = other.remote.as_mut().filter(|or| or.href == r.href) {
+                    or.dirty = true;
+                    shared = true;
+                }
+            }
+            if !shared && let Some(href) = self.calendar(e.calendar).ok().and_then(|c| c.remote.as_ref()).map(|c| c.href.clone()) {
+                if self.remote_deletions.len() >= MAX_MARKS {
+                    self.remote_deletions.remove(0);
+                }
+                self.remote_deletions.push(RemoteDeletion { calendar: href, href: r.href.clone(), etag: r.etag.clone() });
+            }
+        }
+        Ok(e)
+    }
+
+    /// Server resources deleted here, still to be deleted on the server.
+    pub fn remote_deletions(&self) -> &[RemoteDeletion] {
+        &self.remote_deletions
+    }
+
+    /// Forget a pending server deletion (done, or the server's copy won).
+    pub fn forget_remote_deletion(&mut self, href: &str) {
+        self.remote_deletions.retain(|d| d.href != href);
     }
 
     pub fn restore_event(&mut self, e: Event) -> Result<()> {
         self.calendar(e.calendar)?;
+        if let Some(r) = &e.remote {
+            let href = r.href.clone();
+            self.forget_remote_deletion(&href);
+        }
         if self.events.iter().any(|x| x.id == e.id) {
             return Err(Error::invalid("event", format!("id {} already present", e.id.0)));
         }
@@ -457,7 +526,10 @@ impl Store {
             if let Some(existing) = self.events.iter_mut().find(|e| e.uid == ev.uid && e.calendar == calendar && e.recurrence_id == ev.recurrence_id)
             {
                 let id = existing.id;
+                // Still the same server resource, now changed here.
+                let remote = existing.remote.take().map(|r| EventRemote { dirty: true, ..r });
                 *existing = ev.into_event(id, calendar);
+                existing.remote = remote;
                 report.updated += 1;
             } else {
                 self.add_event(ev.into_event(EventId(0), calendar))?;
@@ -620,7 +692,8 @@ SUMMARY:Stand-up (moved)\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         let r = s.import_ics(ics, 0).unwrap();
         assert_eq!((r.added, r.updated), (0, 2));
         let out = s.export_ics(None);
-        assert!(out.contains("EXDATE;VALUE=DATE:20261021,20261023") && out.contains("RECURRENCE-ID;VALUE=DATE:20261022"), "{out}");
+        // EXDATE takes DTSTART's form: the start time on each cancelled day.
+        assert!(out.contains("EXDATE:20261021T091500,20261023T091500") && out.contains("RECURRENCE-ID;VALUE=DATE:20261022"), "{out}");
     }
 
     #[test]

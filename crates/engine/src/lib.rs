@@ -260,7 +260,7 @@ impl Session {
 
     /// What a calendar sync needs from the store ([`ibercorreo_sync::calendar::run`]).
     pub fn calendar_sync_state(&self) -> ibercorreo_sync::calendar::State {
-        ibercorreo_sync::calendar::state(&self.store)
+        ibercorreo_sync::calendar::state(&self.store, self.now)
     }
 
     /// Fold a calendar sync into the store. Undo history is cleared, as for mail.
@@ -270,8 +270,14 @@ impl Session {
         self.redo.clear();
         self.dirty = true;
         self.fix_selection();
-        let changes = report.added.saturating_add(report.updated).saturating_add(report.removed);
-        let line = format!("calendars: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        let changes = report.added.saturating_add(report.updated).saturating_add(report.removed).saturating_add(report.sent);
+        let mut line = format!("calendars: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        if report.sent > 0 {
+            line.push_str(&format!(", {} sent", report.sent));
+        }
+        if report.conflicts > 0 {
+            line.push_str(&format!(", {} changed on the server too (the server's copy was kept)", report.conflicts));
+        }
         if changes > 0 || !report.errors.is_empty() {
             self.status = if self.status.starts_with("Synced") { format!("{}; {line}", self.status) } else { format!("Synced {line}") };
         }

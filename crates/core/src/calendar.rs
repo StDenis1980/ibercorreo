@@ -35,8 +35,26 @@ pub struct CalendarRemote {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventRemote {
     pub href: String,
-    /// The resource's version when last synced.
+    /// The resource's version when last synced; empty when it must be fetched again.
     pub etag: String,
+    /// Changed here since the last sync, so the next one sends it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dirty: bool,
+    /// The server's text of the resource when last synced, so writing it back keeps what Iber
+    /// Correo does not read (attendees, categories, time zone definitions). Empty when larger
+    /// than [`MAX_REMOTE_RAW`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub raw: String,
+}
+
+/// Largest server copy kept per event resource.
+pub const MAX_REMOTE_RAW: usize = 256 * 1024;
+
+impl EventRemote {
+    pub fn new(href: &str, etag: &str, raw: &str) -> EventRemote {
+        let raw = if raw.len() <= MAX_REMOTE_RAW { raw.to_string() } else { String::new() };
+        EventRemote { href: href.to_string(), etag: etag.to_string(), dirty: false, raw }
+    }
 }
 
 /// When an event happens. All-day events span whole dates, `end` exclusive (as in iCalendar).
