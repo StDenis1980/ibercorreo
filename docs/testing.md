@@ -1,7 +1,7 @@
 # Iber Correo — testing
 
-Status: 2026-10-22 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; a real
-IMAP server is tested when one is configured.
+Status: 2026-10-23 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; real
+IMAP, SMTP and CalDAV servers are tested when configured.
 
 ## Layers of tests
 - **Unit and property tests** in each crate (`cargo test -p <crate>`), including hostile-input
@@ -12,6 +12,9 @@ IMAP server is tested when one is configured.
   with a generated certificate: implicit TLS, STARTTLS, untrusted and mismatched certificates,
   passwords refused over plain connections.
 - **Sync logic** (`crates/sync/src/tests.rs`): `state`/`apply` on stores, `run` against a scripted server.
+  Calendar sync (`crates/sync/src/calendar/tests.rs`) runs against a small CalDAV server in memory.
+- **HTTP, WebDAV and CalDAV** (`crates/dav/src/tests.rs`): replies read two bytes at a time,
+  chunked and keep-alive replies, hostile replies, XML bounds (depth, no `DOCTYPE`), discovery.
 - **Real server** (`real_server_when_configured`, `real_server_sync_when_configured`,
   `real_submission_when_configured`): skipped unless
   `IBERCORREO_TEST_IMAP` (and for submission `IBERCORREO_TEST_SMTP`) is set. The sync test reads, flags, moves and deletes here and checks the
@@ -132,7 +135,35 @@ IBERCORREO_TEST_SMTP="localhost 10587 starttls" \
 IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_
 ```
 
+## Radicale for the CalDAV test (Linux)
+Radicale (GPL-3.0) runs only as an external test server; none of its code is used.
+
+```sh
+python3 -m venv $D/rad && $D/rad/bin/pip install radicale
+mkdir -p $D/radicale && echo 'ana:secret' > $D/radicale/users
+cat > $D/radicale/config <<CONF
+[server]
+hosts = 127.0.0.1:15232
+ssl = True
+certificate = $D/cert.pem
+key = $D/key.pem
+[auth]
+type = htpasswd
+htpasswd_filename = $D/radicale/users
+htpasswd_encryption = plain
+[storage]
+filesystem_folder = $D/radicale/collections
+CONF
+$D/rad/bin/radicale --config $D/radicale/config &
+curl -sk -u ana:secret -X MKCALENDAR https://127.0.0.1:15232/ana/work/
+IBERCORREO_TEST_CALDAV="https://localhost:15232/ana/work/ ana secret $D/cert.der" cargo test -p ibercorreo-net real_caldav
+```
+
+The test fills and empties `/ana/work/`. To try the app: `caldav` `https://localhost:15232/`
+in Account settings (discovery goes through `/.well-known/caldav`) and `IBERCORREO_CA=$D/cert.der`.
+
 ## Revision history
 - 2026-10-22 — created with M1.2 (local TLS and the Dovecot check).
 - 2026-10-22 — M1.3: sync tests.
 - 2026-10-22 — M1.4: SMTP tests and the Postfix setup.
+- 2026-10-23 — M2.5a: HTTP/WebDAV/CalDAV tests, calendar sync tests and the Radicale setup.

@@ -1,6 +1,6 @@
 # Iber Correo — ranked gaps
 
-Status: 2026-10-22 · Pick from the top.
+Status: 2026-10-23 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -45,6 +45,14 @@ Status: 2026-10-22 · Pick from the top.
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
     per-person default other than 15 minutes, and reminders on mail (follow-up flags).
+12. **CalDAV: from the server only (M2.5a).** Calendars are found from a server, principal or
+    calendar address and their events come down at Send/Receive (only what changed), checked
+    against Radicale. Missing, in order: **sending changes back** (M2.5b: appointments added,
+    changed or deleted here in a server calendar are not sent yet, and are replaced the next time
+    the server's copy changes); keeping the properties Iber Correo does not read (attendees,
+    categories) when it writes an event back; `sync-collection` (RFC 6578) instead of listing
+    every ETag; a separate CalDAV password; tasks (`VTODO`); hiding a calendar; and checking
+    against Nextcloud, Google and iCloud.
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -58,3 +66,4 @@ Status: 2026-10-22 · Pick from the top.
 - 2026-10-22 — gap 10 narrowed: day and week views (M2.2).
 - 2026-10-22 — gap 5 narrowed: time zones (M2.3).
 - 2026-10-22 — gap 11 added: reminders (M2.4).
+- 2026-10-23 — gap 12 added: CalDAV pull (M2.5a).

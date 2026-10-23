@@ -3,10 +3,12 @@ name = "ibercorreo-sync"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L3: two-way IMAP mail sync between the local store and a server"
+description = "Iber Correo L3: two-way IMAP mail sync and CalDAV calendar sync between the local store and servers"
 
 [dependencies]
 ibercorreo-core.workspace = true
+ibercorreo-dav.workspace = true
+ibercorreo-ical.workspace = true
 ibercorreo-imap.workspace = true
 ibercorreo-mime.workspace = true
 ibercorreo-smtp.workspace = true

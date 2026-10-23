@@ -1,6 +1,7 @@
 //! Iber Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
-//! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587).
+//! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587), and
+//! CalDAV clients over HTTPS.
 //!
 //! Desktop only: the web build reaches servers through a proxy instead (planned), so this crate
 //! is not part of the wasm check.
@@ -18,6 +19,7 @@ use thiserror::Error;
 
 pub mod job;
 
+pub use ibercorreo_dav as dav;
 pub use ibercorreo_imap as imap;
 pub use ibercorreo_smtp as smtp;
 
@@ -216,6 +218,19 @@ pub fn smtp(endpoint: &Endpoint, tls: &Tls, helo: &str) -> Result<smtp::Client<S
             }
         }
     }
+}
+
+/// A CalDAV client for `url`'s server signing in as `user`. Every connection it opens is TLS,
+/// checked against the host name.
+pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
+    // `[::1]` in a URL is `::1` to the resolver and the certificate check.
+    let host = url.host.trim_start_matches('[').trim_end_matches(']').to_string();
+    let (port, tls) = (url.port, tls.clone());
+    let connect = move || {
+        let tcp = tcp(&host, port).map_err(|e| std::io::Error::other(e.to_string()))?;
+        secure(tcp, &host, &tls).map_err(|e| std::io::Error::other(e.to_string()))
+    };
+    dav::Client::new(connect, url, user, password)
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ pub mod recur;
 pub mod rich;
 pub mod zone;
 
-pub use calendar::{Calendar, Event, EventId};
+pub use calendar::{Calendar, CalendarRemote, Event, EventId, EventRemote};
 pub use contact::Contact;
 pub use date::{Date, DateTime, Weekday};
 pub use error::{Error, Result};

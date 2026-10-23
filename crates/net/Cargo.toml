@@ -3,10 +3,11 @@ name = "ibercorreo-net"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L4: TCP and TLS (rustls) connections to mail servers, IMAP and SMTP sessions on them, and the Send/Receive job"
+description = "Iber Correo L4: TCP and TLS (rustls) connections to mail servers, IMAP, SMTP and CalDAV sessions on them, and the Send/Receive job"
 
 [dependencies]
 ibercorreo-core.workspace = true
+ibercorreo-dav.workspace = true
 ibercorreo-imap.workspace = true
 ibercorreo-smtp.workspace = true
 ibercorreo-sync.workspace = true

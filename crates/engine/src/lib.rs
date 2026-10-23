@@ -258,6 +258,29 @@ impl Session {
         report
     }
 
+    /// What a calendar sync needs from the store ([`ibercorreo_sync::calendar::run`]).
+    pub fn calendar_sync_state(&self) -> ibercorreo_sync::calendar::State {
+        ibercorreo_sync::calendar::state(&self.store)
+    }
+
+    /// Fold a calendar sync into the store. Undo history is cleared, as for mail.
+    pub fn apply_calendar_sync(&mut self, batch: ibercorreo_sync::calendar::Batch) -> ibercorreo_sync::calendar::Report {
+        let report = ibercorreo_sync::calendar::apply(&mut self.store, batch);
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = true;
+        self.fix_selection();
+        let changes = report.added.saturating_add(report.updated).saturating_add(report.removed);
+        let line = format!("calendars: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        if changes > 0 || !report.errors.is_empty() {
+            self.status = if self.status.starts_with("Synced") { format!("{}; {line}", self.status) } else { format!("Synced {line}") };
+        }
+        if !report.errors.is_empty() {
+            self.status.push_str(&format!(" ({} calendar problems)", report.errors.len()));
+        }
+        report
+    }
+
     /// The server mailbox that holds sent copies, once the Sent folder is linked to one.
     pub fn sent_path(&self) -> Option<String> {
         let sent = self.store.folder_by_role(FolderRole::Sent).ok()?;

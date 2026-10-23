@@ -133,6 +133,10 @@ pub struct Account {
     pub name: String,
     pub address: Address,
     pub kind: AccountKind,
+    /// The account's CalDAV address (`https://…`: a server, principal or calendar), signed in to
+    /// with the same name and password as the mail; empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub caldav: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

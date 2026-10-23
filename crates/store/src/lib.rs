@@ -12,7 +12,8 @@ use std::path::Path;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, Calendar, Contact, Date, DateTime, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef, Result, Zone,
+    Account, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, Folder, FolderId, FolderRole, Message, MessageId, RemoteRef,
+    Result, Zone, clamp_text,
 };
 use serde::{Deserialize, Serialize};
 
@@ -108,7 +109,7 @@ impl Store {
         ] {
             s.add_folder(name, role);
         }
-        s.calendars.push(Calendar { id: 0, name: "Calendar".into(), color: "#1F7A8C".into() });
+        s.calendars.push(Calendar { id: 0, name: "Calendar".into(), color: "#1F7A8C".into(), remote: None });
         s
     }
 
@@ -271,6 +272,72 @@ impl Store {
 
     pub fn calendar(&self, id: u32) -> Result<&Calendar> {
         self.calendars.iter().find(|c| c.id == id).ok_or_else(|| Error::not_found("calendar", id.to_string()))
+    }
+
+    /// Most calendars kept.
+    pub const MAX_CALENDARS: usize = 500;
+
+    /// Add a calendar; its id is one past the highest in use.
+    pub fn add_calendar(&mut self, name: &str, color: &str, remote: Option<CalendarRemote>) -> Result<u32> {
+        if self.calendars.len() >= Self::MAX_CALENDARS {
+            return Err(Error::invalid("calendar", format!("at most {} calendars", Self::MAX_CALENDARS)));
+        }
+        let id = self.calendars.iter().map(|c| c.id).max().map_or(0, |m| m.saturating_add(1));
+        if self.calendars.iter().any(|c| c.id == id) {
+            return Err(Error::invalid("calendar", "no calendar id left"));
+        }
+        self.calendars.push(Calendar { id, name: clamp_text(name, 200).to_string(), color: color.to_string(), remote });
+        Ok(id)
+    }
+
+    pub fn calendar_mut(&mut self, id: u32) -> Result<&mut Calendar> {
+        self.calendars.iter_mut().find(|c| c.id == id).ok_or_else(|| Error::not_found("calendar", id.to_string()))
+    }
+
+    /// The calendar mirroring server collection `href`.
+    pub fn calendar_by_href(&self, href: &str) -> Option<u32> {
+        self.calendars.iter().find(|c| c.remote.as_ref().is_some_and(|r| r.href == href)).map(|c| c.id)
+    }
+
+    /// Remove a calendar and its events. The last calendar stays: events always need one.
+    pub fn remove_calendar(&mut self, id: u32) -> Result<Calendar> {
+        let pos = self.calendars.iter().position(|c| c.id == id).ok_or_else(|| Error::not_found("calendar", id.to_string()))?;
+        if self.calendars.len() <= 1 {
+            return Err(Error::invalid("calendar", "the last calendar cannot be removed"));
+        }
+        self.events.retain(|e| e.calendar != id);
+        Ok(self.calendars.remove(pos))
+    }
+
+    /// Replace the events that came from server resource `href` in `calendar` with `events`
+    /// (a series and its changed occurrences). An event that was already here keeps its id, so a
+    /// selection survives a sync. Returns whether the resource was new.
+    pub fn replace_remote_events(&mut self, calendar: u32, href: &str, events: Vec<Event>) -> Result<bool> {
+        self.calendar(calendar)?;
+        let from_href = |e: &Event| e.calendar == calendar && e.remote.as_ref().is_some_and(|r| r.href == href);
+        let old: Vec<(String, Option<Date>, EventId)> =
+            self.events.iter().filter(|e| from_href(e)).map(|e| (e.uid.clone(), e.recurrence_id, e.id)).collect();
+        self.events.retain(|e| !from_href(e));
+        for mut e in events {
+            e.calendar = calendar;
+            match old.iter().find(|(uid, rid, _)| *uid == e.uid && *rid == e.recurrence_id) {
+                Some((_, _, id)) => {
+                    e.id = *id;
+                    self.events.push(e);
+                }
+                None => {
+                    self.add_event(e)?;
+                }
+            }
+        }
+        Ok(old.is_empty())
+    }
+
+    /// Remove the events that came from server resource `href` in `calendar`; how many.
+    pub fn remove_remote_events(&mut self, calendar: u32, href: &str) -> usize {
+        let before = self.events.len();
+        self.events.retain(|e| !(e.calendar == calendar && e.remote.as_ref().is_some_and(|r| r.href == href)));
+        before.saturating_sub(self.events.len())
     }
 
     pub fn add_event(&mut self, mut e: Event) -> Result<EventId> {
