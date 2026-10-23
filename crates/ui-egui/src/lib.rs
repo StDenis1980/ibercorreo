@@ -58,9 +58,16 @@ struct ContactForm {
     title: String,
     birthday: String,
     note: String,
+    /// The address book it is in, or goes to.
+    book: u32,
 }
 
 impl ContactForm {
+    /// An empty card for a contact in `book`.
+    fn new_in(book: u32) -> ContactForm {
+        ContactForm { book, ..ContactForm::default() }
+    }
+
     fn of(c: &ibercorreo_core::Contact) -> ContactForm {
         ContactForm {
             id: Some(c.id),
@@ -71,6 +78,7 @@ impl ContactForm {
             title: c.title.clone().unwrap_or_default(),
             birthday: c.birthday.map(|b| b.to_string()).unwrap_or_default(),
             note: c.note.clone(),
+            book: c.book,
         }
     }
 
@@ -78,7 +86,7 @@ impl ContactForm {
         let phones: Vec<Value> = self.phones.iter().filter(|(_, n)| !n.trim().is_empty()).map(|(k, n)| json!({ "kind": k, "number": n })).collect();
         let mut p = json!({
             "name": self.name, "email": self.email, "phones": phones, "organization": self.organization,
-            "title": self.title, "birthday": self.birthday, "note": self.note,
+            "title": self.title, "birthday": self.birthday, "note": self.note, "book": self.book,
         });
         if let (Some(id), Some(o)) = (self.id, p.as_object_mut()) {
             o.insert("id".into(), json!(id));
@@ -130,6 +138,8 @@ pub struct App {
     event_form: EventForm,
     contact_form: ContactForm,
     contact_query: String,
+    /// The address book People shows; `None`: all of them.
+    contact_book: Option<u32>,
     search: String,
     /// Scroll the day and week grid to the working morning on its next frame.
     scroll_to_morning: bool,
@@ -157,6 +167,7 @@ impl App {
             event_form: EventForm::default(),
             contact_form: ContactForm::default(),
             contact_query: String::new(),
+            contact_book: None,
             search: String::new(),
             scroll_to_morning: true,
             zone_filter: String::new(),
@@ -251,10 +262,11 @@ impl App {
                         });
                         ui.end_row();
                     }
-                    ui.label(RichText::new("Calendars (CalDAV)").strong());
+                    ui.label(RichText::new("Calendars and contacts").strong())
+                        .on_hover_text("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail");
                     ui.end_row();
                     ui.label("Address");
-                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://calendar.example.org (optional)").desired_width(280.0));
+                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://dav.example.org (optional)").desired_width(280.0));
                     ui.end_row();
                 });
                 ui.add_space(6.0);
@@ -537,17 +549,12 @@ impl App {
                     ui.separator();
                     self.zone_picker(ui);
                     ui.separator();
-                    let label = if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" };
-                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Sync mail and the CalDAV calendars (F9)").clicked() {
-                        if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
-                            self.run("account.sync", json!({}));
-                        } else {
-                            self.open_account_settings("Set up your account to sync calendars.");
-                        }
-                    }
+                    self.sync_button(ui, "Set up your account to sync calendars.");
                 }
                 View::Contacts => {
                     ui.label(RichText::new("People").heading());
+                    ui.separator();
+                    self.sync_button(ui, "Set up your account to sync contacts.");
                 }
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -562,6 +569,19 @@ impl App {
                 }
             });
         });
+    }
+
+    /// Send/Receive, which also syncs the calendars and address books; without an account it
+    /// opens the account settings with `setup` as the reason.
+    fn sync_button(&mut self, ui: &mut Ui, setup: &str) {
+        let label = if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" };
+        if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Sync mail, calendars and contacts (F9)").clicked() {
+            if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
+                self.run("account.sync", json!({}));
+            } else {
+                self.open_account_settings(setup);
+            }
+        }
     }
 
     /// The zone times are shown in: a button with its name and offset, opening a searchable list.
@@ -1291,12 +1311,34 @@ impl App {
             ui.horizontal(|ui| {
                 ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text("Search people").desired_width(320.0));
                 if ui.button("➕ New Contact").clicked() {
-                    self.contact_form = ContactForm::default();
+                    self.contact_form = ContactForm::new_in(self.default_book());
                 }
             });
+            // The address books, when there is more than one: all, or one of them.
+            let books: Vec<(u32, String, bool)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone(), b.remote.is_some())).collect();
+            if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
+                self.contact_book = None;
+            }
+            if books.len() > 1 {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui.selectable_label(self.contact_book.is_none(), "All").clicked() {
+                        self.contact_book = None;
+                    }
+                    for (id, name, synced) in &books {
+                        let label = if *synced { format!("⟳ {name}") } else { name.clone() };
+                        let r = ui.selectable_label(self.contact_book == Some(*id), label);
+                        let r = if *synced { r.on_hover_text("Synced with the CardDAV server at Send/Receive") } else { r };
+                        if r.clicked() {
+                            self.contact_book = Some(*id);
+                        }
+                    }
+                });
+            }
             ui.add_space(8.0);
             let q = self.contact_query.to_lowercase();
-            let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().cloned().collect();
+            let book = self.contact_book;
+            let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
             if contacts.is_empty() {
                 ui.label(
                     RichText::new(if q.is_empty() { "No contacts yet. Add one, or open a .vcf file with Iber Correo." } else { "Nobody matches." })
@@ -1342,8 +1384,14 @@ impl App {
         });
     }
 
+    /// Where a new contact goes: the address book shown, else the first.
+    fn default_book(&self) -> u32 {
+        self.contact_book.or_else(|| self.session.store.books().first().map(|b| b.id)).unwrap_or(0)
+    }
+
     fn contact_card(&mut self, ui: &mut Ui) {
         let t = self.tokens;
+        let books: Vec<(u32, String)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone())).collect();
         let f = &mut self.contact_form;
         ui.label(RichText::new(if f.id.is_some() { "Contact" } else { "New contact" }).strong());
         ui.add_space(6.0);
@@ -1379,6 +1427,15 @@ impl App {
         field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
         ui.label(RichText::new("Notes").small().color(t.text_weak));
         ui.add(egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
+        if books.len() > 1 {
+            ui.label(RichText::new("Address book").small().color(t.text_weak));
+            let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
+            egui::ComboBox::from_id_salt("contact-book").width(ui.available_width()).selected_text(current).show_ui(ui, |ui| {
+                for (id, name) in &books {
+                    ui.selectable_value(&mut f.book, *id, name);
+                }
+            });
+        }
         ui.add_space(8.0);
         let (mut save, mut delete) = (false, false);
         ui.horizontal(|ui| {
@@ -1400,7 +1457,7 @@ impl App {
             && let Some(id) = self.contact_form.id
             && self.run("contact.delete", json!({ "id": id })).is_some()
         {
-            self.contact_form = ContactForm::default();
+            self.contact_form = ContactForm::new_in(self.default_book());
         }
     }
 }

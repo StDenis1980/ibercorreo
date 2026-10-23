@@ -1,14 +1,14 @@
 # Iber Correo — roadmap summary
 
-Status: 2026-10-23 · M2 (calendar and contacts) in progress
+Status: 2026-10-23 · M2 (calendar and contacts) done; next M3
 
-**Stage:** M1 done. Mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
+**Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 58 |
+| Commands in the registry | 59 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -76,6 +76,17 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   phones carried over). `contact.update`, `contact.delete`, `contact.get`, `contact.importVcf`,
   `contact.exportVcf`; `.vcf` files open with the app; an editable contact card in People.
   58 commands.
+- 2026-10-23 — M2.7b: CardDAV. `dav::carddav` (discovery through `/.well-known/carddav`, the
+  principal and `addressbook-home-set`; Depth 1 ETag listing; `addressbook-multiget`; `PUT` as
+  `text/vcard`), `sync::contacts` (both ways, like calendars: only changed books listed, only
+  changed cards fetched; contacts added, changed or deleted here written back with
+  `If-Match`/`If-None-Match`; the server's card wins a conflict; unread vCard lines go back
+  unchanged). Address books in the store (`books`, card tombstones), `contact.listBooks`, a `book`
+  on `contact.add`/`update`/`list`/`importVcf` (moving a card between books deletes it on the
+  old server), the CalDAV address serves CardDAV too. People shows the address books and
+  Send/Receive; the contact card has an Address book choice. `Url::join` now resolves `.` and `..`
+  segments, so a server's href cannot step outside its collection. Checked against Radicale 3.8,
+  from the CLI and the window. 59 commands. M2 done.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -89,6 +100,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.5b.
 - 2026-10-23 — M2.6.
 - 2026-10-23 — M2.7a.
+- 2026-10-23 — M2.7b; M2 done.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

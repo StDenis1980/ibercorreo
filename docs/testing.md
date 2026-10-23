@@ -1,7 +1,7 @@
 # Iber Correo — testing
 
 Status: 2026-10-23 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; real
-IMAP, SMTP and CalDAV servers are tested when configured.
+IMAP, SMTP, CalDAV and CardDAV servers are tested when configured.
 
 ## Layers of tests
 - **Unit and property tests** in each crate (`cargo test -p <crate>`), including hostile-input
@@ -12,7 +12,8 @@ IMAP, SMTP and CalDAV servers are tested when configured.
   with a generated certificate: implicit TLS, STARTTLS, untrusted and mismatched certificates,
   passwords refused over plain connections.
 - **Sync logic** (`crates/sync/src/tests.rs`): `state`/`apply` on stores, `run` against a scripted server.
-  Calendar sync (`crates/sync/src/calendar/tests.rs`) runs against a small CalDAV server in memory.
+  Calendar sync (`crates/sync/src/calendar/tests.rs`) and contact sync
+  (`crates/sync/src/contacts/tests.rs`) run against small CalDAV and CardDAV servers in memory.
 - **HTTP, WebDAV and CalDAV** (`crates/dav/src/tests.rs`): replies read two bytes at a time,
   chunked and keep-alive replies, hostile replies, XML bounds (depth, no `DOCTYPE`), discovery.
 - **Real server** (`real_server_when_configured`, `real_server_sync_when_configured`,
@@ -163,6 +164,19 @@ The test fills and empties `/ana/work/`, and checks that changes made in the sto
 appointment, a deletion) reach the server. To try the app: `caldav` `https://localhost:15232/`
 in Account settings (discovery goes through `/.well-known/caldav`) and `IBERCORREO_CA=$D/cert.der`.
 
+For CardDAV, make an address book on the same Radicale and run the contact test:
+
+```sh
+curl -sk -u ana:secret -X MKCOL https://127.0.0.1:15232/ana/contacts/ --data '<?xml version="1.0"?>
+<d:mkcol xmlns:d="DAV:" xmlns:r="urn:ietf:params:xml:ns:carddav"><d:set><d:prop><d:resourcetype>
+<d:collection/><r:addressbook/></d:resourcetype></d:prop></d:set></d:mkcol>'
+IBERCORREO_TEST_CARDDAV="https://localhost:15232/ana/contacts/ ana secret $D/cert.der" cargo test -p ibercorreo-net real_carddav
+```
+
+It fills and empties `/ana/contacts/`, sends an edit, a new contact and a deletion, and checks a
+fresh store sees them. In the app the same `https://localhost:15232/` address finds the address
+books through `/.well-known/carddav`.
+
 ## Meeting invitations end to end
 With Postfix, Dovecot and Radicale as above (and a Radicale user named like the mail sign-in,
 since the calendar uses the same name and password): send an invitation to the test mailbox
@@ -186,3 +200,4 @@ declining, editing the answer and cancelling one day of a series.
 - 2026-10-23 — M2.5a: HTTP/WebDAV/CalDAV tests, calendar sync tests and the Radicale setup.
 - 2026-10-23 — M2.5b: push tests (in memory and against Radicale).
 - 2026-10-23 — M2.6: invitations end to end.
+- 2026-10-23 — M2.7b: contact sync tests and the CardDAV check.

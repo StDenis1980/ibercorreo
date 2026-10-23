@@ -1,16 +1,19 @@
-//! HTTP/1.1, WebDAV (RFC 4918) and CalDAV (RFC 4791) for calendar sync, over any byte stream.
+//! HTTP/1.1, WebDAV (RFC 4918), CalDAV (RFC 4791) and CardDAV (RFC 6352) for calendar and
+//! contact sync, over any byte stream.
 //! The stream is TLS in the app (`ibercorreo-net`) and a scripted buffer in tests; this crate
 //! never opens a socket itself, so it builds for the browser too.
 //!
 //! - [`Url`]: an `https://` address, and hrefs resolved against it (other hosts refused, so a
-//!   password never goes anywhere else).
+//!   password never goes anywhere else; `.` and `..` resolved, so a path stays where it looks).
 //! - [`Client`]: requests on one kept-alive connection, opened again when the server closes it.
 //! - [`xml`]: the `multistatus` replies, read with bounded effort.
 //! - [`caldav`]: finding the calendars, listing what is in one, fetching events.
+//! - [`carddav`]: the same for address books and contact cards.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod caldav;
+pub mod carddav;
 mod http;
 pub mod xml;
 
@@ -145,7 +148,50 @@ pub(crate) fn encode_path(path: &str) -> String {
     if !out.starts_with('/') {
         out.insert(0, '/');
     }
-    out
+    remove_dots(&out)
+}
+
+/// `path` with its `.` and `..` segments resolved (RFC 3986 §5.2.4), so a path that looks inside
+/// a collection is inside it. Percent-encoded dots (`%2e`) count as dots, since servers decode
+/// them. A `..` above the root stays at the root.
+fn remove_dots(path: &str) -> String {
+    let (path, query) = match path.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (path, None),
+    };
+    let dots = |seg: &str| {
+        let s = seg.to_ascii_lowercase().replace("%2e", ".");
+        if s == "." {
+            Some(1)
+        } else if s == ".." {
+            Some(2)
+        } else {
+            None
+        }
+    };
+    let mut out: Vec<&str> = Vec::new();
+    let segments: Vec<&str> = path.split('/').skip(1).collect();
+    let last = segments.len().saturating_sub(1);
+    for (i, seg) in segments.iter().enumerate() {
+        match dots(seg) {
+            Some(n) => {
+                if n == 2 {
+                    out.pop();
+                }
+                // A trailing dot segment names the directory: keep its slash.
+                if i == last {
+                    out.push("");
+                }
+            }
+            None => out.push(seg),
+        }
+    }
+    let mut s = format!("/{}", out.join("/"));
+    if let Some(q) = query {
+        s.push('?');
+        s.push_str(q);
+    }
+    s
 }
 
 /// HTTP requests over one connection at a time, opened with `connect` when there is none (at

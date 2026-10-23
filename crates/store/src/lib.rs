@@ -12,8 +12,8 @@ use std::path::Path;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId, FolderRole, Message, MessageId,
-    RemoteRef, Result, Zone, clamp_text,
+    Account, AddressBook, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId, FolderRole,
+    Message, MessageId, RemoteRef, Result, Zone, clamp_text,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,7 +22,8 @@ pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Format version written into the file; a newer file is refused rather than misread.
 /// 2: folders and messages remember their server copy (`remote`), and deleted synced messages
 /// leave a tombstone until the server has deleted them too.
-/// 3: contacts hold several phones (`phones`), a UID, title, note, birthday and unread vCard lines.
+/// 3: contacts hold several phones (`phones`), a UID, title, note, birthday and unread vCard lines,
+/// and live in address books (`books`), which may mirror CardDAV servers.
 pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,9 +51,16 @@ pub struct Store {
     /// Synced events deleted here, still to be deleted on the server.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     remote_deletions: Vec<RemoteDeletion>,
+    /// Address books; book 0 is the local one every store starts with.
+    #[serde(default)]
+    books: Vec<AddressBook>,
+    /// Synced contacts deleted here, still to be deleted on the server.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    card_deletions: Vec<RemoteDeletion>,
 }
 
-/// A CalDAV resource deleted here: its calendar collection, path and last known version.
+/// A CalDAV or CardDAV resource deleted here: its collection (`calendar`, also for an address
+/// book), path and last known version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteDeletion {
     pub calendar: String,
@@ -131,6 +139,7 @@ impl Store {
             s.add_folder(name, role);
         }
         s.calendars.push(Calendar { id: 0, name: "Calendar".into(), color: "#1F7A8C".into(), remote: None });
+        s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
         s
     }
 
@@ -555,9 +564,67 @@ impl Store {
 
     // ---- contacts ----
 
+    pub fn books(&self) -> &[AddressBook] {
+        &self.books
+    }
+
+    pub fn book(&self, id: u32) -> Result<&AddressBook> {
+        self.books.iter().find(|b| b.id == id).ok_or_else(|| Error::not_found("address book", id.to_string()))
+    }
+
+    pub fn book_mut(&mut self, id: u32) -> Result<&mut AddressBook> {
+        self.books.iter_mut().find(|b| b.id == id).ok_or_else(|| Error::not_found("address book", id.to_string()))
+    }
+
+    /// Most address books kept.
+    pub const MAX_BOOKS: usize = 100;
+
+    /// Add an address book; its id is one past the highest in use.
+    pub fn add_book(&mut self, name: &str, remote: Option<CalendarRemote>) -> Result<u32> {
+        if self.books.len() >= Self::MAX_BOOKS {
+            return Err(Error::invalid("address book", format!("at most {} address books", Self::MAX_BOOKS)));
+        }
+        let id = self.books.iter().map(|b| b.id).max().map_or(0, |m| m.saturating_add(1));
+        if self.books.iter().any(|b| b.id == id) {
+            return Err(Error::invalid("address book", "no address book id left"));
+        }
+        self.books.push(AddressBook { id, name: clamp_text(name, 200).to_string(), remote });
+        Ok(id)
+    }
+
+    /// The address book mirroring server collection `href`.
+    pub fn book_by_href(&self, href: &str) -> Option<u32> {
+        self.books.iter().find(|b| b.remote.as_ref().is_some_and(|r| r.href == href)).map(|b| b.id)
+    }
+
+    /// Remove an address book and its contacts. The last one stays: contacts always need one.
+    pub fn remove_book(&mut self, id: u32) -> Result<AddressBook> {
+        let pos = self.books.iter().position(|b| b.id == id).ok_or_else(|| Error::not_found("address book", id.to_string()))?;
+        if self.books.len() <= 1 {
+            return Err(Error::invalid("address book", "the last address book cannot be removed"));
+        }
+        self.contacts.retain(|c| c.book != id);
+        let removed = self.books.remove(pos);
+        if let Some(r) = &removed.remote {
+            self.card_deletions.retain(|d| d.calendar != r.href);
+        }
+        Ok(removed)
+    }
+
+    /// Add a contact. It goes to book 0 if its book does not exist; a contact without a UID gets
+    /// one, so it can be written to a server.
     pub fn add_contact(&mut self, mut c: Contact) -> u64 {
         c.id = self.next_contact;
         self.next_contact = self.next_contact.saturating_add(1);
+        if self.book(c.book).is_err() {
+            c.book = self.books.first().map_or(0, |b| b.id);
+        }
+        if c.uid.is_empty() {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (&c.name, c.emails.first().map(|a| a.email.as_str()), c.id).hash(&mut h);
+            c.uid = format!("ibercorreo-{}-{:016x}", c.id, h.finish());
+        }
         let id = c.id;
         self.contacts.push(c);
         id
@@ -570,22 +637,110 @@ impl Store {
         self.contacts.len()
     }
 
+    pub fn all_contacts(&self) -> &[Contact] {
+        &self.contacts
+    }
+
     pub fn contact(&self, id: u64) -> Result<&Contact> {
         self.contacts.iter().find(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))
     }
 
+    /// The contact, to change it. One synced from a server is marked to be sent back.
     pub fn contact_mut(&mut self, id: u64) -> Result<&mut Contact> {
-        self.contacts.iter_mut().find(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))
+        let c = self.contacts.iter_mut().find(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))?;
+        if let Some(r) = &mut c.remote {
+            r.dirty = true;
+        }
+        Ok(c)
     }
 
+    /// Remove a contact; one synced from a server is deleted there at the next sync.
     pub fn remove_contact(&mut self, id: u64) -> Result<Contact> {
         let pos = self.contacts.iter().position(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))?;
-        Ok(self.contacts.remove(pos))
+        let c = self.contacts.remove(pos);
+        if let (Some(r), Some(book)) = (&c.remote, self.book(c.book).ok().and_then(|b| b.remote.as_ref()).map(|b| b.href.clone())) {
+            if self.card_deletions.len() >= MAX_MARKS {
+                self.card_deletions.remove(0);
+            }
+            self.card_deletions.push(RemoteDeletion { calendar: book, href: r.href.clone(), etag: r.etag.clone() });
+        }
+        Ok(c)
     }
 
-    /// Import a `.vcf` file. A card whose UID is already here, or (for cards without one) that
-    /// shares an address with a contact here, updates that contact; the rest are added.
-    pub fn import_vcf(&mut self, text: &str) -> Result<VcfReport> {
+    /// Move a contact to another address book. A card synced from a server is deleted there and
+    /// written to the new book's server (if it has one) as a new card.
+    pub fn move_contact(&mut self, id: u64, book: u32) -> Result<()> {
+        self.book(book)?;
+        let c = self.contact(id)?;
+        if c.book == book {
+            return Ok(());
+        }
+        let old_book = self.book(c.book).ok().and_then(|b| b.remote.as_ref()).map(|r| r.href.clone());
+        let deletion = c.remote.as_ref().zip(old_book).map(|(r, book)| RemoteDeletion { calendar: book, href: r.href.clone(), etag: r.etag.clone() });
+        if let Some(d) = deletion {
+            if self.card_deletions.len() >= MAX_MARKS {
+                self.card_deletions.remove(0);
+            }
+            self.card_deletions.push(d);
+        }
+        if let Some(c) = self.contacts.iter_mut().find(|c| c.id == id) {
+            c.book = book;
+            c.remote = None;
+        }
+        Ok(())
+    }
+
+    /// Server cards deleted here, still to be deleted on the server.
+    pub fn card_deletions(&self) -> &[RemoteDeletion] {
+        &self.card_deletions
+    }
+
+    pub fn forget_card_deletion(&mut self, href: &str) {
+        self.card_deletions.retain(|d| d.href != href);
+    }
+
+    /// Put `c` in `book` as the server's card `href`: the contact already there keeps its id
+    /// (so a selection survives a sync). Returns whether it was new.
+    pub fn replace_remote_card(&mut self, book: u32, href: &str, mut c: Contact) -> Result<bool> {
+        self.book(book)?;
+        c.book = book;
+        let existing = self.contacts.iter_mut().find(|x| x.book == book && x.remote.as_ref().is_some_and(|r| r.href == href));
+        match existing {
+            Some(x) => {
+                c.id = x.id;
+                *x = c;
+                Ok(false)
+            }
+            None => {
+                if self.contacts.len() >= Self::MAX_CONTACTS {
+                    return Err(Error::TooLarge { what: "contacts", size: self.contacts.len() + 1, limit: Self::MAX_CONTACTS });
+                }
+                self.add_contact(c);
+                Ok(true)
+            }
+        }
+    }
+
+    /// Record that contact `id` was written to server card `href`. The ETag is left empty, so
+    /// the server's copy is fetched again.
+    pub fn mark_card_sent(&mut self, id: u64, href: &str) {
+        if let Some(c) = self.contacts.iter_mut().find(|c| c.id == id) {
+            c.remote = Some(EventRemote::new(href, "", ""));
+        }
+    }
+
+    /// Remove the contact that came from server card `href` in `book`; how many went.
+    pub fn remove_remote_card(&mut self, book: u32, href: &str) -> usize {
+        let before = self.contacts.len();
+        self.contacts.retain(|c| !(c.book == book && c.remote.as_ref().is_some_and(|r| r.href == href)));
+        before.saturating_sub(self.contacts.len())
+    }
+
+    /// Import a `.vcf` file into `book`. A card whose UID is already here, or (for cards without
+    /// one) that shares an address with a contact here, updates that contact where it is; the
+    /// rest are added.
+    pub fn import_vcf(&mut self, text: &str, book: u32) -> Result<VcfReport> {
+        self.book(book)?;
         let parsed = ibercorreo_vcard::parse(text)?;
         let mut report = VcfReport { added: 0, updated: 0, skipped_properties: parsed.skipped, rejected: parsed.rejected };
         for card in parsed.contacts {
@@ -597,15 +752,16 @@ impl Store {
                 }
             };
             if let Some(existing) = self.contacts.iter_mut().find(|c| same(c)) {
-                let id = existing.id;
                 let uid = if card.uid.is_empty() { existing.uid.clone() } else { card.uid.clone() };
-                *existing = Contact { id, uid, ..card };
+                // Still the same server card, now changed here.
+                let remote = existing.remote.take().map(|r| EventRemote { dirty: true, ..r });
+                *existing = Contact { id: existing.id, book: existing.book, uid, remote, ..card };
                 report.updated += 1;
             } else {
                 if self.contacts.len() >= Self::MAX_CONTACTS {
                     return Err(Error::TooLarge { what: "contacts", size: self.contacts.len() + 1, limit: Self::MAX_CONTACTS });
                 }
-                self.add_contact(card);
+                self.add_contact(Contact { book, ..card });
                 report.added += 1;
             }
         }
@@ -651,6 +807,10 @@ impl Store {
         if s.version > FORMAT_VERSION {
             return Err(Error::invalid("store file", format!("format {} is newer than this build ({FORMAT_VERSION})", s.version)));
         }
+        // Stores from before address books: one local book holds every contact.
+        if s.books.is_empty() {
+            s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
+        }
         s.check()?;
         for c in &mut s.contacts {
             c.upgrade();
@@ -677,6 +837,9 @@ impl Store {
         }
         for e in &self.events {
             self.calendar(e.calendar)?;
+        }
+        for c in &self.contacts {
+            self.book(c.book)?;
         }
         Ok(())
     }
@@ -878,10 +1041,10 @@ END:VCALENDAR\r\n";
         let mut s = Store::new();
         let one = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u1\r\nFN:Ana\r\nEMAIL:ana@example.org\r\nEND:VCARD\r\n\
 BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
-        let r = s.import_vcf(one).unwrap();
+        let r = s.import_vcf(one, 0).unwrap();
         assert_eq!((r.added, r.updated), (2, 0));
         let again = "BEGIN:VCARD\r\nUID:u1\r\nFN:Ana Souza\r\nEND:VCARD\r\nBEGIN:VCARD\r\nFN:Rui Carvalho\r\nEMAIL:RUI@example.pt\r\nEND:VCARD\r\n";
-        let r = s.import_vcf(again).unwrap();
+        let r = s.import_vcf(again, 0).unwrap();
         assert_eq!((r.added, r.updated), (0, 2), "the same people, not copies");
         let names: Vec<&str> = s.contacts("").iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Ana Souza", "Rui Carvalho"]);
@@ -889,6 +1052,44 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
         assert_eq!(out.matches("BEGIN:VCARD").count(), 2);
         assert_eq!(ibercorreo_vcard::parse(&out).unwrap().contacts.len(), 2);
         assert_eq!(s.export_vcf(&[0]).matches("BEGIN:VCARD").count(), 1);
-        assert!(s.import_vcf("not a card").is_err());
+        assert!(s.import_vcf("not a card", 0).is_err());
+    }
+
+    #[test]
+    fn address_books_hold_contacts_and_server_cards_leave_tombstones() {
+        let mut s = Store::new();
+        assert_eq!(s.books().len(), 1, "a new store has one local address book");
+        let remote = CalendarRemote { href: "/dav/books/phone/".into(), ctag: None };
+        let phone = s.add_book("Phone", Some(remote)).unwrap();
+        assert_eq!(s.book_by_href("/dav/books/phone/"), Some(phone));
+
+        let mut lost = Contact::new("Lost");
+        lost.book = 77;
+        let lost = s.add_contact(lost);
+        assert_eq!(s.contact(lost).unwrap().book, 0, "a missing book falls back to the first");
+        assert!(!s.contact(lost).unwrap().uid.is_empty(), "every contact gets a UID, so it can go to a server");
+
+        let mut ana = Contact::new("Ana");
+        ana.remote = Some(EventRemote::new("/dav/books/phone/ana.vcf", "\"1\"", ""));
+        assert!(s.replace_remote_card(phone, "/dav/books/phone/ana.vcf", ana.clone()).unwrap());
+        let id = s.all_contacts().iter().find(|c| c.name == "Ana").unwrap().id;
+        assert!(!s.replace_remote_card(phone, "/dav/books/phone/ana.vcf", Contact { name: "Ana S.".into(), ..ana }).unwrap());
+        assert_eq!(s.contact(id).unwrap().name, "Ana S.", "updated in place, keeping its id");
+        s.contact_mut(id).unwrap();
+        assert!(s.contact(id).unwrap().remote.as_ref().unwrap().dirty, "changed here: to send");
+
+        s.move_contact(id, 0).unwrap();
+        assert_eq!(s.card_deletions().len(), 1, "moved off the server book: deleted there");
+        assert!(s.contact(id).unwrap().remote.is_none());
+        s.move_contact(id, phone).unwrap();
+        assert_eq!(s.card_deletions().len(), 1, "a contact that was never sent leaves no tombstone");
+        assert!(s.move_contact(id, 9).is_err());
+
+        s.remove_book(phone).unwrap();
+        assert!(s.contact(id).is_err(), "its contacts go with it");
+        assert!(s.card_deletions().is_empty(), "and so do its tombstones");
+        assert!(s.remove_book(0).is_err(), "the last book stays");
+        let back = Store::from_json(&serde_json::to_vec(&s).unwrap()).unwrap();
+        assert_eq!(back.books().len(), 1);
     }
 }

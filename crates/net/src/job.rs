@@ -1,11 +1,12 @@
 //! One Send/Receive for an account, start to finish on the network: send the Outbox over SMTP,
-//! save the copies to the server's Sent, sync over IMAP, then sync the calendars over CalDAV. It takes a snapshot of what the
-//! store needs ([`Job`]) and returns what happened ([`Finished`]), so it can run on a background
-//! thread while the window stays responsive; the front end applies the result to the session.
+//! save the copies to the server's Sent, sync over IMAP, then sync the calendars over CalDAV and
+//! the contacts over CardDAV. It takes a snapshot of what the store needs ([`Job`]) and returns
+//! what happened ([`Finished`]), so it can run on a background thread while the window stays
+//! responsive; the front end applies the result to the session.
 
 use ibercorreo_core::mail::{Account, AccountKind};
 use ibercorreo_sync::outbox::{self, Outcome, Outgoing, Sent};
-use ibercorreo_sync::{Batch, Limits, State, calendar};
+use ibercorreo_sync::{Batch, Limits, State, calendar, contacts};
 
 use crate::{Endpoint, Security, Tls};
 
@@ -21,6 +22,8 @@ pub struct Job {
     pub limits: Limits,
     /// What the store holds of the CalDAV calendars (used when the account has a CalDAV address).
     pub calendar: calendar::State,
+    /// What the store holds of the CardDAV address books (same server address as the calendars).
+    pub contacts: contacts::State,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +32,8 @@ pub struct Finished {
     pub batch: Result<Batch, String>,
     /// The calendar sync, when the account has a CalDAV address.
     pub calendar: Option<Result<calendar::Batch, String>>,
+    /// The contact sync, when the account has a CalDAV address (it serves CardDAV too).
+    pub contacts: Option<Result<contacts::Batch, String>>,
 }
 
 fn security(s: ibercorreo_core::Security) -> Security {
@@ -42,10 +47,10 @@ fn security(s: ibercorreo_core::Security) -> Security {
 /// mail queued and the receive still runs.
 pub fn run(job: &Job) -> Finished {
     let AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. } = &job.account.kind else {
-        return Finished { sent: Vec::new(), batch: Err("this account has no mail server".into()), calendar: None };
+        return Finished { sent: Vec::new(), batch: Err("this account has no mail server".into()), calendar: None, contacts: None };
     };
     let Some(login) = job.account.login() else {
-        return Finished { sent: Vec::new(), batch: Err("this account has no sign-in name".into()), calendar: None };
+        return Finished { sent: Vec::new(), batch: Err("this account has no sign-in name".into()), calendar: None, contacts: None };
     };
 
     let mut sent = Vec::new();
@@ -75,13 +80,24 @@ pub fn run(job: &Job) -> Finished {
             let _ = c.logout();
             batch
         });
-    let calendar = (!job.account.caldav.trim().is_empty()).then(|| sync_calendars(job, login));
-    Finished { sent, batch, calendar }
+    let (calendar, contacts) = if job.account.caldav.trim().is_empty() {
+        (None, None)
+    } else {
+        let (calendar, contacts) = sync_dav(job, login);
+        (Some(calendar), Some(contacts))
+    };
+    Finished { sent, batch, calendar, contacts }
 }
 
-/// The CalDAV part, on its own connection; mail failing does not stop it.
-fn sync_calendars(job: &Job, login: &str) -> Result<calendar::Batch, String> {
-    let url = crate::dav::Url::parse(&job.account.caldav).map_err(|e| e.to_string())?;
+/// The CalDAV and CardDAV part, on its own connection; mail failing does not stop it, and the
+/// calendars failing does not stop the contacts.
+fn sync_dav(job: &Job, login: &str) -> (Result<calendar::Batch, String>, Result<contacts::Batch, String>) {
+    let url = match crate::dav::Url::parse(&job.account.caldav) {
+        Ok(url) => url,
+        Err(e) => return (Err(e.to_string()), Err(e.to_string())),
+    };
     let mut client = crate::dav(&url, &job.tls, login, &job.password);
-    calendar::run(&mut client, &url, &job.calendar).map_err(|e| e.to_string())
+    let calendar = calendar::run(&mut client, &url, &job.calendar).map_err(|e| e.to_string());
+    let contacts = contacts::run(&mut client, &url, &job.contacts).map_err(|e| e.to_string());
+    (calendar, contacts)
 }

@@ -51,7 +51,7 @@ pub const MAX_CHANGES: usize = 500;
 
 /// The resource name for a new appointment: its UID with anything but letters, digits and `-_.`
 /// replaced, so it is a safe path segment that servers list back exactly as sent (no `%40`).
-fn resource_name(uid: &str) -> String {
+pub(crate) fn resource_name(uid: &str) -> String {
     let name: String = uid.chars().take(120).map(|c| if c.is_ascii_alphanumeric() || "-_.".contains(c) { c } else { '_' }).collect();
     let name = name.trim_matches('.');
     if name.is_empty() { "event".to_string() } else { name.to_string() }
