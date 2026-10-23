@@ -215,3 +215,46 @@ pub fn fetch(http: &mut dyn Http, url: &Url, calendar: &str, hrefs: &[String]) -
     }
     Ok(out)
 }
+
+/// What happened to a write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Written {
+    /// Done. The new ETag, when the server says it (servers that change the text on the way in
+    /// leave it out, RFC 4791 §5.3.4).
+    Done { etag: Option<String> },
+    /// The server's copy changed since the ETag given (or, for a new resource, one already
+    /// exists): nothing was written.
+    Conflict,
+    /// The resource is not on the server any more.
+    Gone,
+}
+
+fn written(resp: &Response, method: &str, href: &str) -> Result<Written> {
+    match resp.status {
+        200..=299 => Ok(Written::Done { etag: resp.header("etag").map(str::to_string).filter(|e| !e.is_empty() && e.len() <= 512) }),
+        412 => Ok(Written::Conflict),
+        404 | 410 => Ok(Written::Gone),
+        401 => Err(Error::Auth(401)),
+        status => Err(status_error(status, method, href)),
+    }
+}
+
+/// Write the event resource `href`: a new one when `etag` is `None` (refused if it exists), else
+/// only if the server's copy is still that version.
+pub fn put(http: &mut dyn Http, href: &str, body: &str, etag: Option<&str>) -> Result<Written> {
+    let precondition = match etag {
+        Some(e) => ("If-Match", e),
+        None => ("If-None-Match", "*"),
+    };
+    let headers = [("Content-Type", "text/calendar; charset=utf-8"), precondition];
+    let resp = http.send("PUT", href, &headers, body.as_bytes())?;
+    written(&resp, "PUT", href)
+}
+
+/// Delete the event resource `href` if the server's copy is still version `etag` (any version
+/// when `etag` is empty).
+pub fn delete(http: &mut dyn Http, href: &str, etag: &str) -> Result<Written> {
+    let headers: &[(&str, &str)] = if etag.is_empty() { &[] } else { &[("If-Match", etag)] };
+    let resp = http.send("DELETE", href, headers, b"")?;
+    written(&resp, "DELETE", href)
+}

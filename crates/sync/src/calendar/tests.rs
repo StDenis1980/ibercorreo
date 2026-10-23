@@ -16,6 +16,34 @@ struct Server {
     log: Vec<String>,
     refuse: bool,
     fail_multiget: bool,
+    offline_writes: bool,
+    next_etag: u32,
+}
+
+impl Server {
+    /// Change the calendar holding `href`, as another device would.
+    fn write(&mut self, href: &str, data: Option<String>) {
+        self.next_etag += 1;
+        let etag = format!("\"s{}\"", self.next_etag);
+        let Some((_, ctag, items)) = self.calendar_of(href) else { return };
+        *ctag = format!("{ctag}+");
+        match data {
+            Some(d) => {
+                items.insert(href.to_string(), (etag, d));
+            }
+            None => {
+                items.remove(href);
+            }
+        }
+    }
+
+    fn calendar_of(&mut self, href: &str) -> Option<&mut (String, String, Items)> {
+        self.calendars.iter_mut().find(|(c, _)| href.starts_with(c.as_str())).map(|(_, v)| v)
+    }
+
+    fn body(&self, href: &str) -> Option<&str> {
+        self.calendars.values().find_map(|(_, _, items)| items.get(href)).map(|(_, d)| d.as_str())
+    }
 }
 
 fn ok(body: String) -> Response {
@@ -32,12 +60,39 @@ fn status(status: u16) -> Response {
 const OK: &str = "<d:status>HTTP/1.1 200 OK</d:status>";
 
 impl Http for Server {
-    fn send(&mut self, method: &str, path: &str, _headers: &[(&str, &str)], body: &[u8]) -> ibercorreo_dav::Result<Response> {
+    fn send(&mut self, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> ibercorreo_dav::Result<Response> {
         let body = String::from_utf8_lossy(body);
+        let header = |n: &str| headers.iter().find(|(h, _)| *h == n).map(|(_, v)| v.to_string());
         let multiget = body.contains("calendar-multiget");
         self.log.push(format!("{method}{} {path}", if multiget { "*" } else { "" }));
         if self.refuse {
             return Ok(status(401));
+        }
+        if matches!(method, "PUT" | "DELETE") {
+            if self.offline_writes {
+                return Err(Error::Io(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "offline")));
+            }
+            self.next_etag += 1;
+            let new_etag = format!("\"s{}\"", self.next_etag);
+            let Some((_, ctag, items)) = self.calendar_of(path) else { return Ok(status(409)) };
+            let current = items.get(path).map(|(e, _)| e.clone());
+            if header("If-None-Match").is_some() && current.is_some() {
+                return Ok(status(412));
+            }
+            if let Some(want) = header("If-Match")
+                && current.as_ref() != Some(&want)
+            {
+                return Ok(status(if current.is_none() { 404 } else { 412 }));
+            }
+            *ctag = format!("{ctag}+");
+            return Ok(if method == "PUT" {
+                items.insert(path.to_string(), (new_etag, body.into_owned()));
+                status(201)
+            } else if items.remove(path).is_some() {
+                status(204)
+            } else {
+                status(404)
+            });
         }
         Ok(match (method, path) {
             ("PROPFIND", "/dav/") => ok(format!(
@@ -78,6 +133,10 @@ fn ics(uid: &str, summary: &str, day: u8) -> String {
     )
 }
 
+fn now() -> ibercorreo_core::DateTime {
+    ibercorreo_core::DateTime::from_unix(1_792_000_000).unwrap()
+}
+
 fn server() -> Server {
     let mut s = Server::default();
     let mut work = BTreeMap::new();
@@ -93,8 +152,11 @@ BEGIN:VEVENT\r\nUID:b\r\nRECURRENCE-ID:20261104T090000Z\r\nDTSTART:20261104T1000
 
 fn sync(server: &mut Server, store: &mut Store) -> Report {
     let url = Url::parse("https://cal.example.org/dav/").unwrap();
-    let batch = run(server, &url, &state(store)).unwrap();
-    apply(store, batch)
+    let batch = run(server, &url, &state(store, now())).unwrap();
+    let report = apply(store, batch);
+    // What was sent always reads back.
+    assert!(report.errors.iter().all(|e| !e.contains("calendar file") || e.contains("x.ics")), "{report:?}");
+    report
 }
 
 fn summaries(store: &Store, href: &str) -> Vec<String> {
@@ -114,7 +176,8 @@ fn first_sync_mirrors_the_server_calendars() {
     let work = store.calendar(store.calendar_by_href("/dav/cals/work/").unwrap()).unwrap();
     assert_eq!((work.name.as_str(), work.remote.as_ref().unwrap().ctag.as_deref()), ("Work", Some("c1")));
     let a = store.events().iter().find(|e| e.uid == "a").unwrap();
-    assert_eq!(a.remote, Some(EventRemote { href: "/dav/cals/work/a.ics".into(), etag: "\"1\"".into() }));
+    assert_eq!(a.remote.as_ref().map(|r| (r.href.as_str(), r.etag.as_str(), r.dirty)), Some(("/dav/cals/work/a.ics", "\"1\"", false)));
+    assert!(a.remote.as_ref().unwrap().raw.contains("SUMMARY:Planning"));
 }
 
 #[test]
@@ -171,7 +234,7 @@ fn a_refused_sign_in_changes_nothing() {
     let before = store.clone();
     server.refuse = true;
     let url = Url::parse("https://cal.example.org/dav/").unwrap();
-    assert!(matches!(run(&mut server, &url, &state(&store)), Err(Error::Auth(401))));
+    assert!(matches!(run(&mut server, &url, &state(&store, now())), Err(Error::Auth(401))));
     assert_eq!(store, before);
 }
 
@@ -187,4 +250,130 @@ fn bad_calendar_data_is_reported_and_forgetting_empties_the_mirror() {
     assert_eq!(r.calendars_removed, 2);
     assert_eq!(store.calendars().len(), 1);
     assert!(store.events().iter().all(|e| e.remote.is_none()));
+}
+
+fn event_id(store: &Store, uid: &str) -> EventId {
+    store.events().iter().find(|e| e.uid == uid && e.recurrence_id.is_none()).unwrap().id
+}
+
+#[test]
+fn appointments_made_here_are_sent_once() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    let work = store.calendar_by_href("/dav/cals/work/").unwrap();
+    let mut e = store.events().iter().find(|e| e.uid == "a").unwrap().clone();
+    e.uid = "new/1@here".into();
+    e.summary = "Lunch".into();
+    e.remote = None;
+    e.calendar = work;
+    let id = store.add_event(e).unwrap();
+    server.log.clear();
+    let r = sync(&mut server, &mut store);
+    assert_eq!((r.sent, r.added), (1, 0), "{r:?}");
+    assert!(server.log.contains(&"PUT /dav/cals/work/new_1_here.ics".to_string()), "{:?}", server.log);
+    let body = server.body("/dav/cals/work/new_1_here.ics").unwrap();
+    assert!(body.contains("SUMMARY:Lunch") && body.contains("UID:new/1@here") && body.contains("DTSTAMP:"), "{body}");
+    let mine: Vec<_> = store.events().iter().filter(|e| e.uid == "new/1@here").collect();
+    assert_eq!(mine.len(), 1, "linked, not duplicated");
+    assert_eq!(mine[0].id, id);
+    assert!(mine[0].remote.as_ref().is_some_and(|r| r.href == "/dav/cals/work/new_1_here.ics" && !r.etag.is_empty() && !r.dirty));
+
+    // Nothing more to send.
+    server.log.clear();
+    let r = sync(&mut server, &mut store);
+    assert_eq!(r.sent, 0);
+    assert!(!server.log.iter().any(|l| l.starts_with("PUT")), "{:?}", server.log);
+}
+
+#[test]
+fn changes_here_go_back_keeping_what_the_app_does_not_read() {
+    let (mut server, mut store) = (server(), Store::new());
+    let with_attendee =
+        ics("a", "Planning", 2).replace("SUMMARY:Planning\r\n", "SUMMARY:Planning\r\nATTENDEE;CN=Rui:mailto:rui@example.org\r\nCATEGORIES:Work\r\n");
+    server.calendars.get_mut("/dav/cals/work/").unwrap().2.insert("/dav/cals/work/a.ics".into(), ("\"1\"".into(), with_attendee));
+    sync(&mut server, &mut store);
+    let id = event_id(&store, "a");
+    store.event_mut(id).unwrap().summary = "Planning (room 2)".into();
+    server.log.clear();
+    let r = sync(&mut server, &mut store);
+    assert_eq!((r.sent, r.conflicts), (1, 0), "{r:?}");
+    let body = server.body("/dav/cals/work/a.ics").unwrap();
+    assert!(body.contains("SUMMARY:Planning (room 2)"), "{body}");
+    assert!(body.contains("ATTENDEE;CN=Rui:mailto:rui@example.org") && body.contains("CATEGORIES:Work"), "{body}");
+    assert!(body.contains("SEQUENCE:1"), "{body}");
+    assert_eq!(store.event(id).unwrap().summary, "Planning (room 2)");
+    assert!(!store.event(id).unwrap().remote.as_ref().unwrap().dirty);
+}
+
+#[test]
+fn deletions_here_are_deleted_on_the_server() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    store.remove_event(event_id(&store, "a")).unwrap();
+    assert_eq!(store.remote_deletions().len(), 1);
+    let r = sync(&mut server, &mut store);
+    assert_eq!(r.sent, 1, "{r:?}");
+    assert!(server.body("/dav/cals/work/a.ics").is_none());
+    assert!(store.remote_deletions().is_empty());
+    assert!(store.events().iter().all(|e| e.uid != "a"));
+
+    // Deleting the changed occurrence of a series sends the series again without it.
+    let late = store.events().iter().find(|e| e.uid == "b" && e.recurrence_id.is_some()).unwrap().id;
+    store.remove_event(late).unwrap();
+    assert!(store.remote_deletions().is_empty());
+    sync(&mut server, &mut store);
+    let body = server.body("/dav/cals/work/b.ics").unwrap();
+    assert!(body.contains("RRULE:FREQ=DAILY") && !body.contains("late"), "{body}");
+}
+
+#[test]
+fn the_servers_copy_wins_a_conflict() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    store.event_mut(event_id(&store, "a")).unwrap().summary = "Mine".into();
+    server.write("/dav/cals/work/a.ics", Some(ics("a", "Theirs", 2)));
+    let r = sync(&mut server, &mut store);
+    assert_eq!((r.sent, r.conflicts), (0, 1), "{r:?}");
+    assert_eq!(store.event(event_id(&store, "a")).unwrap().summary, "Theirs");
+    assert!(server.body("/dav/cals/work/a.ics").unwrap().contains("Theirs"));
+
+    // Deleted here, changed there: it comes back.
+    store.remove_event(event_id(&store, "a")).unwrap();
+    server.write("/dav/cals/work/a.ics", Some(ics("a", "Theirs again", 2)));
+    let r = sync(&mut server, &mut store);
+    assert_eq!(r.conflicts, 1, "{r:?}");
+    assert_eq!(store.event(event_id(&store, "a")).unwrap().summary, "Theirs again");
+    assert!(store.remote_deletions().is_empty());
+}
+
+#[test]
+fn offline_changes_wait_for_the_next_sync() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    let id = event_id(&store, "a");
+    store.event_mut(id).unwrap().summary = "Later".into();
+    server.offline_writes = true;
+    let url = Url::parse("https://cal.example.org/dav/").unwrap();
+    assert!(run(&mut server, &url, &state(&store, now())).is_err());
+    assert!(store.event(id).unwrap().remote.as_ref().unwrap().dirty, "still to send");
+    server.offline_writes = false;
+    let r = sync(&mut server, &mut store);
+    assert_eq!(r.sent, 1);
+    assert!(server.body("/dav/cals/work/a.ics").unwrap().contains("Later"));
+}
+
+#[test]
+fn changes_never_leave_their_calendar() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    let id = event_id(&store, "a");
+    let e = store.event_mut(id).unwrap();
+    e.remote.as_mut().unwrap().href = "/dav/cals/home/../../principal".into();
+    let state = state(&store, now());
+    let url = Url::parse("https://cal.example.org/dav/").unwrap();
+    let mut evil = state.clone();
+    evil.changes = vec![Change::Delete { calendar: "/dav/cals/work/".into(), href: "/elsewhere/x.ics".into(), etag: String::new() }];
+    let batch = run(&mut server, &url, &evil).unwrap();
+    assert_eq!(batch.errors.len(), 1, "{:?}", batch.errors);
+    assert!(!server.log.iter().any(|l| l.starts_with("DELETE")));
 }

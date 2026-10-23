@@ -40,8 +40,10 @@ fn read(path: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// One JSON line on stdout. A closed pipe (`… | head`) is not an error worth a crash.
 fn print(v: &Value) {
-    println!("{}", serde_json::to_string(v).unwrap_or_else(|_| "null".into()));
+    use std::io::Write;
+    let _ = writeln!(std::io::stdout().lock(), "{}", serde_json::to_string(v).unwrap_or_else(|_| "null".into()));
 }
 
 fn usage() -> ExitCode {

@@ -42,6 +42,8 @@ struct EventForm {
     repeat: String,
     /// `reminder` for `event.add`, minutes or `none`; empty: the default (15 minutes).
     reminder: String,
+    /// The calendar chosen; `None`: the one used last.
+    calendar: Option<u32>,
 }
 
 #[derive(Default)]
@@ -73,6 +75,8 @@ struct AccountForm {
 
 pub struct App {
     pub session: Session,
+    /// The calendar the last appointment went into, the default for the next.
+    last_calendar: Option<u32>,
     /// Set by the shell while a Send/Receive runs in the background.
     pub syncing: bool,
     account_form: AccountForm,
@@ -111,6 +115,7 @@ impl App {
             zone_names: Vec::new(),
             due: Vec::new(),
             due_checked: None,
+            last_calendar: None,
         }
     }
 
@@ -1137,6 +1142,8 @@ impl App {
         }
         let mut open = true;
         let mut save = false;
+        let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
+        let default_calendar = self.last_calendar.filter(|id| calendars.iter().any(|c| c.0 == *id)).or_else(|| calendars.first().map(|c| c.0));
         egui::Window::new("New Appointment").collapsible(false).resizable(false).open(&mut open).show(ui.ctx(), |ui| {
             let f = &mut self.event_form;
             egui::Grid::new("event-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
@@ -1158,6 +1165,20 @@ impl App {
                     }
                 });
                 ui.end_row();
+                if calendars.len() > 1 {
+                    ui.label("Calendar");
+                    let chosen = f.calendar.or(default_calendar);
+                    let shown = calendars.iter().find(|c| Some(c.0) == chosen).map_or(String::new(), |c| c.1.clone());
+                    egui::ComboBox::from_id_salt("event-calendar").selected_text(shown).show_ui(ui, |ui| {
+                        for (id, name, synced) in &calendars {
+                            let label = if *synced { format!("{name}  ⟳") } else { name.clone() };
+                            if ui.selectable_label(chosen == Some(*id), label).clicked() {
+                                f.calendar = Some(*id);
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
                 ui.label("Repeat");
                 let shown = REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label);
                 egui::ComboBox::from_id_salt("event-repeat").selected_text(shown).show_ui(ui, |ui| {
@@ -1182,7 +1203,12 @@ impl App {
             {
                 o.insert("end".into(), Value::String(f.end.clone()));
             }
+            let calendar = f.calendar.or(default_calendar);
+            if let (Some(c), Some(o)) = (calendar, p.as_object_mut()) {
+                o.insert("calendar".into(), json!(c));
+            }
             if self.run("event.add", p).is_some() {
+                self.last_calendar = calendar;
                 open = false;
             }
         }

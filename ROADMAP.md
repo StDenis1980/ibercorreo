@@ -6,9 +6,9 @@ Status: 2026-10-23 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 50 |
+| Commands in the registry | 51 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV calendars from the server (pull); files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -55,6 +55,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `sync::calendar` (only changed calendars are listed, only changed events fetched; calendars
   gone from the server removed), `account.set` `caldav`, calendar colours and a calendar list in
   the window, Send/Receive on the calendar ribbon. Checked against Radicale 3.8.
+- 2026-10-23 — M2.5b: CalDAV push. Appointments added to a server calendar, changed or deleted
+  here are written back (`PUT` with `If-None-Match`/`If-Match`, `DELETE` with `If-Match`), only
+  inside their calendar; the server's copy wins a conflict; offline changes wait for the next
+  sync. Written-back events keep what Iber Correo does not read (attendees, organizer,
+  categories, `VTIMEZONE`, the exact `RECURRENCE-ID`; `ical::write_resource`), with a fresh
+  `DTSTAMP` and `SEQUENCE`. `EXDATE` now takes `DTSTART`'s form. A Calendar choice in the
+  appointment form, `event.add` `calendar`, `calendar.list`, unique UIDs. 51 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -65,6 +72,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.5.
 - 2026-10-22 — M1.6; M1 done.
 - 2026-10-23 — M2.5a.
+- 2026-10-23 — M2.5b.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

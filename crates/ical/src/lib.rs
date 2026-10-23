@@ -424,18 +424,133 @@ fn basic_time(t: DateTime, utc: bool) -> String {
 
 /// A `VCALENDAR` holding `events`.
 pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
+    write_with(events, &Kept::default(), None)
+}
+
+/// What a server's copy of a resource holds that Iber Correo does not read, kept when the
+/// resource is written back: other components and calendar properties (`VTIMEZONE`, `X-…`), and
+/// per event (by `UID` and day of `RECURRENCE-ID`) its other properties (`ATTENDEE`,
+/// `ORGANIZER`, `CATEGORIES`, `X-…`), its other sub-components, and its own `RECURRENCE-ID`
+/// line (exact to the second, where the model keeps the day).
+#[derive(Debug, Default)]
+struct Kept {
+    calendar: Vec<String>,
+    events: Vec<KeptEvent>,
+}
+
+#[derive(Debug)]
+struct KeptEvent {
+    uid: String,
+    recurrence_id: Option<Date>,
+    lines: Vec<String>,
+    recurrence_line: Option<String>,
+    sequence: u32,
+}
+
+/// Properties of a `VEVENT` that the model holds, so the written copy replaces them.
+const OWN: &[&str] =
+    &["UID", "DTSTART", "DTEND", "DURATION", "SUMMARY", "LOCATION", "DESCRIPTION", "RRULE", "EXDATE", "RECURRENCE-ID", "DTSTAMP", "SEQUENCE"];
+/// Most kept lines per resource.
+const MAX_KEPT: usize = 10_000;
+
+fn kept_from(raw: &str) -> Kept {
+    let mut kept = Kept::default();
+    let unfolded = unfold(raw.trim_start_matches('\u{feff}'));
+    let mut stack: Vec<String> = Vec::new();
+    let mut event: Option<KeptEvent> = None;
+    for line in unfolded.lines().filter(|l| !l.trim().is_empty()).take(MAX_KEPT) {
+        let Some(l) = split_line(line) else { continue };
+        let name = l.name.as_str();
+        let comp = l.value.trim().to_ascii_uppercase();
+        if name == "BEGIN" {
+            if stack.len() >= MAX_DEPTH {
+                break;
+            }
+            stack.push(comp);
+            if stack.len() == 2 && stack.get(1).is_some_and(|c| c == "VEVENT") {
+                event = Some(KeptEvent { uid: String::new(), recurrence_id: None, lines: Vec::new(), recurrence_line: None, sequence: 0 });
+                continue;
+            }
+        }
+        let in_event = stack.get(1).is_some_and(|c| c == "VEVENT");
+        // Alarms are written from the model, so none of their lines are kept.
+        let in_alarm = stack.iter().skip(2).any(|c| c == "VALARM");
+        match (stack.len(), in_event) {
+            (0, _) => {}
+            (1, _) => {
+                // The calendar's own BEGIN and END, and the properties written anew.
+                if !matches!(name, "BEGIN" | "END" | "VERSION" | "PRODID" | "CALSCALE" | "METHOD") {
+                    kept.calendar.push(line.to_string());
+                }
+            }
+            (2, true) if name == "END" => {
+                if let Some(ev) = event.take() {
+                    kept.events.push(ev);
+                }
+            }
+            (2, true) => {
+                if let Some(ev) = &mut event {
+                    match name {
+                        "UID" => ev.uid = l.value.trim().to_string(),
+                        "RECURRENCE-ID" => {
+                            ev.recurrence_id = Date::parse(l.value.trim().get(..8).unwrap_or("")).ok();
+                            ev.recurrence_line = Some(line.to_string());
+                        }
+                        "SEQUENCE" => ev.sequence = l.value.trim().parse().unwrap_or(0),
+                        n if OWN.contains(&n) => {}
+                        _ => ev.lines.push(line.to_string()),
+                    }
+                }
+            }
+            (_, true) => {
+                if let (Some(ev), false) = (&mut event, in_alarm) {
+                    ev.lines.push(line.to_string());
+                }
+            }
+            (_, false) => kept.calendar.push(line.to_string()),
+        }
+        if name == "END" {
+            stack.pop();
+        }
+    }
+    kept
+}
+
+/// `events` (one resource: a series and its changed occurrences) written to send back to the
+/// server, keeping what `raw`, the server's copy, holds that Iber Correo does not read. `DTSTAMP`
+/// is `now` and `SEQUENCE` goes up by one.
+pub fn write_resource<'a>(events: impl IntoIterator<Item = &'a Event>, raw: &str, now: DateTime) -> String {
+    write_with(events, &kept_from(raw), Some(now))
+}
+
+fn write_with<'a>(events: impl IntoIterator<Item = &'a Event>, kept: &Kept, now: Option<DateTime>) -> String {
     let mut out = String::new();
     for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//IberOffice//Iber Correo//EN", "CALSCALE:GREGORIAN"] {
         push_folded(&mut out, l);
     }
+    for l in &kept.calendar {
+        push_folded(&mut out, l);
+    }
     for e in events {
+        let old = kept.events.iter().find(|k| k.uid == e.uid && k.recurrence_id == e.recurrence_id);
         push_folded(&mut out, "BEGIN:VEVENT");
         push_folded(&mut out, &format!("UID:{}", e.uid.replace(['\r', '\n'], "")));
+        if let Some(now) = now {
+            push_folded(&mut out, &format!("DTSTAMP:{}", basic_time(now, true)));
+            push_folded(&mut out, &format!("SEQUENCE:{}", old.map_or(0, |k| k.sequence.saturating_add(1))));
+        }
         let tz = e.tzid.as_deref().map(|t| format!(";TZID={}", t.replace(['"', ':', ';', '\r', '\n'], ""))).unwrap_or_default();
+        // EXDATE takes DTSTART's form (RFC 5545 §3.8.5.1): dates for an all-day event, the
+        // start time on each day for a timed one.
+        let mut exdate = String::new();
         match e.when {
             When::AllDay { start, end } => {
                 push_folded(&mut out, &format!("DTSTART;VALUE=DATE:{}", basic_date(start)));
                 push_folded(&mut out, &format!("DTEND;VALUE=DATE:{}", basic_date(end)));
+                if !e.exdates.is_empty() {
+                    let days: Vec<String> = e.exdates.iter().map(|d| basic_date(*d)).collect();
+                    exdate = format!("EXDATE;VALUE=DATE:{}", days.join(","));
+                }
             }
             When::Timed { start, end, utc } => {
                 // A one-off event in a known zone is written in UTC: exact anywhere, and no
@@ -447,6 +562,15 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
                 let tz = if utc { "" } else { tz.as_str() };
                 push_folded(&mut out, &format!("DTSTART{tz}:{}", basic_time(start, utc)));
                 push_folded(&mut out, &format!("DTEND{tz}:{}", basic_time(end, utc)));
+                if !e.exdates.is_empty() {
+                    let times: Vec<String> = e
+                        .exdates
+                        .iter()
+                        .filter_map(|d| DateTime::new(*d, start.hour(), start.minute(), start.second()).ok())
+                        .map(|t| basic_time(t, utc))
+                        .collect();
+                    exdate = format!("EXDATE{tz}:{}", times.join(","));
+                }
             }
         }
         for (name, value) in [("SUMMARY", &e.summary), ("LOCATION", &e.location), ("DESCRIPTION", &e.description)] {
@@ -457,12 +581,13 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
         if let Some(r) = &e.rrule {
             push_folded(&mut out, &format!("RRULE:{}", r.replace(['\r', '\n'], "")));
         }
-        if !e.exdates.is_empty() {
-            let days: Vec<String> = e.exdates.iter().map(|d| basic_date(*d)).collect();
-            push_folded(&mut out, &format!("EXDATE;VALUE=DATE:{}", days.join(",")));
+        if !exdate.is_empty() {
+            push_folded(&mut out, &exdate);
         }
-        if let Some(r) = e.recurrence_id {
-            push_folded(&mut out, &format!("RECURRENCE-ID;VALUE=DATE:{}", basic_date(r)));
+        match (old.and_then(|k| k.recurrence_line.as_deref()), e.recurrence_id) {
+            (Some(line), Some(_)) => push_folded(&mut out, line),
+            (None, Some(r)) => push_folded(&mut out, &format!("RECURRENCE-ID;VALUE=DATE:{}", basic_date(r))),
+            _ => {}
         }
         for m in &e.reminders {
             push_folded(&mut out, "BEGIN:VALARM");
@@ -471,6 +596,9 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
             let trigger = if *m >= 0 { format!("TRIGGER:-PT{m}M") } else { format!("TRIGGER:PT{}M", m.unsigned_abs()) };
             push_folded(&mut out, &trigger);
             push_folded(&mut out, "END:VALARM");
+        }
+        for l in old.map_or(&[][..], |k| k.lines.as_slice()) {
+            push_folded(&mut out, l);
         }
         push_folded(&mut out, "END:VEVENT");
     }
@@ -508,6 +636,50 @@ BEGIN:VEVENT\r\nSUMMARY:No start\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         match p.events.get(2).unwrap().when {
             When::Timed { end, utc, .. } => assert_eq!((end.hour(), end.minute(), utc), (9, 45, true)),
             other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn written_back_resources_keep_what_is_not_read() {
+        let raw = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Other//EN\r\nMETHOD:REQUEST\r\nX-WR-CALNAME:Work\r\n\
+BEGIN:VTIMEZONE\r\nTZID:Europe/Lisbon\r\nBEGIN:STANDARD\r\nTZOFFSETFROM:+0100\r\nTZOFFSETTO:+0000\r\nDTSTART:19701025T020000\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n\
+BEGIN:VEVENT\r\nUID:s\r\nSEQUENCE:4\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;TZID=Europe/Lisbon:20261102T090000\r\nDTEND;TZID=Europe/Lisbon:20261102T093000\r\n\
+RRULE:FREQ=DAILY;COUNT=5\r\nSUMMARY:Stand-up\r\nORGANIZER;CN=Ana:mailto:ana@example.org\r\nATTENDEE;PARTSTAT=ACCEPTED:mailto:rui@example.org\r\n\
+BEGIN:VALARM\r\nTRIGGER:-PT5M\r\nACTION:AUDIO\r\nEND:VALARM\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:s\r\nRECURRENCE-ID;TZID=Europe/Lisbon:20261103T090000\r\nDTSTART;TZID=Europe/Lisbon:20261103T100000\r\nDTEND;TZID=Europe/Lisbon:20261103T103000\r\nSUMMARY:Late\r\nEND:VEVENT\r\n\
+END:VCALENDAR\r\n";
+        let mut events: Vec<Event> = parse(raw).unwrap().events.into_iter().enumerate().map(|(i, e)| e.into_event(EventId(i as u64), 0)).collect();
+        events[0].summary = "Stand-up (new room)".into();
+        events[0].exdates.push(Date::new(2026, 11, 5).unwrap());
+        events[0].reminders = vec![10];
+        let now = DateTime::new(Date::new(2026, 10, 23).unwrap(), 8, 0, 0).unwrap();
+        let text = write_resource(&events, raw, now);
+        let lines: Vec<&str> = text.lines().collect();
+        let count = |l: &str| lines.iter().filter(|x| **x == l).count();
+        assert_eq!((count("BEGIN:VCALENDAR"), count("END:VCALENDAR"), count("BEGIN:VEVENT")), (1, 1, 2), "{text}");
+        for kept in [
+            "X-WR-CALNAME:Work",
+            "BEGIN:VTIMEZONE",
+            "TZOFFSETTO:+0000",
+            "END:VTIMEZONE",
+            "ORGANIZER;CN=Ana:mailto:ana@example.org",
+            "ATTENDEE;PARTSTAT=ACCEPTED:mailto:rui@example.org",
+            "RECURRENCE-ID;TZID=Europe/Lisbon:20261103T090000",
+        ] {
+            assert_eq!(count(kept), 1, "{kept} in {text}");
+        }
+        for gone in ["METHOD:REQUEST", "SEQUENCE:4", "DTSTAMP:20260101T000000Z", "ACTION:AUDIO", "SUMMARY:Stand-up"] {
+            assert_eq!(count(gone), 0, "{gone} in {text}");
+        }
+        assert_eq!((count("SEQUENCE:5"), count("DTSTAMP:20261023T080000Z")), (1, 2), "{text}");
+        assert_eq!(count("EXDATE;TZID=Europe/Lisbon:20261105T090000"), 1, "EXDATE takes DTSTART's form: {text}");
+        assert_eq!(count("TRIGGER:-PT10M"), 1);
+        // And it reads back the same.
+        let again: Vec<Event> = parse(&text).unwrap().events.into_iter().enumerate().map(|(i, e)| e.into_event(EventId(i as u64), 0)).collect();
+        assert_eq!(again, events);
+        // Hostile server copies are no problem.
+        for raw in ["", "BEGIN:VCALENDAR", "END:VEVENT\r\nEND:VCALENDAR\r\nEND:X", &"BEGIN:X\r\n".repeat(100)] {
+            let _ = write_resource(&events, raw, now);
         }
     }
 

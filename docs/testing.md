@@ -159,7 +159,8 @@ curl -sk -u ana:secret -X MKCALENDAR https://127.0.0.1:15232/ana/work/
 IBERCORREO_TEST_CALDAV="https://localhost:15232/ana/work/ ana secret $D/cert.der" cargo test -p ibercorreo-net real_caldav
 ```
 
-The test fills and empties `/ana/work/`. To try the app: `caldav` `https://localhost:15232/`
+The test fills and empties `/ana/work/`, and checks that changes made in the store (an edit, a new
+appointment, a deletion) reach the server. To try the app: `caldav` `https://localhost:15232/`
 in Account settings (discovery goes through `/.well-known/caldav`) and `IBERCORREO_CA=$D/cert.der`.
 
 ## Revision history
@@ -167,3 +168,4 @@ in Account settings (discovery goes through `/.well-known/caldav`) and `IBERCORR
 - 2026-10-22 — M1.3: sync tests.
 - 2026-10-22 — M1.4: SMTP tests and the Postfix setup.
 - 2026-10-23 — M2.5a: HTTP/WebDAV/CalDAV tests, calendar sync tests and the Radicale setup.
+- 2026-10-23 — M2.5b: push tests (in memory and against Radicale).
