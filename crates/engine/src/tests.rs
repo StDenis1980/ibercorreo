@@ -411,3 +411,115 @@ fn repeating_appointments_and_deleting_one_occurrence() {
     assert!(list(&mut s, "2026-10-23").as_array().unwrap().iter().any(|e| e["summary"] == "Stand-up"));
     assert!(!list(&mut s, "2026-10-24").as_array().unwrap().iter().any(|e| e["summary"] == "Stand-up"));
 }
+
+/// The sample invitation's message id.
+fn invitation(s: &Session) -> MessageId {
+    s.store.all_messages().iter().find(|m| m.invite.is_some()).map(|m| m.id).unwrap()
+}
+
+#[test]
+fn invitations_are_accepted_answered_updated_and_cancelled() {
+    let mut s = session();
+    let id = invitation(&s);
+    let info = s.invite_info(id).unwrap();
+    assert_eq!(
+        (info.method.as_str(), info.summary.as_str(), info.status.as_deref(), info.in_calendar),
+        ("REQUEST", "Revisión del presupuesto", Some("NEEDS-ACTION"), false)
+    );
+    assert_eq!(info.organizer.as_deref(), Some("Marta Iglesias <marta@example.es>"));
+    let read = s.run("message.read", &json!({"id": id.0})).unwrap();
+    assert_eq!(read["invite"]["start"], "2026-10-23T14:00", "16:00 in Madrid, shown in UTC: {read}");
+
+    // Accept: the meeting goes in the calendar and the answer waits in the Outbox.
+    let out = s.run("invite.respond", &json!({"id": id.0, "response": "accept", "comment": "Allí estaré"})).unwrap();
+    assert_eq!(out["queued"], true);
+    let event = EventId(out["events"][0].as_u64().unwrap());
+    let e = s.store.event(event).unwrap().clone();
+    assert_eq!((e.uid.as_str(), e.tzid.as_deref(), e.reminders.as_slice()), ("sample-budget-review@example.es", Some("Europe/Madrid"), &[15][..]));
+    assert!(s.invite_info(id).unwrap().in_calendar);
+    let answer = MessageId(out["reply"].as_u64().unwrap());
+    let m = s.store.message(answer).unwrap();
+    assert_eq!(m.folder, s.store.folder_by_role(FolderRole::Outbox).unwrap());
+    assert_eq!(m.subject, "Accepted: Revisión del presupuesto");
+    assert_eq!(m.to[0].email, "marta@example.es");
+    let raw = commands::render(&s, answer).unwrap();
+    assert!(raw.contains("method=REPLY"), "{raw}");
+    let back = ibercorreo_mime::parse(raw.as_bytes(), MessageId(99), FolderId(0)).unwrap();
+    let reply = ibercorreo_ical::invite(back.invite.as_deref().unwrap()).unwrap();
+    assert_eq!(reply.method, "REPLY");
+    assert_eq!((reply.attendees[0].email.as_str(), reply.attendees[0].status.as_deref()), ("denys@example.com", Some("ACCEPTED")));
+    assert_eq!(s.outbox().len(), 1);
+
+    // An update from the organizer moves the meeting; answering again changes it in place.
+    let moved = s
+        .store
+        .message(id)
+        .unwrap()
+        .invite
+        .clone()
+        .unwrap()
+        .replace("T160000", "T180000")
+        .replace("T170000", "T190000")
+        .replace("SEQUENCE:0", "SEQUENCE:1");
+    s.store.message_mut(id).unwrap().invite = Some(moved);
+    s.store.event_mut(event).unwrap().reminders = vec![30];
+    let out = s.run("invite.respond", &json!({"id": id.0, "response": "tentative", "reply": "none"})).unwrap();
+    assert_eq!(out["events"][0].as_u64(), Some(event.0), "the same event");
+    assert_eq!(out["reply"], Value::Null);
+    let e = s.store.event(event).unwrap();
+    assert_eq!(e.when.minutes_on(e.when.start_date()), Some((18 * 60, 19 * 60)));
+    assert_eq!(e.reminders, [30], "your own reminder stays");
+    assert_eq!(s.store.events().iter().filter(|e| e.uid == "sample-budget-review@example.es").count(), 1);
+
+    // Cancelled: it can be removed, not accepted.
+    let cancel = s.store.message(id).unwrap().invite.clone().unwrap().replace("METHOD:REQUEST", "METHOD:CANCEL");
+    s.store.message_mut(id).unwrap().invite = Some(cancel);
+    assert!(s.run("invite.respond", &json!({"id": id.0, "response": "accept"})).is_err());
+    assert_eq!(s.run("invite.remove", &json!({"id": id.0})).unwrap()["removed"], 1);
+    assert!(s.store.event(event).is_err());
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(s.store.event(event).is_ok(), "undo puts it back");
+}
+
+#[test]
+fn declining_removes_the_meeting_and_can_be_edited_first() {
+    let mut s = session();
+    let id = invitation(&s);
+    s.run("invite.respond", &json!({"id": id.0, "response": "accept", "reply": "none"})).unwrap();
+    assert_eq!(s.outbox().len(), 0, "no answer asked for");
+    let out = s.run("invite.respond", &json!({"id": id.0, "response": "decline", "reply": "edit"})).unwrap();
+    assert_eq!(out["removed"], 1);
+    assert!(!s.invite_info(id).unwrap().in_calendar);
+    let draft = MessageId(out["reply"].as_u64().unwrap());
+    assert_eq!(s.message, Some(draft), "the answer opens to edit");
+    assert_eq!(s.store.message(draft).unwrap().folder, s.store.folder_by_role(FolderRole::Drafts).unwrap());
+    s.run("message.update", &json!({"body": "Lo siento, estoy de viaje."})).unwrap();
+    s.run("message.send", &Value::Null).unwrap();
+    let sent = &s.outbox()[0];
+    let text = String::from_utf8_lossy(&sent.raw).to_string();
+    let back = ibercorreo_mime::parse(text.as_bytes(), MessageId(99), FolderId(0)).unwrap();
+    assert_eq!(back.body.trim(), "Lo siento, estoy de viaje.");
+    assert!(back.invite.unwrap().contains("PARTSTAT=DECLINED"));
+    for bad in [json!({"id": id.0}), json!({"id": id.0, "response": "maybe later"}), json!({"id": id.0, "response": "accept", "reply": "fax"})] {
+        assert!(s.run("invite.respond", &bad).is_err(), "{bad}");
+    }
+    let plain = s.store.all_messages().iter().find(|m| m.invite.is_none()).unwrap().id;
+    assert!(s.run("invite.respond", &json!({"id": plain.0, "response": "accept"})).is_err());
+}
+
+#[test]
+fn declining_one_occurrence_cancels_only_that_day() {
+    let mut s = session();
+    let id = invitation(&s);
+    let series = s.store.message(id).unwrap().invite.clone().unwrap().replace("SUMMARY:", "RRULE:FREQ=DAILY;COUNT=5\r\nSUMMARY:");
+    s.store.message_mut(id).unwrap().invite = Some(series.clone());
+    let event = EventId(s.run("invite.respond", &json!({"id": id.0, "response": "accept", "reply": "none"})).unwrap()["events"][0].as_u64().unwrap());
+    // The organizer cancels the third day only.
+    let one = series
+        .replace("METHOD:REQUEST", "METHOD:CANCEL")
+        .replace("RRULE:FREQ=DAILY;COUNT=5\r\n", "RECURRENCE-ID;TZID=Europe/Madrid:20261025T160000\r\n");
+    s.store.message_mut(id).unwrap().invite = Some(one);
+    s.run("invite.remove", &json!({"id": id.0})).unwrap();
+    let e = s.store.event(event).unwrap();
+    assert_eq!(e.exdates, [Date::new(2026, 10, 25).unwrap()]);
+}

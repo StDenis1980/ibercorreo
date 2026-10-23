@@ -452,6 +452,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: account_sync,
     },
     CommandSpec {
+        id: "invite.respond",
+        label: "Respond",
+        group: "Home/Respond",
+        shortcut: None,
+        params: "response: \"accept\" | \"tentative\" | \"decline\"\nid?: number — the invitation (default: the open message)\nreply?: \"send\" | \"edit\" | \"none\" — send the answer to the organizer now (default), open it as a draft first, or answer nobody\ncomment?: string — added to the answer\ncalendar?: number — where an accepted meeting goes (default: where it already is, else the first calendar)",
+        edits: true,
+        run: invite_respond,
+    },
+    CommandSpec {
+        id: "invite.remove",
+        label: "Remove from Calendar",
+        group: "Home/Respond",
+        shortcut: None,
+        params: "id?: number — the cancellation or invitation (default: the open message)",
+        edits: true,
+        run: invite_remove,
+    },
+    CommandSpec {
         id: "file.save",
         label: "Save",
         group: "File/Save",
@@ -552,6 +570,7 @@ fn summary(m: &Message) -> Value {
         "flagged": m.flagged,
         "attachments": m.attachments.len(),
         "html": m.rich.is_some(),
+        "invite": m.invite.is_some(),
     })
 }
 
@@ -831,6 +850,7 @@ fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
         o.insert("body".into(), Value::String(m.body.clone()));
         let rich = m.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
         o.insert("rich".into(), rich.unwrap_or(Value::Null));
+        o.insert("invite".into(), invite_info(s, m).map(|i| i.to_json()).unwrap_or(Value::Null));
     }
     Ok(v)
 }
@@ -864,6 +884,226 @@ fn search(s: &mut Session, p: &Value) -> Result<Value> {
     let q = required_str(p, "query")?;
     s.search = ibercorreo_core::clamp_text(q, 1024).to_string();
     Ok(Value::Array(s.store.search(&s.search).into_iter().take(500).map(summary).collect()))
+}
+
+// ---- meeting invitations (iTIP, RFC 5546, by mail: iMIP, RFC 6047) ----
+
+/// What the reading pane shows about a message's invitation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InviteInfo {
+    /// `REQUEST` (an invitation or an update), `CANCEL`, `REPLY`, `PUBLISH`…
+    pub method: String,
+    pub summary: String,
+    pub location: String,
+    /// The meeting's first event, as shown in the calendar's zone.
+    pub when: Option<When>,
+    pub repeats: bool,
+    /// The organizer, as a display string.
+    pub organizer: Option<String>,
+    /// For a request: this account's answer so far as the organizer recorded it (`NEEDS-ACTION`
+    /// …). For a reply: the attendee who answered and how.
+    pub status: Option<String>,
+    pub replier: Option<String>,
+    /// Whether the meeting (its UID) is in a calendar here.
+    pub in_calendar: bool,
+}
+
+impl InviteInfo {
+    pub fn to_json(&self) -> Value {
+        let (start, end, all_day) = match self.when {
+            Some(When::AllDay { start, end }) => (Some(start.to_string()), Some(end.to_string()), true),
+            Some(When::Timed { start, end, .. }) => (Some(start.to_string()), Some(end.to_string()), false),
+            None => (None, None, false),
+        };
+        json!({
+            "method": self.method, "summary": self.summary, "location": self.location, "start": start, "end": end,
+            "allDay": all_day, "repeats": self.repeats, "organizer": self.organizer, "status": self.status,
+            "replier": self.replier, "inCalendar": self.in_calendar,
+        })
+    }
+}
+
+fn party_display(p: &ibercorreo_ical::Party) -> String {
+    match &p.name {
+        Some(n) => format!("{n} <{}>", p.email),
+        None => p.email.clone(),
+    }
+}
+
+pub(crate) fn invite_info(s: &Session, m: &Message) -> Option<InviteInfo> {
+    let inv = ibercorreo_ical::invite(m.invite.as_deref()?).ok()?;
+    let me = the_user(s);
+    let first = inv.events.iter().find(|e| e.recurrence_id.is_none()).or(inv.events.first());
+    let when = first.map(|e| {
+        let zone = e.tzid.as_deref().and_then(Zone::named);
+        e.when.in_zone(zone.as_ref(), s.zone())
+    });
+    let uid = first.map(|e| e.uid.as_str());
+    let (status, replier) = if inv.method == "REPLY" {
+        let a = inv.attendees.first();
+        (a.and_then(|a| a.status.clone()), a.map(party_display))
+    } else {
+        (inv.attendees.iter().find(|a| a.email.eq_ignore_ascii_case(&me.email)).and_then(|a| a.status.clone()), None)
+    };
+    Some(InviteInfo {
+        method: inv.method.clone(),
+        summary: first.map(|e| e.summary.clone()).unwrap_or_default(),
+        location: first.map(|e| e.location.clone()).unwrap_or_default(),
+        when,
+        repeats: first.is_some_and(|e| e.rrule.is_some()),
+        organizer: inv.organizer.as_ref().map(party_display),
+        status,
+        replier,
+        in_calendar: uid.is_some_and(|u| s.store.events().iter().any(|e| e.uid == u)),
+    })
+}
+
+/// The open (or `id`) message's invitation, read.
+fn message_invite(s: &Session, p: &Value) -> Result<(MessageId, String, ibercorreo_ical::Invite)> {
+    let id = target_message(s, p)?;
+    let text = s.store.message(id)?.invite.clone().ok_or_else(|| Error::invalid("message", "not a meeting invitation"))?;
+    let inv = ibercorreo_ical::invite(&text)?;
+    if inv.events.is_empty() {
+        return Err(Error::invalid("invitation", "it holds no meeting that can be read"));
+    }
+    Ok((id, text, inv))
+}
+
+/// Put the invitation's events in a calendar: a meeting already here (same UID and occurrence)
+/// is updated where it is, keeping its reminders; a new one goes to `calendar`, or next to the
+/// rest of its series, or to the first calendar. Returns the events' ids.
+fn add_meeting(s: &mut Session, inv: &ibercorreo_ical::Invite, calendar: Option<u32>) -> Result<Vec<EventId>> {
+    let first_uid = inv.events.first().map(|e| e.uid.clone()).unwrap_or_default();
+    let calendar = match calendar {
+        Some(c) => s.store.calendar(c)?.id,
+        None => match s.store.events().iter().find(|e| e.uid == first_uid) {
+            Some(e) => e.calendar,
+            None => s.store.calendars().first().map_or(0, |c| c.id),
+        },
+    };
+    let mut ids = Vec::new();
+    for ie in &inv.events {
+        let existing = s.store.events().iter().find(|e| e.uid == ie.uid && e.recurrence_id == ie.recurrence_id).map(|e| e.id);
+        match existing {
+            Some(id) => {
+                let e = s.store.event_mut(id)?;
+                e.summary = ie.summary.clone();
+                e.location = ie.location.clone();
+                e.description = ie.description.clone();
+                e.when = ie.when;
+                e.tzid = ie.tzid.clone();
+                e.rrule = ie.rrule.clone();
+                e.exdates = ie.exdates.clone();
+                ids.push(id);
+            }
+            None => {
+                let mut ev = ie.clone().into_event(EventId(0), calendar);
+                // As Outlook: an accepted meeting reminds 15 minutes before unless it says otherwise.
+                if ev.reminders.is_empty() && matches!(ev.when, When::Timed { .. }) {
+                    ev.reminders = vec![15];
+                }
+                ids.push(s.store.add_event(ev)?);
+            }
+        }
+    }
+    Ok(ids)
+}
+
+/// Take the invitation's meeting out of the calendars: a whole series, or only the occurrences
+/// it names (each also cancelled in its series). Returns how many events went.
+fn remove_meeting(s: &mut Session, inv: &ibercorreo_ical::Invite) -> Result<usize> {
+    let mut removed = 0usize;
+    for ie in &inv.events {
+        let ids: Vec<EventId> = s
+            .store
+            .events()
+            .iter()
+            .filter(|e| e.uid == ie.uid && (ie.recurrence_id.is_none() || e.recurrence_id == ie.recurrence_id))
+            .map(|e| e.id)
+            .collect();
+        for id in ids {
+            s.store.remove_event(id)?;
+            removed = removed.saturating_add(1);
+        }
+        if let Some(day) = ie.recurrence_id {
+            let series = s.store.events().iter().find(|e| e.uid == ie.uid && e.recurrence_id.is_none() && e.rrule.is_some()).map(|e| e.id);
+            if let Some(id) = series {
+                let e = s.store.event_mut(id)?;
+                if !e.exdates.contains(&day) && e.exdates.len() < 1_000 {
+                    e.exdates.push(day);
+                    removed = removed.saturating_add(1);
+                }
+            }
+        }
+    }
+    s.fix_selection();
+    Ok(removed)
+}
+
+fn invite_respond(s: &mut Session, p: &Value) -> Result<Value> {
+    let (id, text, inv) = message_invite(s, p)?;
+    let (status, verb) = match required_str(p, "response")?.trim().to_ascii_lowercase().as_str() {
+        "accept" | "accepted" => ("ACCEPTED", "Accepted"),
+        "tentative" | "maybe" => ("TENTATIVE", "Tentative"),
+        "decline" | "declined" => ("DECLINED", "Declined"),
+        other => return Err(Error::invalid("response", format!("{other:?}: use accept, tentative or decline"))),
+    };
+    let reply = match str_param(p, "reply")?.map(|r| r.trim().to_ascii_lowercase()) {
+        None => "send".to_string(),
+        Some(r) if matches!(r.as_str(), "send" | "edit" | "none") => r,
+        Some(r) => return Err(Error::invalid("reply", format!("{r:?}: use send, edit or none"))),
+    };
+    let comment = ibercorreo_core::clamp_text(str_param(p, "comment")?.unwrap_or(""), ibercorreo_core::MAX_FIELD_LEN).to_string();
+    match inv.method.as_str() {
+        "REQUEST" | "PUBLISH" => {}
+        "CANCEL" => return Err(Error::invalid("invitation", "the meeting was cancelled; remove it from the calendar instead")),
+        other => return Err(Error::invalid("invitation", format!("a {other} message is not an invitation to answer"))),
+    }
+    let calendar = u32_param(p, "calendar")?;
+    let (events, removed) = if status == "DECLINED" { (Vec::new(), remove_meeting(s, &inv)?) } else { (add_meeting(s, &inv, calendar)?, 0) };
+    let me = the_user(s);
+    // A published event (no organizer to tell), or one this account organises, gets no answer.
+    let organizer = inv.organizer.as_ref().filter(|o| inv.method == "REQUEST" && !o.email.eq_ignore_ascii_case(&me.email));
+    let mut answer = None;
+    if let (Some(org), false) = (organizer, reply == "none") {
+        let mut m = Message::new(MessageId(0), s.store.folder_by_role(if reply == "send" { FolderRole::Outbox } else { FolderRole::Drafts })?);
+        m.from = Some(me.clone());
+        m.to = vec![Address::new(org.name.as_deref(), &org.email)?];
+        let summary = inv.events.first().map(|e| e.summary.as_str()).unwrap_or("");
+        m.set_subject(&format!("{verb}: {summary}"));
+        m.body = comment.clone();
+        m.seen = true;
+        m.date = Some(s.now());
+        m.invite = Some(ibercorreo_ical::reply(&text, &me, status, &comment, s.now())?);
+        let mid = s.store.add_message(m)?;
+        // Proves it can be written before it waits in the Outbox.
+        render(s, mid)?;
+        if reply == "edit" {
+            s.folder = s.store.message(mid)?.folder;
+            s.message = Some(mid);
+            s.view = View::Mail;
+        }
+        answer = Some(mid);
+    }
+    s.status = match (answer, reply.as_str()) {
+        (Some(_), "send") => format!("{verb}: the answer is sent at the next sync"),
+        (Some(_), _) => format!("{verb}: edit the answer, then send it"),
+        _ => verb.to_string(),
+    };
+    Ok(json!({
+        "id": id.0, "response": status, "events": events.iter().map(|e| e.0).collect::<Vec<_>>(), "removed": removed,
+        "reply": answer.map(|m| m.0), "queued": answer.is_some() && reply == "send",
+    }))
+}
+
+fn invite_remove(s: &mut Session, p: &Value) -> Result<Value> {
+    let (id, _, inv) = message_invite(s, p)?;
+    if inv.method == "REPLY" {
+        return Err(Error::invalid("invitation", "a reply does not change the meeting here"));
+    }
+    let removed = remove_meeting(s, &inv)?;
+    s.status = if removed == 0 { "The meeting was not in the calendar".into() } else { "Removed from the calendar".into() };
+    Ok(json!({ "id": id.0, "removed": removed }))
 }
 
 // ---- calendar ----

@@ -4,11 +4,13 @@
 //! [`Message`] through Stalwart's `mail-parser` (Apache-2.0 OR MIT). HTML is read into safe
 //! formatted text by [`html`]; nothing remote is fetched. [`write`] turns a message being sent into RFC 5322 text:
 //! UTF-8 headers as RFC 2047 encoded words, the body as base64 when it is not plain ASCII, and no
-//! header value can carry a line break (header injection).
+//! header value can carry a line break (header injection). A meeting invitation's `text/calendar`
+//! part is kept in [`Message::invite`]; a message carrying one is written as
+//! `multipart/alternative` with the calendar as its second part (iMIP, RFC 6047).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-use ibercorreo_core::mail::Attachment;
+use ibercorreo_core::mail::{Attachment, MAX_INVITE_BYTES};
 use ibercorreo_core::{Address, Date, DateTime, Error, FolderId, MAX_FIELD_LEN, Message, MessageId, Result, clamp_text};
 use mail_parser::{MessageParser, MimeHeaders, PartType};
 
@@ -47,6 +49,9 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
     m.body = clamp_text(&body.replace("\r\n", "\n"), MAX_BODY_BYTES).to_string();
     m.attachments = parsed
         .attachments()
+        // An invitation's calendar sent as an alternative to the text is not a file (it is kept
+        // in `invite` below); one attached under a name still shows.
+        .filter(|part| part.attachment_name().is_some() || !is_calendar(part))
         .take(MAX_ATTACHMENTS)
         .map(|part| Attachment {
             name: clamp_text(part.attachment_name().unwrap_or("attachment"), 1024).to_string(),
@@ -60,7 +65,23 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
             size: part.contents().len(),
         })
         .collect();
+    m.invite = invite(&parsed);
     Ok(m)
+}
+
+fn is_calendar(part: &mail_parser::MessagePart<'_>) -> bool {
+    part.content_type().is_some_and(|ct| ct.ctype().eq_ignore_ascii_case("text") && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case("calendar")))
+}
+
+/// The first `text/calendar` part, inline or attached (iMIP, RFC 6047 §2.4), when it fits.
+fn invite(parsed: &mail_parser::Message<'_>) -> Option<String> {
+    let part = parsed.parts.iter().find(|p| is_calendar(p))?;
+    let bytes = part.contents();
+    if bytes.len() > MAX_INVITE_BYTES {
+        return None;
+    }
+    let text = String::from_utf8_lossy(bytes);
+    text.contains("BEGIN:VCALENDAR").then(|| text.into_owned())
 }
 
 fn addresses(a: &mail_parser::Address<'_>) -> Vec<Address> {
@@ -113,27 +134,60 @@ pub fn write(m: &Message, out: &Outgoing<'_>) -> Result<String> {
     header(&mut s, "Date", &single_line(out.date));
     header(&mut s, "Message-ID", &format!("<{}@{}>", single_line(out.message_id).replace(['<', '>', '@', ' '], ""), domain));
     header(&mut s, "MIME-Version", "1.0");
-    let body = m.body.replace("\r\n", "\n");
-    if body.is_ascii() && body.lines().all(|l| l.len() <= 998) {
-        header(&mut s, "Content-Type", "text/plain; charset=utf-8");
-        header(&mut s, "Content-Transfer-Encoding", "7bit");
+    match &m.invite {
+        // An invitation or a reply to one: the text and the calendar as alternatives (RFC 6047
+        // §2.4), the calendar last as the richest. The boundary comes from the Message-ID, so the
+        // same message always renders to the same bytes.
+        Some(cal) => {
+            let unique: String = base64(out.message_id.as_bytes()).chars().filter(char::is_ascii_alphanumeric).take(40).collect();
+            let boundary = format!("=_ibercorreo_{unique}");
+            let method = calendar_method(cal);
+            header(&mut s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
+            s.push_str("\r\n");
+            s.push_str(&format!("--{boundary}\r\n"));
+            text_part(&mut s, "text/plain; charset=utf-8", &m.body, Some(&boundary));
+            s.push_str(&format!("--{boundary}\r\n"));
+            text_part(&mut s, &format!("text/calendar; charset=utf-8; method={method}"), clamp_text(cal, MAX_INVITE_BYTES), Some(&boundary));
+            s.push_str(&format!("--{boundary}--\r\n"));
+        }
+        None => text_part(&mut s, "text/plain; charset=utf-8", &m.body, None),
+    }
+    Ok(s)
+}
+
+/// The `METHOD` of a calendar object, for its `Content-Type` (`REQUEST` when it names none or
+/// something odd).
+fn calendar_method(cal: &str) -> String {
+    let method = cal
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("METHOD:"))
+        .map(|v| v.trim().to_ascii_uppercase())
+        .filter(|v| !v.is_empty() && v.len() <= 32 && v.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+    method.unwrap_or_else(|| "REQUEST".into())
+}
+
+/// Content headers and the text of one part: 7bit when it is short-lined ASCII, base64 otherwise
+/// (and when the text holds the multipart `boundary`, which base64 never can).
+fn text_part(s: &mut String, content_type: &str, text: &str, boundary: Option<&str>) {
+    let text = text.replace("\r\n", "\n");
+    header(s, "Content-Type", content_type);
+    if text.is_ascii() && text.lines().all(|l| l.len() <= 998) && !boundary.is_some_and(|b| text.contains(b)) {
+        header(s, "Content-Transfer-Encoding", "7bit");
         s.push_str("\r\n");
-        for line in body.lines() {
+        for line in text.lines() {
             // SMTP dot-stuffing is the transport's job; a lone "." stays as written here.
             s.push_str(line);
             s.push_str("\r\n");
         }
     } else {
-        header(&mut s, "Content-Type", "text/plain; charset=utf-8");
-        header(&mut s, "Content-Transfer-Encoding", "base64");
+        header(s, "Content-Transfer-Encoding", "base64");
         s.push_str("\r\n");
-        let encoded = base64(body.replace('\n', "\r\n").as_bytes());
+        let encoded = base64(text.replace('\n', "\r\n").as_bytes());
         for chunk in encoded.as_bytes().chunks(76) {
             s.push_str(std::str::from_utf8(chunk).unwrap_or(""));
             s.push_str("\r\n");
         }
     }
-    Ok(s)
 }
 
 fn header(s: &mut String, name: &str, value: &str) {
@@ -309,5 +363,56 @@ Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<scri
         assert_eq!(base64(b"Ma"), "TWE=");
         assert_eq!(base64(b"M"), "TQ==");
         assert_eq!(base64(b""), "");
+    }
+
+    const REQUEST: &str = "BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:m1\r\nDTSTART:20261102T100000Z\r\nSUMMARY:Reunião\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    #[test]
+    fn invitations_are_kept_from_any_calendar_part() {
+        // Outlook and Gmail: the calendar as an alternative to the text.
+        let alternative = format!(
+            "From: ana@example.org\r\nSubject: Invitation\r\nContent-Type: multipart/mixed; boundary=\"m\"\r\n\r\n--m\r\n\
+Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYou are invited\r\n\
+--a\r\nContent-Type: text/calendar; charset=utf-8; method=REQUEST\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n--a--\r\n\
+--m\r\nContent-Type: application/ics; name=invite.ics\r\nContent-Disposition: attachment\r\n\r\nX\r\n--m--\r\n",
+            base64(REQUEST.as_bytes())
+        );
+        let m = parse(alternative.as_bytes(), MessageId(1), FolderId(0)).unwrap();
+        assert_eq!(m.invite.as_deref(), Some(REQUEST));
+        assert_eq!(m.body.trim(), "You are invited", "the calendar is not read as the body");
+        let files: Vec<&str> = m.attachments.iter().map(|a| a.mime_type.as_str()).collect();
+        assert_eq!(files, ["application/ics"], "the unnamed calendar alternative is not a file");
+        // An attached .ics counts too.
+        assert!(parse(SAMPLE.as_bytes(), MessageId(2), FolderId(0)).unwrap().invite.is_some());
+        // Not a calendar, or too big: none.
+        let plain = parse(b"Subject: x\r\n\r\nBEGIN:VCALENDAR", MessageId(3), FolderId(0)).unwrap();
+        assert_eq!(plain.invite, None);
+        let huge = format!("Content-Type: text/calendar\r\n\r\nBEGIN:VCALENDAR\r\n{}", "X:y\r\n".repeat(MAX_INVITE_BYTES / 4));
+        assert_eq!(parse(huge.as_bytes(), MessageId(4), FolderId(0)).unwrap().invite, None);
+    }
+
+    #[test]
+    fn replies_carry_their_calendar_as_an_alternative() {
+        let from = Address::parse("Denys <denys@example.com>").unwrap();
+        let mut m = Message::new(MessageId(1), FolderId(3));
+        m.to = Address::parse_list("ana@example.org").unwrap();
+        m.set_subject("Accepted: Reunião");
+        m.body = "Até já.\n--=_ibercorreo_YWJj\n".into();
+        m.invite = Some(REQUEST.replace("METHOD:REQUEST", "METHOD:REPLY"));
+        let out = Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "abc" };
+        let raw = write(&m, &out).unwrap();
+        assert_eq!(raw, write(&m, &out).unwrap(), "the same bytes every time");
+        assert!(raw.contains("Content-Type: multipart/alternative; boundary=\"=_ibercorreo_YWJj\""), "{raw}");
+        assert!(raw.contains("Content-Type: text/calendar; charset=utf-8; method=REPLY"), "{raw}");
+        let back = parse(raw.as_bytes(), MessageId(2), FolderId(0)).unwrap();
+        assert_eq!(back.invite.as_deref(), m.invite.as_deref());
+        assert_eq!(back.body.trim_end(), "Até já.\n--=_ibercorreo_YWJj", "a body holding the boundary does not break the message");
+        // A text that looks like the boundary is base64, so it cannot end the part.
+        m.body = "plain\n--=_ibercorreo_YWJj--\n".into();
+        let raw = write(&m, &out).unwrap();
+        assert_eq!(raw.matches("--=_ibercorreo_YWJj--").count(), 1, "{raw}");
+        assert_eq!(parse(raw.as_bytes(), MessageId(3), FolderId(0)).unwrap().invite.as_deref(), m.invite.as_deref());
+        assert_eq!(calendar_method("METHOD:cancel\r\n"), "CANCEL");
+        assert_eq!(calendar_method("METHOD:a;b\r\n"), "REQUEST");
     }
 }

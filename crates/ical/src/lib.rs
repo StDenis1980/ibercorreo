@@ -1,6 +1,7 @@
 //! iCalendar (RFC 5545), L1: `.ics` files, CalDAV bodies and meeting invitations.
 //!
-//! Written from the RFC. Reads `VEVENT`s inside a `VCALENDAR`: `UID`, `SUMMARY`, `LOCATION`,
+//! Written from the RFCs (5545, and 5546 for invitations: [`invite`] reads one, [`reply`] answers
+//! it). Reads `VEVENT`s inside a `VCALENDAR`: `UID`, `SUMMARY`, `LOCATION`,
 //! `DESCRIPTION`, `DTSTART`, `DTEND` / `DURATION` (days, hours, minutes), `TZID`, the raw `RRULE`,
 //! `EXDATE` and `RECURRENCE-ID` (by day).
 //! Anything else is skipped and counted in [`Parsed::skipped`], never silently dropped.
@@ -606,6 +607,185 @@ fn write_with<'a>(events: impl IntoIterator<Item = &'a Event>, kept: &Kept, now:
     out
 }
 
+/// Someone named in an invitation: its `ORGANIZER` or an `ATTENDEE`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Party {
+    pub email: String,
+    /// The `CN` parameter.
+    pub name: Option<String>,
+    /// The `PARTSTAT` parameter, upper case (`NEEDS-ACTION`, `ACCEPTED`, `TENTATIVE`, `DECLINED`…).
+    pub status: Option<String>,
+}
+
+/// A meeting invitation, reply or cancellation (iTIP, RFC 5546) as read from a message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Invite {
+    /// `REQUEST`, `REPLY`, `CANCEL`, `PUBLISH`… upper case; `REQUEST` when the object names none.
+    pub method: String,
+    /// The meetings: one, or a series and its changed occurrences.
+    pub events: Vec<IcsEvent>,
+    /// From the first event, as every event of one invitation shares them.
+    pub organizer: Option<Party>,
+    pub attendees: Vec<Party>,
+    /// The first event's `SEQUENCE`: an update to a meeting has a higher one.
+    pub sequence: u32,
+}
+
+/// Most attendees read from one invitation.
+const MAX_ATTENDEES: usize = 1_000;
+
+/// The address in a `CAL-ADDRESS` value: `mailto:ana@example.org` without its scheme.
+fn cal_address(v: &str) -> Option<String> {
+    let v = v.trim();
+    let email = match v.get(..7) {
+        Some(scheme) if scheme.eq_ignore_ascii_case("mailto:") => v.get(7..)?,
+        _ => v,
+    };
+    let email = email.trim();
+    (email.contains('@') && email.len() <= 254 && !email.chars().any(|c| c.is_whitespace() || c.is_control())).then(|| email.to_string())
+}
+
+fn party(line: &Line<'_>) -> Option<Party> {
+    let param = |name: &str| line.params.iter().find(|(k, _)| k == name).map(|(_, v)| *v);
+    Some(Party {
+        email: cal_address(line.value)?,
+        name: param("CN").map(|n| clamp_text(n.trim(), 256).to_string()).filter(|n| !n.is_empty()),
+        status: param("PARTSTAT").map(|p| clamp_text(p.trim(), 32).to_ascii_uppercase()),
+    })
+}
+
+/// Read an invitation: its events (through [`parse`]), its `METHOD`, and who organises and attends.
+pub fn invite(text: &str) -> Result<Invite> {
+    let parsed = parse(text)?;
+    let mut out = Invite { method: "REQUEST".into(), events: parsed.events, organizer: None, attendees: Vec::new(), sequence: 0 };
+    let unfolded = unfold(text.trim_start_matches('\u{feff}'));
+    let mut stack: Vec<String> = Vec::new();
+    let mut events_seen = 0usize;
+    for raw in unfolded.lines() {
+        let Some(line) = split_line(raw) else { continue };
+        match line.name.as_str() {
+            "BEGIN" => {
+                if stack.len() >= MAX_DEPTH {
+                    break;
+                }
+                stack.push(line.value.trim().to_ascii_uppercase());
+                if stack.len() == 2 && stack.last().is_some_and(|c| c == "VEVENT") {
+                    events_seen = events_seen.saturating_add(1);
+                }
+            }
+            "END" => {
+                stack.pop();
+            }
+            "METHOD" if stack.len() == 1 => {
+                let m = line.value.trim().to_ascii_uppercase();
+                if !m.is_empty() && m.len() <= 32 && m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                    out.method = m;
+                }
+            }
+            // Only the first event's: the parties are the same for the whole meeting.
+            name if stack.len() == 2 && events_seen == 1 && stack.last().is_some_and(|c| c == "VEVENT") => match name {
+                "ORGANIZER" => out.organizer = party(&line),
+                "ATTENDEE" if out.attendees.len() < MAX_ATTENDEES => out.attendees.extend(party(&line)),
+                "SEQUENCE" => out.sequence = line.value.trim().parse().unwrap_or(0),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    Ok(out)
+}
+
+/// A parameter value made safe to write: no quotes, no line breaks, quoted when it needs to be.
+fn param_value(v: &str) -> String {
+    let v: String = clamp_text(v, 256).chars().filter(|c| !c.is_control() && *c != '"').collect();
+    if v.contains([':', ';', ',']) { format!("\"{v}\"") } else { v }
+}
+
+/// The `METHOD:REPLY` that answers invitation `text` for attendee `me` (RFC 5546 §3.2.3): per
+/// event its `UID`, `RECURRENCE-ID`, `SEQUENCE`, `ORGANIZER`, times and title as the organizer
+/// wrote them, a fresh `DTSTAMP`, and one `ATTENDEE` (`me`) with `status` (`ACCEPTED`,
+/// `TENTATIVE` or `DECLINED`) and an optional `COMMENT`. Time zones the times refer to go along.
+pub fn reply(text: &str, me: &ibercorreo_core::Address, status: &str, comment: &str, now: DateTime) -> Result<String> {
+    if text.len() > MAX_ICS_BYTES {
+        return Err(Error::TooLarge { what: "calendar file", size: text.len(), limit: MAX_ICS_BYTES });
+    }
+    let status = status.to_ascii_uppercase();
+    if !matches!(status.as_str(), "ACCEPTED" | "TENTATIVE" | "DECLINED") {
+        return Err(Error::invalid("status", "ACCEPTED, TENTATIVE or DECLINED"));
+    }
+    let mut out = String::new();
+    for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//IberOffice//Iber Correo//EN", "CALSCALE:GREGORIAN", "METHOD:REPLY"] {
+        push_folded(&mut out, l);
+    }
+    let unfolded = unfold(text.trim_start_matches('\u{feff}'));
+    let mut stack: Vec<String> = Vec::new();
+    let mut events = 0usize;
+    let mut has_uid = false;
+    let mut lines = 0usize;
+    let attendee = format!(
+        "ATTENDEE;PARTSTAT={status}{}:mailto:{}",
+        me.name.as_deref().map(|n| format!(";CN={}", param_value(n))).unwrap_or_default(),
+        me.email.replace(|c: char| c.is_control() || c.is_whitespace(), "")
+    );
+    for raw in unfolded.lines() {
+        let Some(line) = split_line(raw) else { continue };
+        let name = line.name.as_str();
+        let raw = raw.trim_end_matches('\r');
+        if name == "BEGIN" {
+            if stack.len() >= MAX_DEPTH {
+                return Err(Error::invalid("calendar file", "components nested too deep"));
+            }
+            stack.push(line.value.trim().to_ascii_uppercase());
+        }
+        let top = stack.get(1).map(String::as_str);
+        match (stack.len(), top) {
+            // Time zones go along whole.
+            (n, Some("VTIMEZONE")) if n >= 2 => {
+                lines = lines.saturating_add(1);
+                if lines > MAX_KEPT {
+                    return Err(Error::TooLarge { what: "invitation", size: lines, limit: MAX_KEPT });
+                }
+                push_folded(&mut out, raw);
+            }
+            (2, Some("VEVENT")) => match name {
+                "BEGIN" => {
+                    if events >= MAX_EVENTS {
+                        return Err(Error::TooLarge { what: "events", size: events, limit: MAX_EVENTS });
+                    }
+                    events = events.saturating_add(1);
+                    has_uid = false;
+                    push_folded(&mut out, "BEGIN:VEVENT");
+                    push_folded(&mut out, &format!("DTSTAMP:{}", basic_time(now, true)));
+                }
+                "END" => {
+                    if !has_uid {
+                        return Err(Error::invalid("invitation", "an event has no UID"));
+                    }
+                    push_folded(&mut out, &attendee);
+                    if !comment.trim().is_empty() {
+                        push_folded(&mut out, &format!("COMMENT:{}", escape(clamp_text(comment.trim(), MAX_FIELD_LEN))));
+                    }
+                    push_folded(&mut out, "END:VEVENT");
+                }
+                "UID" | "RECURRENCE-ID" | "SEQUENCE" | "ORGANIZER" | "DTSTART" | "DTEND" | "DURATION" | "SUMMARY" => {
+                    has_uid |= name == "UID";
+                    push_folded(&mut out, raw);
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        if name == "END" {
+            stack.pop();
+        }
+    }
+    if events == 0 {
+        return Err(Error::invalid("invitation", "no event to answer"));
+    }
+    push_folded(&mut out, "END:VCALENDAR");
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -759,5 +939,80 @@ END:VEVENT\r\nEND:VCALENDAR\r\n";
         let again = parse(&out).unwrap();
         assert_eq!(again.events[0].reminders, [1440, 1380, 15, -30]);
         assert_eq!(again.events[1].reminders, [ibercorreo_core::calendar::MAX_REMINDER_MINUTES, -5]);
+    }
+
+    const INVITE: &str = "BEGIN:VCALENDAR\r\nPRODID:-//Other//EN\r\nVERSION:2.0\r\nMETHOD:request\r\n\
+BEGIN:VTIMEZONE\r\nTZID:Europe/Lisbon\r\nBEGIN:STANDARD\r\nTZOFFSETTO:+0000\r\nEND:STANDARD\r\nEND:VTIMEZONE\r\n\
+BEGIN:VEVENT\r\nUID:plan@example.org\r\nSEQUENCE:2\r\nDTSTAMP:20261020T120000Z\r\n\
+DTSTART;TZID=Europe/Lisbon:20261102T100000\r\nDTEND;TZID=Europe/Lisbon:20261102T110000\r\nSUMMARY:Planeamento\r\n\
+ORGANIZER;CN=\"Souza, Ana\":mailto:ana@example.org\r\n\
+ATTENDEE;CN=Denys;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:MAILTO:denys@example.com\r\n\
+ATTENDEE;PARTSTAT=accepted:mailto:rui@example.org\r\nATTENDEE:not-an-address\r\n\
+DESCRIPTION:Agenda\r\nBEGIN:VALARM\r\nTRIGGER:-PT10M\r\nEND:VALARM\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\nUID:plan@example.org\r\nRECURRENCE-ID;TZID=Europe/Lisbon:20261109T100000\r\n\
+DTSTART;TZID=Europe/Lisbon:20261109T120000\r\nDTEND;TZID=Europe/Lisbon:20261109T130000\r\nSUMMARY:Planeamento (moved)\r\n\
+ATTENDEE:mailto:other@example.org\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+
+    #[test]
+    fn invitations_name_their_method_and_parties() {
+        let inv = invite(INVITE).unwrap();
+        assert_eq!(inv.method, "REQUEST");
+        assert_eq!(inv.sequence, 2);
+        assert_eq!(inv.events.len(), 2);
+        let org = inv.organizer.unwrap();
+        assert_eq!((org.email.as_str(), org.name.as_deref()), ("ana@example.org", Some("Souza, Ana")));
+        let found: Vec<(&str, Option<&str>)> = inv.attendees.iter().map(|a| (a.email.as_str(), a.status.as_deref())).collect();
+        assert_eq!(
+            found,
+            [("denys@example.com", Some("NEEDS-ACTION")), ("rui@example.org", Some("ACCEPTED"))],
+            "only the first event's, with real addresses"
+        );
+        assert_eq!(invite("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n").unwrap().method, "REQUEST", "no METHOD reads as a request");
+        assert!(invite("nonsense").is_err());
+    }
+
+    #[test]
+    fn replies_answer_for_one_attendee() {
+        let me = ibercorreo_core::Address::new(Some("Denys; \"M\""), "denys@example.com").unwrap();
+        let now = DateTime::new(Date::new(2026, 10, 23).unwrap(), 9, 0, 0).unwrap();
+        let text = reply(INVITE, &me, "accepted", "Até lá\nobrigado", now).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        let count = |l: &str| lines.iter().filter(|x| **x == l).count();
+        for one in
+            ["METHOD:REPLY", "BEGIN:VTIMEZONE", "TZOFFSETTO:+0000", "END:VTIMEZONE", "SEQUENCE:2", "RECURRENCE-ID;TZID=Europe/Lisbon:20261109T100000"]
+        {
+            assert_eq!(count(one), 1, "{one} in {text}");
+        }
+        assert_eq!(count("ATTENDEE;PARTSTAT=ACCEPTED;CN=\"Denys; M\":mailto:denys@example.com"), 2, "{text}");
+        assert_eq!(count("COMMENT:Até lá\\nobrigado"), 2);
+        assert_eq!(count("DTSTAMP:20261023T090000Z"), 2);
+        for gone in [
+            "METHOD:request",
+            "DESCRIPTION:Agenda",
+            "TRIGGER:-PT10M",
+            "ATTENDEE;PARTSTAT=accepted:mailto:rui@example.org",
+            "DTSTAMP:20261020T120000Z",
+        ] {
+            assert_eq!(count(gone), 0, "{gone} in {text}");
+        }
+        // The organizer's calendar reads it back as the same meeting.
+        let back = invite(&text).unwrap();
+        assert_eq!(back.method, "REPLY");
+        assert_eq!(back.attendees.len(), 1);
+        assert_eq!(back.events.len(), 2);
+        assert_eq!(back.events[0].when, invite(INVITE).unwrap().events[0].when);
+        assert!(text.lines().all(|l| l.len() <= 76));
+        // Nothing to answer, or a made-up answer: an error.
+        assert!(reply(INVITE, &me, "maybe", "", now).is_err());
+        assert!(reply("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", &me, "DECLINED", "", now).is_err());
+        assert!(
+            reply("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n", &me, "DECLINED", "", now).is_err(),
+            "no UID"
+        );
+        let deep = "BEGIN:VCALENDAR\n".to_string() + &"BEGIN:X\n".repeat(1000);
+        for hostile in ["", "garbage", deep.as_str(), "BEGIN:VCALENDAR\nBEGIN:VTIMEZONE\nBEGIN:VTIMEZONE\nEND:VEVENT"] {
+            let _ = reply(hostile, &me, "DECLINED", "", now);
+            let _ = invite(hostile);
+        }
     }
 }

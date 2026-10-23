@@ -225,6 +225,9 @@ fn is_plausible_email(s: &str) -> bool {
         && !s.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '<' | '>' | ',' | ';' | '"'))
 }
 
+/// Largest invitation kept with a message (a real one is a few KiB, with its time zones).
+pub const MAX_INVITE_BYTES: usize = 256 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,
@@ -249,6 +252,10 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rich: Option<crate::rich::Rich>,
     pub attachments: Vec<Attachment>,
+    /// The iCalendar part of a meeting invitation, a reply to one or a cancellation (iMIP, RFC
+    /// 6047), as text: at most [`MAX_INVITE_BYTES`]. A message being sent carries its reply here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite: Option<String>,
     pub seen: bool,
     pub flagged: bool,
     /// The server copy, for a synced message; `None` for one that only exists here.
@@ -270,6 +277,7 @@ impl Message {
             body: String::new(),
             rich: None,
             attachments: Vec::new(),
+            invite: None,
             seen: false,
             flagged: false,
             remote: None,
