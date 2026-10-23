@@ -412,7 +412,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Edit Contact",
         group: "People/Current View",
         shortcut: None,
-        params: "id: number\n(then any of the fields of contact.add; a field left out stays as it is, \"\" clears it)",
+        params: "id: number\n(then any of the fields of contact.add; a field left out stays as it is, \"\" clears it; a new book moves it)",
         edits: true,
         run: contact_update,
     },
@@ -439,16 +439,25 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "List contacts",
         group: "People/Find",
         shortcut: None,
-        params: "query?: string",
+        params: "query?: string\nbook?: number — only this address book",
         edits: false,
         run: contact_list,
+    },
+    CommandSpec {
+        id: "contact.listBooks",
+        label: "Address books",
+        group: "People/Address Books",
+        shortcut: None,
+        params: "",
+        edits: false,
+        run: contact_books,
     },
     CommandSpec {
         id: "contact.importVcf",
         label: "Import contacts (.vcf)",
         group: "File/Open",
         shortcut: None,
-        params: "text: string — vCard 2.1, 3.0 or 4.0; a card whose UID (or, without one, an address) is already here updates that contact",
+        params: "text: string — vCard 2.1, 3.0 or 4.0; a card whose UID (or, without one, an address) is already here updates that contact\nbook?: number — where new contacts go (default: the first address book)",
         edits: true,
         run: contact_import,
     },
@@ -1462,14 +1471,14 @@ fn event_set_reminder(s: &mut Session, p: &Value) -> Result<Value> {
 
 // ---- people ----
 
-const CONTACT_FIELDS: &str = "name: string\nemail?: string — one address or several, comma-separated\nphone?: string — the main phone\nphoneKind?: \"mobile\" | \"work\" | \"home\" | \"fax\" | \"\" — what the main phone is\nphones?: [{kind, number}] — every phone, instead of phone\norganization?: string\ntitle?: string — job title\nnote?: string\nbirthday?: YYYY-MM-DD";
+const CONTACT_FIELDS: &str = "name: string\nemail?: string — one address or several, comma-separated\nphone?: string — the main phone\nphoneKind?: \"mobile\" | \"work\" | \"home\" | \"fax\" | \"\" — what the main phone is\nphones?: [{kind, number}] — every phone, instead of phone\norganization?: string\ntitle?: string — job title\nnote?: string\nbirthday?: YYYY-MM-DD\nbook?: number — the address book (contact.listBooks; default: the first)";
 
 fn contact_json(c: &Contact) -> Value {
     json!({
         "id": c.id, "uid": c.uid, "name": c.name, "emails": c.emails.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "phones": c.phones.iter().map(|p| json!({ "kind": p.kind, "number": p.number })).collect::<Vec<_>>(),
         "organization": c.organization, "title": c.title, "note": c.note, "birthday": c.birthday.map(|b| b.to_string()),
-        "kept": c.kept.len(),
+        "kept": c.kept.len(), "book": c.book, "synced": c.remote.is_some(),
     })
 }
 
@@ -1564,6 +1573,7 @@ fn contact_add(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let mut c = Contact::new(name);
     apply_contact_fields(&mut c, p)?;
+    c.book = book_param(s, p)?;
     c.uid = {
         use std::hash::{Hash, Hasher};
         let unix = s.now().to_unix();
@@ -1581,9 +1591,27 @@ fn contact_id(p: &Value) -> Result<u64> {
     u64_param(p, "id")?.ok_or_else(|| Error::invalid("params", "id is required"))
 }
 
+/// The `book` param: an address book that exists, or the first one when left out.
+fn book_param(s: &Session, p: &Value) -> Result<u32> {
+    match u64_param(p, "book")? {
+        Some(b) => {
+            let b = u32::try_from(b).map_err(|_| Error::invalid("book", "no such address book"))?;
+            Ok(s.store.book(b)?.id)
+        }
+        None => s.store.books().first().map(|b| b.id).ok_or_else(|| Error::not_found("address book", "none")),
+    }
+}
+
 fn contact_update(s: &mut Session, p: &Value) -> Result<Value> {
     let id = contact_id(p)?;
+    let book = match p.get("book") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(book_param(s, p)?),
+    };
     apply_contact_fields(s.store.contact_mut(id)?, p)?;
+    if let Some(book) = book {
+        s.store.move_contact(id, book)?;
+    }
     Ok(contact_json(s.store.contact(id)?))
 }
 
@@ -1599,11 +1627,29 @@ fn contact_get(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn contact_list(s: &mut Session, p: &Value) -> Result<Value> {
     let q = str_param(p, "query")?.unwrap_or("");
-    Ok(Value::Array(s.store.contacts(q).into_iter().map(contact_json).collect()))
+    let book = match p.get("book") {
+        None | Some(Value::Null) => None,
+        Some(_) => Some(book_param(s, p)?),
+    };
+    Ok(Value::Array(s.store.contacts(q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).map(contact_json).collect()))
+}
+
+fn contact_books(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(Value::Array(
+        s.store
+            .books()
+            .iter()
+            .map(|b| {
+                let count = s.store.all_contacts().iter().filter(|c| c.book == b.id).count();
+                json!({ "id": b.id, "name": b.name, "server": b.remote.as_ref().map(|r| r.href.clone()), "contacts": count })
+            })
+            .collect(),
+    ))
 }
 
 fn contact_import(s: &mut Session, p: &Value) -> Result<Value> {
-    let r = s.store.import_vcf(required_str(p, "text")?)?;
+    let book = book_param(s, p)?;
+    let r = s.store.import_vcf(required_str(p, "text")?, book)?;
     s.status = format!("Imported {} new and {} updated contacts", r.added, r.updated);
     serde_json::to_value(&r).map_err(|e| Error::invalid("report", e.to_string()))
 }
@@ -1675,9 +1721,10 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
         Some(a) => *a = account,
         None => s.store.accounts.push(account),
     }
-    // Another server (or none): the calendars mirrored from the old one go.
+    // Another server (or none): the calendars and address books mirrored from the old one go.
     if server_changed {
         ibercorreo_sync::calendar::forget(&mut s.store);
+        ibercorreo_sync::contacts::forget(&mut s.store);
         s.fix_selection();
     }
     s.status = "Account saved".into();

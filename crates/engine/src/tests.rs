@@ -570,3 +570,56 @@ fn contacts_are_added_edited_deleted_and_travel_as_vcards() {
     assert_eq!(s.run("contact.list", &json!({"query": "067"})).unwrap().as_array().unwrap().len(), 0);
     assert_eq!(s.run("contact.list", &json!({"query": "67 000"})).unwrap().as_array().unwrap().len(), 1, "phones are searched");
 }
+
+#[test]
+fn server_address_books_sync_and_contacts_move_between_books() {
+    let mut s = session();
+    s.run("account.set", &json!({"email": "denys@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org", "caldav": "https://dav.example.org/dav/"})).unwrap();
+    let batch = ibercorreo_sync::contacts::Batch {
+        books: vec![ibercorreo_sync::contacts::BookSync {
+            book: ibercorreo_dav::carddav::RemoteBook { href: "/dav/books/phone/".into(), name: "Phone".into(), ctag: Some("1".into()) },
+            unchanged: false,
+            fetched: vec![ibercorreo_dav::caldav::FetchedItem {
+                href: "/dav/books/phone/ana.vcf".into(),
+                etag: "e".into(),
+                data: "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:ana\r\nFN:Ana Souza\r\nTEL;TYPE=CELL:+351 912 345 678\r\nEND:VCARD\r\n".into(),
+            }],
+            removed: Vec::new(),
+        }],
+        errors: Vec::new(),
+        pushed: Vec::new(),
+    };
+    let r = s.apply_contacts_sync(batch);
+    assert_eq!((r.books_added, r.added), (1, 1));
+    assert!(s.status.contains("contacts: 1 new"), "{}", s.status);
+    assert!(!s.can_undo());
+    let books = s.run("contact.listBooks", &Value::Null).unwrap();
+    let phone = books.as_array().unwrap().iter().find(|b| b["server"] == "/dav/books/phone/").unwrap().clone();
+    assert_eq!((phone["name"].as_str(), phone["contacts"].as_u64()), (Some("Phone"), Some(1)));
+    let phone = phone["id"].as_u64().unwrap();
+
+    // Added to the server book: it is sent at the next sync.
+    let olena = s.run("contact.add", &json!({"name": "Olena Koval", "book": phone})).unwrap();
+    assert_eq!((olena["book"].as_u64(), olena["synced"].as_bool()), (Some(phone), Some(false)));
+    assert!(s.run("contact.add", &json!({"name": "Nowhere", "book": 99})).is_err());
+    assert!(s.run("contact.add", &json!({"name": "Nowhere", "book": u64::MAX})).is_err());
+    let state = s.contacts_sync_state();
+    assert_eq!(state.changes.len(), 1, "{state:?}");
+    assert_eq!(s.run("contact.list", &json!({"book": phone})).unwrap().as_array().unwrap().len(), 2);
+
+    // Ana moved to the local book: deleted on the server, kept here.
+    let ana = s.store.all_contacts().iter().find(|c| c.uid == "ana").unwrap().id;
+    let local = s.store.books().first().unwrap().id;
+    let moved = s.run("contact.update", &json!({"id": ana, "book": local, "title": "Diretora"})).unwrap();
+    assert_eq!((moved["book"].as_u64(), moved["synced"].as_bool(), moved["title"].as_str()), (Some(u64::from(local)), Some(false), Some("Diretora")));
+    assert_eq!(s.store.card_deletions().len(), 1);
+    // A bad field changes nothing, not even the book (a failed command is undone whole).
+    assert!(s.run("contact.update", &json!({"id": ana, "book": phone, "birthday": "soon"})).is_err());
+    assert_eq!(s.store.contact(ana).unwrap().book, local);
+
+    // Another server: its address books go, the contacts here stay.
+    s.run("account.set", &json!({"email": "denys@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org", "caldav": ""}))
+        .unwrap();
+    assert!(s.store.books().iter().all(|b| b.remote.is_none()));
+    assert!(s.store.contact(ana).is_ok());
+}

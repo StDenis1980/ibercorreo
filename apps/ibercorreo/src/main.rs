@@ -121,6 +121,7 @@ impl Shell {
             sent_path: s.sent_path(),
             limits: ibercorreo_sync::Limits::default(),
             calendar: s.calendar_sync_state(),
+            contacts: s.contacts_sync_state(),
         };
         let (tx, rx) = mpsc::channel();
         let spawned = std::thread::Builder::new().name("send-receive".into()).spawn(move || {
@@ -167,6 +168,16 @@ impl Shell {
             Some(Err(e)) => {
                 let status = &mut self.app.session.status;
                 status.push_str(&format!("; calendars: {e}"));
+            }
+            None => {}
+        }
+        match finished.contacts {
+            Some(Ok(batch)) => {
+                self.app.session.apply_contacts_sync(batch);
+            }
+            Some(Err(e)) => {
+                let status = &mut self.app.session.status;
+                status.push_str(&format!("; contacts: {e}"));
             }
             None => {}
         }

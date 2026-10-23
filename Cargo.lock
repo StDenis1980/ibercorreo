@@ -1741,6 +1741,7 @@ dependencies = [
  "ibercorreo-mime",
  "ibercorreo-smtp",
  "ibercorreo-store",
+ "ibercorreo-vcard",
  "serde",
 ]
 

@@ -67,7 +67,7 @@ fn propfind_body(props: &str) -> String {
 
 /// Send a request that answers with a multistatus, following same-host redirects. Returns the
 /// path finally answered and its responses.
-fn multistatus(http: &mut dyn Http, url: &Url, method: &str, path: &str, depth: &str, body: &str) -> Result<(String, Vec<DavResponse>)> {
+pub(crate) fn multistatus(http: &mut dyn Http, url: &Url, method: &str, path: &str, depth: &str, body: &str) -> Result<(String, Vec<DavResponse>)> {
     let mut path = path.to_string();
     for _ in 0..=MAX_REDIRECTS {
         let headers = [("Depth", depth), ("Content-Type", "application/xml; charset=utf-8")];
@@ -85,7 +85,7 @@ fn multistatus(http: &mut dyn Http, url: &Url, method: &str, path: &str, depth: 
     Err(Error::Protocol("too many redirects".into()))
 }
 
-fn status_error(status: u16, method: &str, path: &str) -> Error {
+pub(crate) fn status_error(status: u16, method: &str, path: &str) -> Error {
     Error::Status { status, what: format!("{method} {path}") }
 }
 
@@ -229,7 +229,7 @@ pub enum Written {
     Gone,
 }
 
-fn written(resp: &Response, method: &str, href: &str) -> Result<Written> {
+pub(crate) fn written(resp: &Response, method: &str, href: &str) -> Result<Written> {
     match resp.status {
         200..=299 => Ok(Written::Done { etag: resp.header("etag").map(str::to_string).filter(|e| !e.is_empty() && e.len() <= 512) }),
         412 => Ok(Written::Conflict),
@@ -242,16 +242,21 @@ fn written(resp: &Response, method: &str, href: &str) -> Result<Written> {
 /// Write the event resource `href`: a new one when `etag` is `None` (refused if it exists), else
 /// only if the server's copy is still that version.
 pub fn put(http: &mut dyn Http, href: &str, body: &str, etag: Option<&str>) -> Result<Written> {
+    put_as(http, href, body, etag, "text/calendar; charset=utf-8")
+}
+
+/// [`put`] with another media type (`text/vcard` for CardDAV).
+pub(crate) fn put_as(http: &mut dyn Http, href: &str, body: &str, etag: Option<&str>, content_type: &str) -> Result<Written> {
     let precondition = match etag {
         Some(e) => ("If-Match", e),
         None => ("If-None-Match", "*"),
     };
-    let headers = [("Content-Type", "text/calendar; charset=utf-8"), precondition];
+    let headers = [("Content-Type", content_type), precondition];
     let resp = http.send("PUT", href, &headers, body.as_bytes())?;
     written(&resp, "PUT", href)
 }
 
-/// Delete the event resource `href` if the server's copy is still version `etag` (any version
+/// Delete the resource `href` (an event, or a contact card) if the server's copy is still version `etag` (any version
 /// when `etag` is empty).
 pub fn delete(http: &mut dyn Http, href: &str, etag: &str) -> Result<Written> {
     let headers: &[(&str, &str)] = if etag.is_empty() { &[] } else { &[("If-Match", etag)] };

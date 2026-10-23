@@ -293,6 +293,35 @@ impl Session {
         report
     }
 
+    /// What a contact sync needs from the store ([`ibercorreo_sync::contacts::run`]).
+    pub fn contacts_sync_state(&self) -> ibercorreo_sync::contacts::State {
+        ibercorreo_sync::contacts::state(&self.store)
+    }
+
+    /// Fold a contact sync into the store. Undo history is cleared, as for mail.
+    pub fn apply_contacts_sync(&mut self, batch: ibercorreo_sync::contacts::Batch) -> ibercorreo_sync::contacts::Report {
+        let report = ibercorreo_sync::contacts::apply(&mut self.store, batch);
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = true;
+        self.fix_selection();
+        let changes = report.added.saturating_add(report.updated).saturating_add(report.removed).saturating_add(report.sent);
+        let mut line = format!("contacts: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        if report.sent > 0 {
+            line.push_str(&format!(", {} sent", report.sent));
+        }
+        if report.conflicts > 0 {
+            line.push_str(&format!(", {} changed on the server too (the server's copy was kept)", report.conflicts));
+        }
+        if changes > 0 || !report.errors.is_empty() {
+            self.status = if self.status.starts_with("Synced") { format!("{}; {line}", self.status) } else { format!("Synced {line}") };
+        }
+        if !report.errors.is_empty() {
+            self.status.push_str(&format!(" ({} contact problems)", report.errors.len()));
+        }
+        report
+    }
+
     /// The server mailbox that holds sent copies, once the Sent folder is linked to one.
     pub fn sent_path(&self) -> Option<String> {
         let sent = self.store.folder_by_role(FolderRole::Sent).ok()?;

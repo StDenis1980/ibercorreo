@@ -62,6 +62,10 @@ fn urls_are_https_only_and_hrefs_stay_on_the_host() {
     assert_eq!(u.join("https://evil.example.com:8443/x"), None);
     assert_eq!(u.join("https://cal.example.org/x"), None, "another port is another server");
     // A path can never break the request line.
+    assert_eq!(u.join("/dav/ana/work/../../x.ics").as_deref(), Some("/dav/x.ics"), "dot segments resolve");
+    assert_eq!(u.join("../%2E%2e/./x/.").as_deref(), Some("/x/"));
+    assert_eq!(u.join("/../../x").as_deref(), Some("/x"), "never above the root");
+    assert_eq!(u.join("/a/..b/c?d=../e").as_deref(), Some("/a/..b/c?d=../e"), "only whole segments");
     assert_eq!(u.join("/a b\r\nX-Evil: 1").as_deref(), Some("/a%20b%0D%0AX-Evil:%201"));
     assert_eq!(u.join("/календар/").as_deref(), Some("/%D0%BA%D0%B0%D0%BB%D0%B5%D0%BD%D0%B4%D0%B0%D1%80/"));
 }
@@ -306,4 +310,90 @@ fn writes_carry_preconditions_and_read_conflicts() {
     assert_eq!(caldav::delete(&mut gone, "/c/a.ics", "\"6\"").unwrap(), caldav::Written::Gone);
     let mut no = One(reply(403, "", &[]), Vec::new());
     assert!(caldav::put(&mut no, "/c/a.ics", "X", None).is_err());
+}
+
+fn ms_card(responses: &str) -> Response {
+    reply(
+        207,
+        &format!(
+            r#"<d:multistatus xmlns:d="DAV:" xmlns:r="urn:ietf:params:xml:ns:carddav" xmlns:cs="http://calendarserver.org/ns/">{responses}</d:multistatus>"#
+        ),
+        &[],
+    )
+}
+
+#[test]
+fn address_book_discovery_falls_back_from_well_known_and_may_find_none() {
+    let mut fake = Fake {
+        routes: vec![
+            ("PROPFIND", "/.well-known/carddav", reply(404, "", &[])),
+            (
+                "PROPFIND",
+                "/",
+                ms_card(&format!(
+                    "<d:response><d:href>/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/ana/</d:href></d:current-user-principal></d:prop>{OK}</d:propstat></d:response>"
+                )),
+            ),
+            (
+                "PROPFIND",
+                "/ana/",
+                ms_card(&format!(
+                    "<d:response><d:href>/ana/</d:href><d:propstat><d:prop><r:addressbook-home-set><d:href>/ana/books/</d:href></r:addressbook-home-set></d:prop>{OK}</d:propstat></d:response>"
+                )),
+            ),
+            (
+                "PROPFIND",
+                "/ana/books/",
+                ms_card(&format!(
+                    "<d:response><d:href>/ana/books/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>{OK}</d:propstat></d:response>\
+<d:response><d:href>/ana/books/phone/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><r:addressbook/></d:resourcetype><d:displayname>Phone\u{7}</d:displayname><cs:getctag>p1</cs:getctag></d:prop>{OK}</d:propstat></d:response>\
+<d:response><d:href>/ana/books/work/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><r:addressbook/></d:resourcetype><d:sync-token>w9</d:sync-token></d:prop>{OK}</d:propstat></d:response>\
+<d:response><d:href>/ana/books/notes/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop>{OK}</d:propstat></d:response>\
+<d:response><d:href>https://evil.example.com/x/</d:href><d:propstat><d:prop><d:resourcetype><r:addressbook/></d:resourcetype></d:prop>{OK}</d:propstat></d:response>"
+                )),
+            ),
+        ],
+        asked: Vec::new(),
+    };
+    let books = carddav::discover(&mut fake, &Url::parse("https://dav.example.org").unwrap()).unwrap();
+    assert_eq!(
+        books,
+        vec![
+            carddav::RemoteBook { href: "/ana/books/phone/".into(), name: "Phone".into(), ctag: Some("p1".into()) },
+            carddav::RemoteBook { href: "/ana/books/work/".into(), name: "work".into(), ctag: Some("w9".into()) },
+        ],
+        "plain collections, control characters and other hosts are left out"
+    );
+    let paths: Vec<&str> = fake.asked.iter().map(|(_, p, _)| p.as_str()).collect();
+    assert_eq!(paths, ["/.well-known/carddav", "/", "/ana/", "/ana/books/"]);
+
+    // A calendar-only server: no address-book home, so no address books (and no error).
+    let mut cal_only = Fake {
+        routes: vec![
+            (
+                "PROPFIND",
+                "/dav/",
+                ms_card(&format!(
+                    "<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/dav/ana/</d:href></d:current-user-principal></d:prop>{OK}</d:propstat></d:response>"
+                )),
+            ),
+            ("PROPFIND", "/dav/ana/", ms_card(&format!("<d:response><d:href>/dav/ana/</d:href><d:propstat><d:prop/>{OK}</d:propstat></d:response>"))),
+        ],
+        asked: Vec::new(),
+    };
+    assert_eq!(carddav::discover(&mut cal_only, &Url::parse("https://h/dav/").unwrap()).unwrap(), Vec::new());
+
+    // The address of one address book.
+    let mut one = Fake {
+        routes: vec![(
+            "PROPFIND",
+            "/ana/books/phone/",
+            ms_card(&format!(
+                "<d:response><d:href>/ana/books/phone/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><r:addressbook/></d:resourcetype></d:prop>{OK}</d:propstat></d:response>"
+            )),
+        )],
+        asked: Vec::new(),
+    };
+    let books = carddav::discover(&mut one, &Url::parse("https://h/ana/books/phone/").unwrap()).unwrap();
+    assert_eq!(books.iter().map(|b| b.href.as_str()).collect::<Vec<_>>(), ["/ana/books/phone/"]);
 }

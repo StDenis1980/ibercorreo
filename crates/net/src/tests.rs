@@ -425,3 +425,64 @@ fn real_caldav_sync_when_configured() {
     let mut wrong = dav(&url, &tls, user, "wrong");
     assert!(matches!(calendar::run(&mut wrong, &url, &calendar::State::default()), Err(dav::Error::Auth(401))));
 }
+
+/// Against a real CardDAV server when one is configured:
+/// `IBERCORREO_TEST_CARDDAV="https://host:port/addressbook/ user password cert.der"`, the address
+/// being an address book the test may fill and empty (docs/testing.md has a throwaway Radicale).
+#[test]
+fn real_carddav_sync_when_configured() {
+    use ibercorreo_core::Contact;
+    use ibercorreo_store::Store;
+    use ibercorreo_sync::contacts;
+    let Ok(spec) = std::env::var("IBERCORREO_TEST_CARDDAV") else { return };
+    let parts: Vec<&str> = spec.split_whitespace().collect();
+    let [url, user, password, cert] = parts.as_slice() else { panic!("bad IBERCORREO_TEST_CARDDAV: {spec}") };
+    let tls = Tls::with_roots(&[std::fs::read(cert).unwrap()]).unwrap();
+    let url = dav::Url::parse(url).unwrap();
+    let mut client = dav(&url, &tls, user, password);
+    let vcf = |uid: &str, name: &str| format!("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:{uid}\r\nFN:{name}\r\nN:;{name};;;\r\nEND:VCARD\r\n");
+    let put = |c: &mut dyn dav::caldav::Http, name: &str, body: &str| {
+        let r = c.send("PUT", &format!("{}{name}", url.path), &[("Content-Type", "text/vcard; charset=utf-8")], body.as_bytes()).unwrap();
+        assert!(r.is_success(), "PUT {name}: {}", r.status);
+    };
+    for name in ["iber-a.vcf", "iber-b.vcf", "iber-c.vcf"] {
+        let _ = client.send("DELETE", &format!("{}{name}", url.path), &[], b"");
+    }
+    put(&mut client, "iber-a.vcf", &vcf("iber-a", "Ana"));
+    put(&mut client, "iber-b.vcf", &vcf("iber-b", "Rui"));
+
+    let names = |store: &Store| {
+        let mut v: Vec<String> = store.all_contacts().iter().filter(|c| c.remote.is_some()).map(|c| c.name.clone()).collect();
+        v.sort();
+        v
+    };
+    let mut store = Store::new();
+    let sync = |client: &mut dyn dav::caldav::Http, store: &mut Store| {
+        let batch = contacts::run(client, &url, &contacts::state(store)).unwrap();
+        contacts::apply(store, batch)
+    };
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.books_added, r.added), (1, 2), "{r:?}");
+    assert_eq!(names(&store), ["Ana", "Rui"]);
+
+    // Changes made here go to the server: an edit, a new contact, a deletion.
+    let id_of = |store: &Store, name: &str| store.all_contacts().iter().find(|c| c.name == name).unwrap().id;
+    store.contact_mut(id_of(&store, "Ana")).unwrap().title = Some("Diretora".into());
+    let book = store.book_by_href(&url.path).unwrap();
+    let mut eva = Contact::new("Eva");
+    eva.uid = "iber-c".into();
+    eva.book = book;
+    store.add_contact(eva);
+    store.remove_contact(id_of(&store, "Rui")).unwrap();
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.sent, r.conflicts), (3, 0), "{r:?}");
+    assert!(r.errors.is_empty(), "{r:?}");
+    assert_eq!(names(&store), ["Ana", "Eva"]);
+    let mut fresh = Store::new();
+    sync(&mut client, &mut fresh);
+    assert_eq!(names(&fresh), ["Ana", "Eva"]);
+    assert!(fresh.all_contacts().iter().any(|c| c.title.as_deref() == Some("Diretora")));
+    for name in ["iber-a.vcf", "iber-c.vcf"] {
+        let _ = client.send("DELETE", &format!("{}{name}", url.path), &[], b"");
+    }
+}

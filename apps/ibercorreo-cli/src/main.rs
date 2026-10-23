@@ -187,6 +187,7 @@ fn sync(args: &[String]) -> Result<(), String> {
         sent_path: s.sent_path(),
         limits: ibercorreo_sync::Limits::default(),
         calendar: s.calendar_sync_state(),
+        contacts: s.contacts_sync_state(),
     };
     let finished = ibercorreo_net::job::run(&job);
     if !finished.sent.is_empty() {
@@ -194,6 +195,7 @@ fn sync(args: &[String]) -> Result<(), String> {
     }
     let report = finished.batch.map(|b| s.apply_sync(b));
     let calendar = finished.calendar.map(|r| r.map(|b| s.apply_calendar_sync(b)));
+    let contacts = finished.contacts.map(|r| r.map(|b| s.apply_contacts_sync(b)));
     s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     let report = report?;
     let calendar = match calendar {
@@ -201,6 +203,11 @@ fn sync(args: &[String]) -> Result<(), String> {
         Some(Err(e)) => json!({ "error": e }),
         None => Value::Null,
     };
-    print(&json!({ "sent": finished.sent, "sync": report, "calendar": calendar }));
+    let contacts = match contacts {
+        Some(Ok(r)) => json!(r),
+        Some(Err(e)) => json!({ "error": e }),
+        None => Value::Null,
+    };
+    print(&json!({ "sent": finished.sent, "sync": report, "calendar": calendar, "contacts": contacts }));
     Ok(())
 }
