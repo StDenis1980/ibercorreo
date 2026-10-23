@@ -123,13 +123,29 @@ Linux `~/.local/share/ibercorreo`. Зберігається автоматичн
    вона шукає налаштування, які публікує ваш поштовий провайдер, потім у публічній базі
    провайдерів Thunderbird (туди йде лише домен, наприклад `gmail.com`, а не ваша адреса), а якщо
    їх ніде немає, пробує звичні імена `imap.`/`mail.`/`smtp.` вашого домену. Знайдене
-   підставляється у форму; перевірте його й допишіть пароль. Для Outlook.com і Microsoft 365
-   програма попередить, що потрібен вхід через сторінку провайдера (OAuth, буде пізніше); для Gmail
-   поки потрібен пароль застосунку.
+   підставляється у форму; перевірте його й допишіть пароль. Для Gmail, Outlook.com і Microsoft
+   365 програма сама вибирає вхід через сторінку провайдера (див. нижче).
    Або вкажіть пароль і сервери вручну: вхідний (IMAP) і вихідний (SMTP). Типово використовується
    TLS (порти 993 і 465). Для портів 143 і 587 виберіть **STARTTLS**. Незашифрованих з'єднань немає.
    Якщо логін відрізняється від адреси, заповніть «Sign-in name».
 3. Натисніть **Save and Send/Receive**.
+
+### Gmail, Outlook.com і Microsoft 365: вхід через браузер (OAuth)
+Ці провайдери не приймають звичайний пароль від поштових програм. У рядку **Sign in with**
+виберіть **Google** або **Microsoft** (після **Find settings** це вибрано саме) і натисніть
+**Save and sign in**. Відкриється браузер зі сторінкою входу самого провайдера: увійдіть там і
+дозвольте Iber Correo доступ до пошти. Браузер повернеться до програми, вікно налаштувань
+закриється, і почнеться синхронізація. Пароль від Google чи Microsoft програма не бачить і не
+зберігає; у системному сховищі паролів лишається тільки дозвіл (refresh token), а короткі ключі
+доступу програма оновлює сама щогодини.
+
+Якщо браузер не відкрився, натисніть **Copy the sign-in address** і вставте адресу в браузер.
+**Cancel** скасовує вхід. Якщо ви відкличете доступ у налаштуваннях Google чи Microsoft або
+зміните там пароль, програма попросить увійти знову.
+
+Варіанти **Google** і **Microsoft** доступні, лише якщо в цю збірку вбудовано ідентифікатор
+програми (client ID), зареєстрований у провайдера (див. `docs/oauth.md`). Без нього вони сірі; для
+Gmail тоді можна ввійти паролем застосунку (App password), Microsoft цього вже не дозволяє.
 
 Пароль зберігається в системному сховищі паролів (Keychain на macOS, Диспетчер облікових даних на
 Windows, Secret Service на Linux), а не у файлі пошти. Якщо системне сховище недоступне, пароль
@@ -157,7 +173,13 @@ Windows, Secret Service на Linux), а не у файлі пошти. Якщо 
 ```sh
 ibercorreo-cli run --store store.json --save --cmd 'account.set={"email":"me@example.org","imapHost":"imap.example.org","smtpHost":"smtp.example.org","caldav":"https://cloud.example.org"}'
 IBERCORREO_PASSWORD='…' ibercorreo-cli sync --store store.json
+# Gmail через OAuth: вхід у браузері друкує refresh token
+ibercorreo-cli run --store store.json --save --cmd 'account.set={"email":"me@gmail.com","imapHost":"imap.gmail.com","smtpHost":"smtp.gmail.com","oauth":"google"}'
+ibercorreo-cli oauth google me@gmail.com
+IBERCORREO_REFRESH_TOKEN='…' ibercorreo-cli sync --store store.json
 ```
+Refresh token бережіть як пароль. Microsoft замінює його під час оновлення: новий `sync`
+друкує в полі `newRefreshToken`.
 
 ## Revision history
 - 2026-10-22 — created for M0.
@@ -175,3 +197,4 @@ IBERCORREO_PASSWORD='…' ibercorreo-cli sync --store store.json
 - 2026-10-23 — M2.7a: contact cards, vCard import and export.
 - 2026-10-23 — M2.7b: contacts synced with a CardDAV server.
 - 2026-10-23 — M3.1: Find settings (autoconfiguration) and new mail at once (IDLE).
+- 2026-10-23 — M3.2: sign-in through the browser (OAuth) for Gmail and Microsoft 365.

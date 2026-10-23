@@ -326,3 +326,44 @@ fn idle_needs_the_capability_and_reports_refusals() {
     c.idle_start().unwrap();
     assert!(matches!(c.idle_wait(), Err(Error::Io(_))));
 }
+
+#[test]
+fn xoauth2_with_an_initial_response() {
+    let token = ibercorreo_mime::base64(b"user=ana@gmail.com\x01auth=Bearer ya29.tok\x01\x01");
+    let server = Script::new("* OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=XOAUTH2] ready\na1 OK [CAPABILITY IMAP4rev1 UIDPLUS] welcome\n");
+    let mut c = Client::new(server, true).unwrap();
+    c.authenticate_xoauth2("ana@gmail.com", "ya29.tok").unwrap();
+    assert!(c.is_authenticated() && c.has("UIDPLUS"));
+    assert_eq!(sent(c), format!("a1 AUTHENTICATE XOAUTH2 {token}\n"));
+}
+
+#[test]
+fn xoauth2_without_sasl_ir_and_a_refused_token() {
+    // No SASL-IR: the response follows the server's `+`. A refused token comes back as a
+    // challenge carrying the error, answered with an empty line, then `NO`.
+    let server = Script::new(
+        "* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] ready\n+ \n+ eyJzdGF0dXMiOiI0MDEifQ==\na1 NO [AUTHENTICATIONFAILED] Invalid credentials\n",
+    );
+    let mut c = Client::new(server, true).unwrap();
+    let err = c.authenticate_xoauth2("ana@gmail.com", "old").unwrap_err();
+    assert!(matches!(&err, Error::No(t) if t.contains("Invalid credentials")), "{err:?}");
+    assert!(!c.is_authenticated());
+    let token = ibercorreo_mime::base64(b"user=ana@gmail.com\x01auth=Bearer old\x01\x01");
+    assert_eq!(sent(c), format!("a1 AUTHENTICATE XOAUTH2\n{token}\n\n"));
+}
+
+#[test]
+fn xoauth2_is_refused_where_it_cannot_work() {
+    let plain = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] ready\n"), false);
+    assert!(matches!(plain.unwrap().authenticate_xoauth2("a", "t"), Err(Error::Insecure)));
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\n"), true).unwrap();
+    assert!(matches!(c.authenticate_xoauth2("a", "t"), Err(Error::Unsupported(_))));
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 AUTH=XOAUTH2] ready\n"), true).unwrap();
+    // A control character would end the user name early and smuggle in another field.
+    assert!(matches!(c.authenticate_xoauth2("a\u{1}auth=Bearer x", "t"), Err(Error::Invalid(_))));
+    assert!(matches!(c.authenticate_xoauth2("a", ""), Err(Error::Invalid(_))));
+    assert_eq!(sent(c), "", "nothing is sent for a malformed name or token");
+    // A server that challenges twice is not speaking XOAUTH2.
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=XOAUTH2] ready\n+ \n+ \n"), true).unwrap();
+    assert!(matches!(c.authenticate_xoauth2("a", "t"), Err(Error::Protocol(_))));
+}

@@ -11,6 +11,7 @@ pub mod theme;
 
 use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
+use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
 use ibercorreo_core::{Date, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, Session, View};
@@ -121,6 +122,8 @@ struct AccountForm {
     smtp_port: String,
     smtp_starttls: bool,
     caldav: String,
+    /// The OAuth provider signed in with (its id), or empty for a password.
+    oauth: String,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
 }
@@ -155,6 +158,14 @@ pub struct App {
     pub autoconfig_request: Option<String>,
     /// Set by the shell while it looks for server settings.
     pub autoconfig_running: bool,
+    /// The OAuth providers this build can sign in with (ids), set by the shell.
+    pub oauth_ready: Vec<String>,
+    /// Account settings asks the shell to sign in in the browser (the saved account's provider).
+    pub oauth_request: bool,
+    /// Account settings asks the shell to stop waiting for the browser.
+    pub oauth_cancel: bool,
+    /// Set by the shell while the browser sign-in runs: the address it opened.
+    pub oauth_running: Option<String>,
     account_form: AccountForm,
     password: Option<String>,
     tokens: Tokens,
@@ -186,6 +197,10 @@ impl App {
             syncing: false,
             autoconfig_request: None,
             autoconfig_running: false,
+            oauth_ready: Vec::new(),
+            oauth_request: false,
+            oauth_cancel: false,
+            oauth_running: None,
             account_form: AccountForm::default(),
             password: None,
             tokens: Tokens::light(),
@@ -229,6 +244,7 @@ impl App {
             smtp_port: port("smtpPort"),
             smtp_starttls: text("smtpSecurity") == "starttls",
             caldav: text("caldav"),
+            oauth: text("oauth"),
             note: note.to_string(),
         };
         if self.account_form.user == self.account_form.email {
@@ -248,17 +264,36 @@ impl App {
                 f.smtp_port = d.smtp_port.to_string();
                 f.smtp_starttls = d.smtp_starttls;
                 f.user = if d.user.eq_ignore_ascii_case(f.email.trim()) { String::new() } else { d.user };
-                let from = match d.source {
-                    Some(_) => format!("Settings for {} found. Check them, enter the password and save.", d.provider),
-                    None => "No published settings: these servers answered at the usual names. Check them and save.".to_string(),
-                };
-                f.note = if d.oauth_only {
-                    format!("{from} This provider signs in with its own web page (OAuth), which comes later; an app password may work meanwhile.")
-                } else {
-                    from
+                let provider = OAuthProvider::for_host(&f.imap_host);
+                let ready = provider.filter(|p| self.oauth_ready.iter().any(|r| r == p.id));
+                f.oauth = ready.map(|p| p.id.to_string()).unwrap_or_default();
+                f.note = match (ready, provider, d.source) {
+                    (Some(p), _, _) => {
+                        format!("Settings for {} found. Check them and save: you then sign in on {}'s own page in your browser.", d.provider, p.name)
+                    }
+                    (None, Some(p), _) if d.oauth_only => format!(
+                        "Settings for {} found, but {} only takes sign-in on its own page (OAuth), and this build has no {} client ID for it.",
+                        d.provider, p.name, p.name
+                    ),
+                    (None, _, Some(_)) => format!("Settings for {} found. Check them, enter the password and save.", d.provider),
+                    (None, _, None) => "No published settings: these servers answered at the usual names. Check them and save.".to_string(),
                 };
             }
             Err(e) => f.note = format!("No settings found: {e}. Enter the servers by hand."),
+        }
+    }
+
+    /// What the shell's browser sign-in came to: the provider's name, or why it failed.
+    pub fn apply_oauth(&mut self, result: Result<String, String>) {
+        self.oauth_running = None;
+        match result {
+            Ok(name) => {
+                self.account_form.open = false;
+                self.account_form.note.clear();
+                self.session.status = format!("Signed in with {name}");
+                self.run("account.sync", json!({}));
+            }
+            Err(e) => self.account_form.note = format!("The sign-in did not finish: {e}."),
         }
     }
 
@@ -297,14 +332,33 @@ impl App {
                         self.autoconfig_request = Some(f.email.trim().to_string());
                     }
                     ui.end_row();
-                    ui.label("Password");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut f.password)
-                            .password(true)
-                            .hint_text("kept in the system's credential store")
-                            .desired_width(280.0),
-                    );
+                    ui.label("Sign in with");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut f.oauth, String::new(), "Password");
+                        for p in OAUTH_PROVIDERS {
+                            let ready = self.oauth_ready.iter().any(|r| r == p.id);
+                            let hover = if ready {
+                                format!("Sign in on {}'s own page in your browser (OAuth 2.0): no password is kept here", p.name)
+                            } else {
+                                format!("This build has no {} client ID for OAuth sign-in", p.name)
+                            };
+                            ui.add_enabled_ui(ready, |ui| ui.radio_value(&mut f.oauth, p.id.to_string(), p.name))
+                                .inner
+                                .on_hover_text(&hover)
+                                .on_disabled_hover_text(hover);
+                        }
+                    });
                     ui.end_row();
+                    if f.oauth.is_empty() {
+                        ui.label("Password");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut f.password)
+                                .password(true)
+                                .hint_text("kept in the system's credential store")
+                                .desired_width(280.0),
+                        );
+                        ui.end_row();
+                    }
                     ui.label("Sign-in name");
                     ui.add(egui::TextEdit::singleline(&mut f.user).hint_text("if not the email address").desired_width(280.0));
                     ui.end_row();
@@ -333,7 +387,29 @@ impl App {
                     ui.end_row();
                 });
                 ui.add_space(6.0);
-                save = ui.add(egui::Button::new(RichText::new("Save and Send/Receive").strong())).clicked();
+                match &self.oauth_running {
+                    Some(url) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.label("Waiting for you to sign in in your browser…");
+                            if ui.button("Cancel").clicked() {
+                                self.oauth_cancel = true;
+                            }
+                        });
+                        if !url.is_empty() {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("No browser opened?").small());
+                                if ui.small_button("Copy the sign-in address").clicked() {
+                                    ui.ctx().copy_text(url.clone());
+                                }
+                            });
+                        }
+                    }
+                    None => {
+                        let label = if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" };
+                        save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
+                    }
+                }
             });
         if save {
             let f = &self.account_form;
@@ -341,7 +417,7 @@ impl App {
                 "name": f.name, "email": f.email, "user": f.user,
                 "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
                 "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
-                "caldav": f.caldav,
+                "caldav": f.caldav, "oauth": f.oauth,
             });
             if let Some(o) = p.as_object_mut() {
                 for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -351,15 +427,26 @@ impl App {
                 }
             }
             if self.run("account.set", p).is_some() {
-                if !self.account_form.password.is_empty() {
-                    self.password = Some(std::mem::take(&mut self.account_form.password));
+                if !self.account_form.oauth.is_empty() {
+                    // Stays open while the browser sign-in runs; Send/Receive follows it.
+                    self.account_form.password.clear();
+                    self.account_form.note.clear();
+                    self.oauth_request = true;
+                } else {
+                    if !self.account_form.password.is_empty() {
+                        self.password = Some(std::mem::take(&mut self.account_form.password));
+                    }
+                    self.run("account.sync", json!({}));
+                    open = false;
                 }
-                self.run("account.sync", json!({}));
-                open = false;
             }
         }
         if !open {
             self.account_form.password.clear();
+            // Closing the dialog gives up a sign-in still waiting for the browser.
+            if self.oauth_running.is_some() {
+                self.oauth_cancel = true;
+            }
         }
         self.account_form.open = open;
     }
@@ -1875,6 +1962,55 @@ fn human_size(bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gmail() -> Discovered {
+        Discovered {
+            provider: "Google Mail".into(),
+            source: Some("https://autoconfig.thunderbird.net/v1.1/gmail.com".into()),
+            imap_host: "imap.gmail.com".into(),
+            imap_port: 993,
+            imap_starttls: false,
+            smtp_host: "smtp.gmail.com".into(),
+            smtp_port: 465,
+            smtp_starttls: false,
+            user: "ana@gmail.com".into(),
+            oauth_only: true,
+        }
+    }
+
+    #[test]
+    fn found_settings_pick_oauth_when_this_build_can_sign_in() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        app.open_account_settings("");
+        app.account_form.email = "ana@gmail.com".into();
+        app.apply_autoconfig(Ok(gmail()));
+        assert_eq!(app.account_form.oauth, "", "no client ID: a password it stays");
+        assert!(app.account_form.note.contains("no Google client ID"), "{}", app.account_form.note);
+
+        app.oauth_ready = vec!["google".into()];
+        app.apply_autoconfig(Ok(gmail()));
+        assert_eq!(app.account_form.oauth, "google");
+        assert!(app.account_form.note.contains("sign in on Google's own page"), "{}", app.account_form.note);
+
+        let mut other = gmail();
+        other.imap_host = "imap.example.org".into();
+        app.apply_autoconfig(Ok(other));
+        assert_eq!(app.account_form.oauth, "", "another provider's servers take a password");
+    }
+
+    #[test]
+    fn a_finished_browser_sign_in_closes_settings_and_syncs() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let gmail = json!({"email": "ana@gmail.com", "imapHost": "imap.gmail.com", "smtpHost": "smtp.gmail.com", "oauth": "google"});
+        app.session.run("account.set", &gmail).unwrap();
+        app.open_account_settings("Sign in");
+        assert_eq!(app.account_form.oauth, "google", "the dialog shows how the account signs in");
+        app.oauth_running = Some(String::new());
+        app.apply_oauth(Err("cancelled".into()));
+        assert!(app.account_form.open && app.oauth_running.is_none() && !app.session.sync_requested);
+        app.apply_oauth(Ok("Google".into()));
+        assert!(!app.account_form.open && app.session.sync_requested);
+    }
 
     #[test]
     fn reminder_times_read_naturally() {

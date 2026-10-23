@@ -94,6 +94,38 @@ the public `thunderbird/autoconfig` repository's `ispdb/` folder, never committe
 `crates/net/src/autoconfig.rs` tests the search order, redirects and fallbacks with a fake
 network, and `autoconfig_probes_and_fetches_over_real_tls` probes servers over local TLS.
 
+### OAuth 2.0 (XOAUTH2)
+The flow is tested without a provider: `crates/net/src/oauth.rs` checks PKCE against RFC 7636's
+example, the authorization address, token answers (good, refused, revoked, malformed), the
+loopback listener (a stray request and another sign-in's redirect are waited past, a denied
+consent cancels) and token renewal and rotation; `oauth_token_requests_over_real_tls` posts a
+token request over local TLS; the IMAP and SMTP clients have scripted XOAUTH2 tests.
+
+End to end, by hand: a small test provider on this machine (`/authorize` answering with a redirect
+and a code, `/token` over HTTPS checking the PKCE verifier and rotating refresh tokens, and
+`/introspect` over plain HTTP for Dovecot) and Dovecot taking XOAUTH2 through its `oauth2` passdb:
+
+```
+auth_mechanisms = plain login xoauth2 oauthbearer
+passdb {
+  driver = oauth2
+  mechanisms = xoauth2 oauthbearer
+  args = /tmp/ibercorreo-dovecot/dovecot-oauth2.conf.ext   # introspection_mode = post,
+}                                                          # introspection_url = http://127.0.0.1:PORT/introspect,
+passdb {                                                   # username_attribute = username,
+  driver = static                                          # active_attribute = active, active_value = true
+  mechanisms = plain login
+  args = password=secret
+}
+```
+
+Point Iber Correo at it with `IBERCORREO_GOOGLE_CLIENT_ID`, `IBERCORREO_GOOGLE_AUTH_URL`,
+`IBERCORREO_GOOGLE_TOKEN_URL` (and `IBERCORREO_CA`), and set `BROWSER` to a script that follows
+the sign-in address with `curl -L` (it stands in for the person consenting). Then
+`ibercorreo-cli oauth google ana@example.org` prints a refresh token, `ibercorreo-cli sync` with
+it signs in to Dovecot (`method=XOAUTH2` in its log) and sends through Postfix (whose SASL is
+Dovecot's), and in the window **Save and sign in** does the same, the Inbox watch included.
+
 ## Postfix for the submission test (Linux)
 Postfix also runs only as an external test server. It takes mail on 10587 (STARTTLS) and 10465
 (implicit TLS), checks passwords through Dovecot, and delivers to Dovecot over LMTP, so a sent
@@ -212,3 +244,4 @@ declining, editing the answer and cancelling one day of a series.
 - 2026-10-23 — M2.6: invitations end to end.
 - 2026-10-23 — M2.7b: contact sync tests and the CardDAV check.
 - 2026-10-23 — M3.1: IDLE and autoconfiguration tests.
+- 2026-10-23 — M3.2: OAuth tests and the XOAUTH2 check against Dovecot and Postfix.

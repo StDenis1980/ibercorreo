@@ -5,11 +5,14 @@ Status: 2026-10-23 · Pick from the top.
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
    Dovecot and Postfix. Find settings (autoconfig files, the public database, the usual server
-   names) and IDLE push on the Inbox work (M3.1). Missing: OAuth (M3.2: Gmail and Microsoft 365
-   need it), more than one account, a progress bar, DNS SRV (RFC 6186) and MX lookups (no DNS
-   resolver yet), a separate CardDAV/CalDAV address in Find settings. Sent copies are
-   always saved to the server's Sent (servers that save them themselves, like Gmail, will need an
-   account setting); no Bcc field; a message is refused as a whole if any recipient is.
+   names) and IDLE push on the Inbox work (M3.1), and so does OAuth sign-in for Gmail and
+   Microsoft 365 (M3.2), once a build carries registered client IDs (`docs/oauth.md`: Google's
+   needs verification and a security assessment before anyone but test users can sign in).
+   Missing: more than one account, a progress bar, DNS SRV (RFC 6186) and MX lookups (no DNS
+   resolver yet), a separate CardDAV/CalDAV address in Find settings, OAuth for Google's
+   calendars and contacts, other OAuth providers. Sent copies are saved to the server's Sent
+   except on Gmail, which files them itself (Microsoft 365 may too: unchecked, an account setting
+   will cover others); no Bcc field; a message is refused as a whole if any recipient is.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
    remapping); folders deleted on the server are kept here; one account only; whole messages are
    downloaded (no header-first fetch).
@@ -98,3 +101,4 @@ Status: 2026-10-23 · Pick from the top.
 - 2026-10-23 — gap 14 added: contacts and vCard (M2.7a).
 - 2026-10-23 — gap 14 narrowed: CardDAV sync (M2.7b).
 - 2026-10-23 — gap 1 narrowed: autoconfiguration and IDLE (M3.1).
+- 2026-10-23 — gap 1 narrowed: OAuth sign-in for Gmail and Microsoft 365 (M3.2).

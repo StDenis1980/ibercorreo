@@ -493,7 +493,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\n(The password is never a parameter: the app keeps it in the system's credential store.)",
+        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -1705,6 +1705,11 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
             url.to_string()
         }
     };
+    let oauth = str_param(p, "oauth")?.map(str::trim).unwrap_or("");
+    if !oauth.is_empty() && ibercorreo_core::mail::OAuthProvider::get(oauth).is_none() {
+        let known: Vec<_> = ibercorreo_core::mail::OAUTH_PROVIDERS.iter().map(|p| p.id).collect();
+        return Err(Error::invalid("oauth", format!("{oauth:?} is not one of {}", known.join(", "))));
+    }
     let kind = AccountKind::Imap {
         imap_host: host_param(p, "imapHost")?,
         imap_port: port_param(p, "imapPort", imap_security.default_imap_port())?,
@@ -1713,6 +1718,7 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
         user: user.to_string(),
         imap_security,
         smtp_security,
+        oauth: oauth.to_string(),
     };
     let server_changed = !old_caldav.is_empty() && old_caldav != caldav;
     let account = Account { name: address.display().to_string(), address, kind, caldav };
@@ -1746,6 +1752,7 @@ fn account_get(s: &mut Session, _: &Value) -> Result<Value> {
             ("smtpPort", json!(smtp_port)),
             ("smtpSecurity", json!(sec(smtp_security))),
             ("user", json!(a.login())),
+            ("oauth", json!(a.oauth().map_or("", |p| p.id))),
         ] {
             obj.insert(k.into(), val);
         }

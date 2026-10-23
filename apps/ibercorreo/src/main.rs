@@ -10,7 +10,9 @@
 //!
 //! Send/Receive runs on a background thread (`ibercorreo_net::job`), at start, every five
 //! minutes and on request; its result is applied to the session on the interface thread. The
-//! password lives in the system's credential store, never in the store file. Once a sync has
+//! password lives in the system's credential store, never in the store file; so does an OAuth
+//! account's refresh token (Gmail, Microsoft 365: signed in through the browser on a thread of
+//! its own, `ibercorreo_net::oauth`), whose access tokens are renewed as they run out. Once a sync has
 //! signed in, another thread keeps an IMAP `IDLE` session on the Inbox, so new mail starts a
 //! Send/Receive at once. `IBERCORREO_CA`
 //! names a DER certificate to trust instead of the system's (a company CA, or a test server).
@@ -24,6 +26,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use ibercorreo_core::{Date, DateTime};
 use ibercorreo_engine::Session;
+use ibercorreo_net::oauth::{self, Credential};
 use ibercorreo_store::Store;
 use ibercorreo_ui_egui::{App, NAME};
 
@@ -35,6 +38,8 @@ const AUTOSAVE: Duration = Duration::from_secs(20);
 const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
 /// The credential store's service name for account passwords.
 const KEYRING_SERVICE: &str = "Iber Correo";
+/// The credential store's service name for OAuth refresh tokens (`provider:login`).
+const OAUTH_KEYRING_SERVICE: &str = "Iber Correo OAuth";
 
 fn now() -> DateTime {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -70,6 +75,31 @@ struct Shell {
     watcher: Option<Watcher>,
     /// To wake the window from other threads.
     ctx: Option<egui::Context>,
+    /// The OAuth account's grant (`provider:login`, and the grant shared with the threads).
+    credential: Option<(String, Credential)>,
+    /// The running browser sign-in, if any.
+    sign_in: Option<SignIn>,
+}
+
+/// A browser sign-in on its own thread.
+struct SignIn {
+    /// `provider:login`.
+    key: String,
+    app: oauth::App,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    rx: Receiver<SignInEvent>,
+}
+
+enum SignInEvent {
+    /// The address opened in the browser.
+    Opened(String),
+    Done(Result<oauth::Tokens, String>),
+}
+
+impl Drop for SignIn {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 /// Push mail: a background thread idling on the Inbox ([`ibercorreo_net::idle`]).
@@ -94,7 +124,7 @@ fn watch_inbox(
     endpoint: ibercorreo_net::Endpoint,
     tls: ibercorreo_net::Tls,
     login: String,
-    password: String,
+    credential: Credential,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     tx: mpsc::Sender<()>,
     ctx: Option<egui::Context>,
@@ -103,7 +133,16 @@ fn watch_inbox(
     let stopped = || stop.load(Ordering::Relaxed);
     let mut backoff = Duration::from_secs(60);
     while !stopped() {
-        match ibercorreo_net::idle::watch(&endpoint, &tls, &login, &password, "INBOX", &stopped) {
+        // An access token is renewed for each connection; a grant that is gone ends the watch.
+        let secret = match credential.secret(&tls) {
+            Ok(s) => Ok(s),
+            Err(e @ oauth::Error::Network { .. }) => Err(e),
+            Err(_) => return,
+        };
+        let result = secret
+            .map_err(ibercorreo_net::Error::from)
+            .and_then(|secret| ibercorreo_net::idle::watch(&endpoint, &tls, &login, &secret, "INBOX", &stopped));
+        match result {
             Ok(ibercorreo_net::idle::Wake::Changed) => {
                 backoff = Duration::from_secs(60);
                 if tx.send(()).is_err() {
@@ -114,7 +153,10 @@ fn watch_inbox(
                 }
             }
             Ok(ibercorreo_net::idle::Wake::Stopped) => return,
-            Err(ibercorreo_net::Error::Imap(ibercorreo_net::imap::Error::Unsupported(_) | ibercorreo_net::imap::Error::No(_))) => return,
+            Err(ibercorreo_net::Error::Imap(ibercorreo_net::imap::Error::Unsupported(_) | ibercorreo_net::imap::Error::No(_))) => {
+                credential.forget_access();
+                return;
+            }
             Err(_) => {
                 let until = Instant::now() + backoff;
                 while Instant::now() < until && !stopped() {
@@ -161,6 +203,10 @@ fn keyring_entry(login: &str) -> Option<keyring::Entry> {
     keyring::Entry::new(KEYRING_SERVICE, login).ok()
 }
 
+fn oauth_entry(key: &str) -> Option<keyring::Entry> {
+    keyring::Entry::new(OAUTH_KEYRING_SERVICE, key).ok()
+}
+
 fn tls() -> Result<ibercorreo_net::Tls, String> {
     match std::env::var_os("IBERCORREO_CA") {
         Some(path) => {
@@ -183,6 +229,115 @@ impl Shell {
         self.password = Some(password);
     }
 
+    /// How the account signs in: its password, or its OAuth grant. `Err` is what Account settings
+    /// should ask for.
+    fn credential(&mut self, account: &ibercorreo_core::mail::Account) -> Result<Credential, String> {
+        let Some(login) = account.login().map(str::to_owned) else { return Err("This account has no sign-in name.".into()) };
+        let Some(provider) = account.oauth() else {
+            let password = self.password.clone().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok()));
+            return password.map(Credential::Password).ok_or_else(|| "Enter the password for this account.".to_string());
+        };
+        let key = format!("{}:{login}", provider.id);
+        if let Some((k, c)) = &self.credential
+            && *k == key
+        {
+            return Ok(c.clone());
+        }
+        let app = oauth::app(provider.id).map_err(|e| e.to_string())?;
+        let refresh = oauth_entry(&key)
+            .and_then(|e| e.get_password().ok())
+            .ok_or_else(|| format!("Sign in with {} to send and receive mail: press Save and sign in.", provider.name))?;
+        let credential = Credential::oauth(app, refresh);
+        self.credential = Some((key, credential.clone()));
+        Ok(credential)
+    }
+
+    /// A refresh token the provider replaced goes into the credential store.
+    fn keep_rotated(&mut self) {
+        if let Some((key, c)) = &self.credential
+            && let Some(token) = c.take_rotated()
+        {
+            // Unstored, it still serves until Iber Correo closes.
+            let _ = oauth_entry(key).map(|e| e.set_password(&token));
+        }
+    }
+
+    /// Start the browser sign-in Account settings asked for, stop it, or take its outcome.
+    fn sign_in(&mut self) {
+        if std::mem::take(&mut self.app.oauth_cancel) && self.sign_in.take().is_some() {
+            self.app.apply_oauth(Err("cancelled".into()));
+        }
+        if std::mem::take(&mut self.app.oauth_request) && self.sign_in.is_none() {
+            match self.start_sign_in() {
+                Ok(s) => {
+                    self.sign_in = Some(s);
+                    self.app.oauth_running = Some(String::new());
+                }
+                Err(e) => self.app.apply_oauth(Err(e)),
+            }
+        }
+        let Some(s) = &self.sign_in else { return };
+        let event = match s.rx.try_recv() {
+            Ok(e) => e,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => SignInEvent::Done(Err("the sign-in stopped unexpectedly".into())),
+        };
+        match event {
+            SignInEvent::Opened(url) => self.app.oauth_running = Some(url),
+            SignInEvent::Done(result) => {
+                let Some(s) = self.sign_in.take() else { return };
+                match result {
+                    Ok(tokens) => {
+                        let name = s.app.provider.name.to_string();
+                        let stored = tokens.refresh.as_deref().is_some_and(|t| oauth_entry(&s.key).is_some_and(|e| e.set_password(t).is_ok()));
+                        self.credential = Some((s.key.clone(), Credential::signed_in(s.app.clone(), tokens)));
+                        // Watch the Inbox again with the new sign-in.
+                        self.watcher = None;
+                        self.app.apply_oauth(Ok(name));
+                        if !stored {
+                            self.app.session.status =
+                                "Signed in; the system credential store is unavailable, so you sign in again after Iber Correo closes".into();
+                        }
+                    }
+                    Err(e) => self.app.apply_oauth(Err(e)),
+                }
+            }
+        }
+    }
+
+    fn start_sign_in(&mut self) -> Result<SignIn, String> {
+        let account = self.app.session.store.accounts.first().cloned().ok_or("no account")?;
+        let provider = account.oauth().ok_or("this account signs in with a password")?;
+        let login = account.login().ok_or("no sign-in name")?;
+        let app = oauth::app(provider.id).map_err(|e| e.to_string())?;
+        let tls = tls()?;
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let (thread_app, thread_stop, ctx, hint) = (app.clone(), stop.clone(), self.ctx.clone(), account.address.email.clone());
+        std::thread::Builder::new()
+            .name("oauth".into())
+            .spawn(move || {
+                let wake = || {
+                    if let Some(ctx) = &ctx {
+                        ctx.request_repaint();
+                    }
+                };
+                let mut open = |url: &str| {
+                    let _ = tx.send(SignInEvent::Opened(url.to_string()));
+                    wake();
+                    // Without a browser the person copies the address from Account settings.
+                    let _ = oauth::open_browser(url);
+                    Ok(())
+                };
+                let stopped = || thread_stop.load(std::sync::atomic::Ordering::Relaxed);
+                let result = oauth::sign_in_with(&mut oauth::Net { tls: &tls }, &thread_app, &hint, &mut open, &stopped);
+                let _ = tx.send(SignInEvent::Done(result.map_err(|e| e.to_string())));
+                wake();
+            })
+            .map_err(|e| e.to_string())?;
+        Ok(SignIn { key: format!("{}:{login}", provider.id), app, stop, rx })
+    }
+
     fn start_sync(&mut self) {
         // A request made while a Send/Receive runs waits for it to finish.
         if self.worker.is_some() {
@@ -191,12 +346,20 @@ impl Shell {
         self.app.session.sync_requested = false;
         self.next_sync = Instant::now() + AUTO_SYNC;
         let Some(account) = self.app.session.store.accounts.first().cloned() else { return };
-        let Some(login) = account.login().map(str::to_owned) else { return };
-        let password = self.password.clone().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok()));
-        let Some(password) = password else {
-            self.app.session.status = "Send/Receive needs the account's password".into();
-            self.app.open_account_settings("Enter the password for this account.");
+        if account.login().is_none() {
             return;
+        }
+        // A sign-in in the browser comes first.
+        if self.sign_in.is_some() {
+            return;
+        }
+        let credential = match self.credential(&account) {
+            Ok(c) => c,
+            Err(note) => {
+                self.app.session.status = note.clone();
+                self.app.open_account_settings(&note);
+                return;
+            }
         };
         let tls = match tls() {
             Ok(t) => t,
@@ -208,7 +371,7 @@ impl Shell {
         let s = &self.app.session;
         let job = ibercorreo_net::job::Job {
             account,
-            password,
+            credential,
             tls,
             state: s.sync_state(),
             outbox: s.outbox(),
@@ -249,10 +412,24 @@ impl Shell {
             }
             Err(e) => {
                 if e.starts_with("sign-in") {
-                    // A refused password is not kept for the next try, nor watched with.
-                    self.password = None;
+                    // A refused password is not kept for the next try, nor watched with; nor is
+                    // an OAuth grant the provider says is gone.
                     self.watcher = None;
-                    self.app.open_account_settings(&format!("The server refused the sign-in: {e}"));
+                    let note = match self.credential.take() {
+                        Some((key, c)) if c.revoked() => {
+                            let _ = oauth_entry(&key).map(|e| e.delete_credential());
+                            format!("{}: press Save and sign in.", e.trim_start_matches("sign-in: "))
+                        }
+                        Some(kept) => {
+                            self.credential = Some(kept);
+                            format!("The server refused the sign-in: {e}")
+                        }
+                        None => {
+                            self.password = None;
+                            format!("The server refused the sign-in: {e}")
+                        }
+                    };
+                    self.app.open_account_settings(&note);
                 }
                 self.app.session.status = format!("Send/Receive failed: {e}");
             }
@@ -290,7 +467,7 @@ impl Shell {
         if self.watcher.as_ref().is_some_and(|w| w.key == key) {
             return;
         }
-        let Some(password) = self.password.clone().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok())) else { return };
+        let Ok(credential) = self.credential(&account) else { return };
         let Ok(tls) = tls() else { return };
         let security = match imap_security {
             ibercorreo_core::Security::Tls => ibercorreo_net::Security::Tls,
@@ -301,7 +478,7 @@ impl Shell {
         let (tx, rx) = mpsc::channel();
         let (thread_stop, ctx) = (stop.clone(), self.ctx.clone());
         let spawned =
-            std::thread::Builder::new().name("idle".into()).spawn(move || watch_inbox(endpoint, tls, login, password, thread_stop, tx, ctx));
+            std::thread::Builder::new().name("idle".into()).spawn(move || watch_inbox(endpoint, tls, login, credential, thread_stop, tx, ctx));
         self.watcher = spawned.ok().map(|_| Watcher { key, stop, changed: rx });
     }
 
@@ -376,6 +553,8 @@ impl eframe::App for Shell {
         self.autoconfig();
         self.app.ui(ui);
         self.keep_password();
+        self.sign_in();
+        self.keep_rotated();
         if self.persist && (self.app.session.sync_requested || Instant::now() >= self.next_sync) {
             self.start_sync();
         }
@@ -383,12 +562,14 @@ impl eframe::App for Shell {
             self.save_if_dirty();
         }
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
-        let busy = self.worker.is_some() || self.finder.is_some();
+        let busy = self.worker.is_some() || self.finder.is_some() || self.sign_in.is_some();
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.watcher = None;
+        self.sign_in = None;
+        self.keep_rotated();
         self.save_if_dirty();
     }
 }
@@ -497,14 +678,18 @@ fn main() -> eframe::Result {
         NAME,
         options,
         Box::new(move |_cc| {
+            let mut app = App::new(session);
+            app.oauth_ready = oauth::configured().iter().map(|p| p.id.to_string()).collect();
             Ok(Box::new(Shell {
-                app: App::new(session),
+                app,
                 last_save: Instant::now(),
                 persist,
                 worker: None,
                 finder: None,
                 watcher: None,
                 ctx: None,
+                credential: None,
+                sign_in: None,
                 // A first Send/Receive right after start.
                 next_sync: Instant::now(),
                 password: None,

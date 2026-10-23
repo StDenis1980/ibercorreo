@@ -1705,8 +1705,10 @@ dependencies = [
  "ibercorreo-store",
  "ibercorreo-sync",
  "rcgen",
+ "ring",
  "rustls",
  "rustls-platform-verifier",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -1752,6 +1754,7 @@ dependencies = [
  "egui",
  "ibercorreo-core",
  "ibercorreo-engine",
+ "ibercorreo-store",
  "serde_json",
 ]
 

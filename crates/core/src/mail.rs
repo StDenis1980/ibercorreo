@@ -114,10 +114,52 @@ pub enum AccountKind {
         imap_security: Security,
         #[serde(default)]
         smtp_security: Security,
+        /// The OAuth 2.0 provider signed in with ([`OAUTH_PROVIDERS`]: `google`, `microsoft`);
+        /// empty means a password.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        oauth: String,
     },
 }
 
+/// A provider whose servers take OAuth 2.0 sign-in (XOAUTH2) in place of a password.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OAuthProvider {
+    /// The id kept in the account (`AccountKind::Imap::oauth`).
+    pub id: &'static str,
+    pub name: &'static str,
+    /// The domains of its mail servers: a server is the provider's when its name is one of these
+    /// or ends in `.` and one of these.
+    pub domains: &'static [&'static str],
+    /// Its SMTP server files what it sends in the Sent mailbox itself, so no copy is saved there.
+    pub saves_sent: bool,
+}
+
+pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
+    OAuthProvider { id: "google", name: "Google", domains: &["gmail.com", "googlemail.com"], saves_sent: true },
+    OAuthProvider { id: "microsoft", name: "Microsoft", domains: &["office365.com", "outlook.com"], saves_sent: false },
+];
+
+impl OAuthProvider {
+    pub fn get(id: &str) -> Option<&'static OAuthProvider> {
+        OAUTH_PROVIDERS.iter().find(|p| p.id == id)
+    }
+
+    /// The provider whose mail server `host` is (`imap.gmail.com` is Google's).
+    pub fn for_host(host: &str) -> Option<&'static OAuthProvider> {
+        let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        OAUTH_PROVIDERS.iter().find(|p| p.domains.iter().any(|d| host == *d || host.strip_suffix(d).is_some_and(|rest| rest.ends_with('.'))))
+    }
+}
+
 impl Account {
+    /// The OAuth 2.0 provider this account signs in with, if it does not use a password.
+    pub fn oauth(&self) -> Option<&'static OAuthProvider> {
+        match &self.kind {
+            AccountKind::Imap { oauth, .. } if !oauth.is_empty() => OAuthProvider::get(oauth),
+            _ => None,
+        }
+    }
+
     /// The sign-in name for an IMAP account: `user`, or the address when that is empty.
     pub fn login(&self) -> Option<&str> {
         match &self.kind {
@@ -302,6 +344,19 @@ impl Message {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oauth_providers_by_server_name() {
+        assert_eq!(OAuthProvider::for_host("imap.gmail.com").map(|p| p.id), Some("google"));
+        assert_eq!(OAuthProvider::for_host("SMTP.Office365.com.").map(|p| p.id), Some("microsoft"));
+        assert_eq!(OAuthProvider::for_host("outlook.com").map(|p| p.id), Some("microsoft"));
+        // Only whole labels: a look-alike domain is not the provider.
+        for other in ["imap.notgmail.com", "gmail.com.evil.org", "mail.example.org", ""] {
+            assert_eq!(OAuthProvider::for_host(other), None, "{other}");
+        }
+        assert_eq!(OAuthProvider::get("google").map(|p| p.name), Some("Google"));
+        assert!(OAuthProvider::get("").is_none());
+    }
 
     #[test]
     fn parses_addresses() {

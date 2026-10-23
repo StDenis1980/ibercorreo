@@ -101,6 +101,28 @@ fn anonymous_requests_carry_no_credentials() {
 }
 
 #[test]
+fn bearer_tokens_go_in_the_authorization_header_and_cannot_break_it() {
+    for (token, header) in [("ya29.tok", "Authorization: Bearer ya29.tok\r\n"), ("x\r\nX-Evil: 1", "")] {
+        let written: Written = Default::default();
+        let w = written.clone();
+        let mut reply = Some(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec());
+        let connect = move || {
+            let r = reply.take().ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionRefused, "no more"))?;
+            Ok(Script { reply: io::Cursor::new(r), written: w.clone() })
+        };
+        let mut c = Client::bearer(connect, &Url::parse("https://dav.example.org/").unwrap(), token);
+        c.send("GET", "/", &[], b"").unwrap();
+        let w = String::from_utf8(written.borrow().clone()).unwrap();
+        if header.is_empty() {
+            assert!(!w.contains("Authorization") && !w.contains("X-Evil"), "{w}");
+        } else {
+            assert!(w.contains(header), "{w}");
+        }
+    }
+    assert!(crate::http::request("GET", "/", "h", "Bearer a\r\nX: y", &[], b"").is_err(), "a line break in the credentials is refused");
+}
+
+#[test]
 fn replies_are_read_by_length_chunks_or_close_and_connections_reused() {
     let replies = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 207 Multi-Status\r\nTransfer-Encoding: chunked\r\n\r\n3;x=1\r\nabc\r\n2\r\nde\r\n0\r\nX-T: 1\r\n\r\n\
 HTTP/1.1 204 No Content\r\nContent-Length: 99\r\n\r\n\

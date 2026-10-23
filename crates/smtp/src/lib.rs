@@ -1,5 +1,5 @@
 //! Iber Correo's SMTP submission client, L2, written from RFC 5321 (SMTP), RFC 6409 (message
-//! submission), RFC 3207 (STARTTLS), RFC 4954 and RFC 4616 (AUTH PLAIN), RFC 1870 (SIZE) and
+//! submission), RFC 3207 (STARTTLS), RFC 4954 and RFC 4616 (AUTH PLAIN), XOAUTH2 (OAuth 2.0 sign-in), RFC 1870 (SIZE) and
 //! RFC 6152 (8BITMIME).
 //!
 //! Like the IMAP client it works over any `Read + Write` stream and opens no socket. The server is
@@ -277,6 +277,29 @@ impl<S: Read + Write> Client<S> {
         let r = self.command(&ibercorreo_mime::base64(user.as_bytes()))?;
         expect(&r, 334)?;
         let r = self.command(&ibercorreo_mime::base64(password.as_bytes()))?;
+        expect(&r, 235)
+    }
+
+    /// Sign in with an OAuth 2.0 access token (`AUTH XOAUTH2`: Gmail, Microsoft 365). The token
+    /// follows the server's `334`, which every server offering the mechanism accepts. A refused
+    /// token comes back as a `334` error challenge, answered with an empty line, then a `535`.
+    pub fn login_xoauth2(&mut self, user: &str, token: &str) -> Result<()> {
+        if !self.secure {
+            return Err(Error::Insecure);
+        }
+        if user.is_empty() || token.is_empty() || user.chars().chain(token.chars()).any(|c| c.is_control()) {
+            return Err(Error::Invalid("an empty or malformed user name or access token".into()));
+        }
+        if !self.auth_mechanisms().iter().any(|m| m.eq_ignore_ascii_case("XOAUTH2")) {
+            return Err(Error::Unsupported("the server does not offer OAuth sign-in (XOAUTH2)"));
+        }
+        let r = self.command("AUTH XOAUTH2")?;
+        expect(&r, 334)?;
+        let r = self.command(&ibercorreo_mime::base64(format!("user={user}\u{1}auth=Bearer {token}\u{1}\u{1}").as_bytes()))?;
+        if r.code == 334 {
+            let r = self.command("")?;
+            return Err(Error::Rejected { code: r.code, text: r.text() });
+        }
         expect(&r, 235)
     }
 

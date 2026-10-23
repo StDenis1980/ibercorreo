@@ -312,10 +312,16 @@ fn account_settings_and_sync_request() {
         json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "imapPort": 70000}),
         json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "imapSecurity": "none"}),
         json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "user": "a\u{0}b"}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "oauth": "yahoo"}),
+        json!({"email": "a@b.c", "imapHost": "a", "smtpHost": "b", "oauth": 3}),
     ] {
         assert!(s.run("account.set", &bad).is_err(), "{bad}");
     }
     assert_eq!(s.run("account.get", &Value::Null).unwrap()["imapHost"], "imap.example.org");
+    assert_eq!(s.run("account.get", &Value::Null).unwrap()["oauth"], "", "a password by default");
+    let gmail = json!({"email": "ana@gmail.com", "imapHost": "imap.gmail.com", "smtpHost": "smtp.gmail.com", "oauth": "google"});
+    assert_eq!(s.run("account.set", &gmail).unwrap()["oauth"], "google");
+    assert_eq!(s.store.accounts.first().and_then(|a| a.oauth()).map(|p| p.name), Some("Google"));
 }
 
 #[test]

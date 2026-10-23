@@ -8,7 +8,7 @@ Status: 2026-10-23 · M3 (accounts) in progress
 |---|---|
 | Commands in the registry | 59 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
+| Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -96,6 +96,16 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   survive mid-line), `net::idle::watch` on its own read-only connection, and a watcher thread in
   the app that starts a Send/Receive within seconds of new mail, reconnecting with backoff.
   Checked against Dovecot in the window and on six real database files.
+- 2026-10-23 — M3.2: OAuth 2.0 sign-in for Gmail and Microsoft 365. `AUTHENTICATE XOAUTH2` in
+  the IMAP client (SASL-IR or not, the error challenge answered) and `AUTH XOAUTH2` in the SMTP
+  client; `net::oauth`: the browser flow from RFC 8252 (a one-time listener on 127.0.0.1, PKCE
+  S256, a random state), the code and refresh exchanges, and a shared `Credential` that renews
+  access tokens before they run out and keeps rotated refresh tokens. The account remembers its
+  provider (`account.set` `oauth`); Account settings picks it for Gmail and Microsoft servers and
+  signs in with Save and sign in; the refresh token lives in the system credential store; a
+  revoked grant asks to sign in again. Client IDs come from the build or the environment
+  (`docs/oauth.md`); `ibercorreo-cli oauth`. Checked end to end with a test provider: Dovecot
+  signing in by XOAUTH2 (sync and IDLE) and Postfix sending by it.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -111,6 +121,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.7a.
 - 2026-10-23 — M2.7b; M2 done.
 - 2026-10-23 — M3.1.
+- 2026-10-23 — M3.2.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

@@ -46,7 +46,8 @@ cargo run -p ibercorreo-cli -- ics зустріч.ics
 | L7 | `apps/ibercorreo`, `apps/ibercorreo-cli` | програми |
 
 Правила для внеску: [AGENTS.md](AGENTS.md). Перевірка перед комітом: `cargo xtask ci`.
-Інструкція користувача: [docs/user-guide.md](docs/user-guide.md).
+Інструкція користувача: [docs/user-guide.md](docs/user-guide.md). Вхід через Google і Microsoft
+(OAuth) і реєстрація client ID: [docs/oauth.md](docs/oauth.md).
 
 ## Ліцензія
 

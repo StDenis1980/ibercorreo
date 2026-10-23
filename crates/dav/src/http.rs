@@ -49,6 +49,9 @@ pub(crate) fn request(method: &str, path: &str, host: &str, auth: &str, headers:
         return Err(Error::Invalid(format!("{path:?} is not a request path")));
     }
     let mut out = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\n");
+    if auth.bytes().any(|b| b == b'\r' || b == b'\n') {
+        return Err(Error::Invalid("bad credentials header".into()));
+    }
     if !auth.is_empty() {
         out.push_str(&format!("Authorization: {auth}\r\n"));
     }

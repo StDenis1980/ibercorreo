@@ -213,6 +213,13 @@ impl<S: Read + Write, C: FnMut() -> std::io::Result<S>> Client<S, C> {
         Client { connect, conn: None, host: url.host_header(), auth: format!("Basic {token}") }
     }
 
+    /// A client signing in with an OAuth 2.0 access token (`Authorization: Bearer`). A token
+    /// that could break the header is not sent at all.
+    pub fn bearer(connect: C, url: &Url, token: &str) -> Self {
+        let ok = !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic());
+        Client { connect, conn: None, host: url.host_header(), auth: if ok { format!("Bearer {token}") } else { String::new() } }
+    }
+
     /// A client that sends no credentials (for public files such as a mail configuration).
     pub fn anonymous(connect: C, url: &Url) -> Self {
         Client { connect, conn: None, host: url.host_header(), auth: String::new() }

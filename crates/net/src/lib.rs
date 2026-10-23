@@ -1,7 +1,8 @@
 //! Iber Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
 //! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587), and
-//! CalDAV and CardDAV clients over HTTPS, and finding an address's servers ([`autoconfig`]).
+//! CalDAV and CardDAV clients over HTTPS, finding an address's servers ([`autoconfig`]) and OAuth
+//! 2.0 sign-in ([`oauth`]).
 //!
 //! Desktop only: the web build reaches servers through a proxy instead (planned), so this crate
 //! is not part of the wasm check.
@@ -20,6 +21,7 @@ use thiserror::Error;
 pub mod autoconfig;
 pub mod idle;
 pub mod job;
+pub mod oauth;
 
 pub use ibercorreo_dav as dav;
 pub use ibercorreo_imap as imap;
@@ -45,6 +47,9 @@ pub enum Error {
     Imap(#[from] imap::Error),
     #[error(transparent)]
     Smtp(#[from] smtp::Error),
+    /// The OAuth sign-in could not give an access token.
+    #[error(transparent)]
+    OAuth(#[from] oauth::Error),
 }
 
 impl From<Error> for ibercorreo_core::Error {
@@ -235,9 +240,30 @@ pub fn smtp_over(tcp: TcpStream, endpoint: &Endpoint, tls: &Tls, helo: &str) -> 
     }
 }
 
-/// A CalDAV client for `url`'s server signing in as `user`. Every connection it opens is TLS,
-/// checked against the host name.
-pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
+/// Sign in to an IMAP session: `LOGIN` with a password, `AUTHENTICATE XOAUTH2` with a token.
+pub fn imap_sign_in<S: Read + Write>(client: &mut imap::Client<S>, user: &str, secret: &oauth::Secret) -> Result<(), imap::Error> {
+    match secret {
+        oauth::Secret::Password(p) => client.login(user, p),
+        oauth::Secret::Bearer(t) => client.authenticate_xoauth2(user, t),
+    }
+}
+
+/// Sign in to an SMTP session: `AUTH PLAIN` (or `LOGIN`) with a password, `AUTH XOAUTH2` with a token.
+pub fn smtp_sign_in<S: Read + Write>(client: &mut smtp::Client<S>, user: &str, secret: &oauth::Secret) -> Result<(), smtp::Error> {
+    match secret {
+        oauth::Secret::Password(p) => client.login(user, p),
+        oauth::Secret::Bearer(t) => client.login_xoauth2(user, t),
+    }
+}
+
+/// A CalDAV/CardDAV client signing in with `secret`: HTTP Basic with a password, a bearer token
+/// with OAuth.
+pub fn dav_with(
+    url: &dav::Url,
+    tls: &Tls,
+    user: &str,
+    secret: &oauth::Secret,
+) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
     // `[::1]` in a URL is `::1` to the resolver and the certificate check.
     let host = url.host.trim_start_matches('[').trim_end_matches(']').to_string();
     let (port, tls) = (url.port, tls.clone());
@@ -245,7 +271,16 @@ pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client
         let tcp = tcp(&host, port).map_err(|e| std::io::Error::other(e.to_string()))?;
         secure(tcp, &host, &tls).map_err(|e| std::io::Error::other(e.to_string()))
     };
-    dav::Client::new(connect, url, user, password)
+    match secret {
+        oauth::Secret::Password(p) => dav::Client::new(connect, url, user, p),
+        oauth::Secret::Bearer(t) => dav::Client::bearer(connect, url, t),
+    }
+}
+
+/// A CalDAV client for `url`'s server signing in as `user`. Every connection it opens is TLS,
+/// checked against the host name.
+pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
+    dav_with(url, tls, user, &oauth::Secret::Password(password.to_string()))
 }
 
 /// An HTTPS client for `url`'s server that sends no credentials.

@@ -311,4 +311,15 @@ mod sending {
         assert!(matches!(results.first().map(|r| &r.outcome), Some(Outcome::Sent { saved: true })));
         assert_eq!(sent(c), "a1 APPEND Sent (\\Seen) {18+}\nSubject: x\n\nhi\n\n");
     }
+
+    #[test]
+    fn a_server_that_files_sent_mail_itself_gets_no_copy() {
+        let mut results =
+            vec![Sent { id: MessageId(1), outcome: Outcome::Sent { saved: false } }, Sent { id: MessageId(2), outcome: Outcome::Later("x".into()) }];
+        super::super::outbox::server_saved(&mut results);
+        assert!(matches!(results.first().map(|r| &r.outcome), Some(Outcome::Sent { saved: true })), "its copy comes with the next sync");
+        assert!(matches!(results.get(1).map(|r| &r.outcome), Some(Outcome::Later(_))), "unsent mail stays queued");
+        let gmail = ibercorreo_core::mail::OAuthProvider::for_host("smtp.gmail.com");
+        assert!(gmail.is_some_and(|p| p.saves_sent));
+    }
 }

@@ -17,7 +17,7 @@ pub mod wire;
 #[cfg(test)]
 mod tests;
 
-pub use client::{Client, Done, Items, Selected, is_news};
+pub use client::{Client, Done, Items, Selected, is_news, xoauth2};
 pub use command::{Command, uid_set};
 pub use response::{Code, Fetch, Mailbox, Response, Status, Untagged};
 
