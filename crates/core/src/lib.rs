@@ -16,7 +16,7 @@ pub mod rich;
 pub mod zone;
 
 pub use calendar::{Calendar, CalendarRemote, Event, EventId, EventRemote};
-pub use contact::Contact;
+pub use contact::{Contact, Phone};
 pub use date::{Date, DateTime, Weekday};
 pub use error::{Error, Result};
 pub use mail::{Account, Address, Folder, FolderId, FolderRole, Message, MessageId, RemoteFolder, RemoteRef, Security};

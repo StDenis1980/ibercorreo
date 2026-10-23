@@ -46,11 +46,55 @@ struct EventForm {
     calendar: Option<u32>,
 }
 
+/// The contact card on the right of People: a new contact (`id` none) or the one selected.
 #[derive(Default)]
 struct ContactForm {
+    id: Option<u64>,
     name: String,
     email: String,
+    /// (kind, number) rows.
+    phones: Vec<(String, String)>,
     organization: String,
+    title: String,
+    birthday: String,
+    note: String,
+}
+
+impl ContactForm {
+    fn of(c: &ibercorreo_core::Contact) -> ContactForm {
+        ContactForm {
+            id: Some(c.id),
+            name: c.name.clone(),
+            email: c.emails.iter().map(|a| a.email.clone()).collect::<Vec<_>>().join(", "),
+            phones: c.phones.iter().map(|p| (p.kind.clone(), p.number.clone())).collect(),
+            organization: c.organization.clone().unwrap_or_default(),
+            title: c.title.clone().unwrap_or_default(),
+            birthday: c.birthday.map(|b| b.to_string()).unwrap_or_default(),
+            note: c.note.clone(),
+        }
+    }
+
+    fn params(&self) -> Value {
+        let phones: Vec<Value> = self.phones.iter().filter(|(_, n)| !n.trim().is_empty()).map(|(k, n)| json!({ "kind": k, "number": n })).collect();
+        let mut p = json!({
+            "name": self.name, "email": self.email, "phones": phones, "organization": self.organization,
+            "title": self.title, "birthday": self.birthday, "note": self.note,
+        });
+        if let (Some(id), Some(o)) = (self.id, p.as_object_mut()) {
+            o.insert("id".into(), json!(id));
+        }
+        p
+    }
+}
+
+fn phone_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "mobile" => "Mobile",
+        "work" => "Work",
+        "home" => "Home",
+        "fax" => "Fax",
+        _ => "Other",
+    }
 }
 
 /// The Account settings dialog. The password is held only while the dialog is open and then
@@ -1240,59 +1284,124 @@ impl App {
 
     fn people(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::right("new-contact").default_size(280.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| {
-            ui.label(RichText::new("New contact").strong());
-            ui.add_space(6.0);
-            let f = &mut self.contact_form;
-            for (label, field) in [("Name", &mut f.name), ("Email", &mut f.email), ("Organization", &mut f.organization)] {
-                ui.label(RichText::new(label).small().color(t.text_weak));
-                ui.add(egui::TextEdit::singleline(field).desired_width(f32::INFINITY));
-            }
-            ui.add_space(6.0);
-            if ui.button("Add").clicked() {
-                let f = &self.contact_form;
-                let mut p = json!({ "name": f.name, "organization": f.organization });
-                if !f.email.trim().is_empty()
-                    && let Some(o) = p.as_object_mut()
-                {
-                    o.insert("email".into(), Value::String(f.email.clone()));
-                }
-                if self.run("contact.add", p).is_some() {
-                    self.contact_form = ContactForm::default();
-                }
-            }
+        egui::Panel::right("contact-card").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
         });
         egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
-            ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text("Search people").desired_width(320.0));
+            ui.horizontal(|ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text("Search people").desired_width(320.0));
+                if ui.button("➕ New Contact").clicked() {
+                    self.contact_form = ContactForm::default();
+                }
+            });
             ui.add_space(8.0);
             let q = self.contact_query.to_lowercase();
             let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().cloned().collect();
+            if contacts.is_empty() {
+                ui.label(
+                    RichText::new(if q.is_empty() { "No contacts yet. Add one, or open a .vcf file with Iber Correo." } else { "Nobody matches." })
+                        .color(t.text_weak),
+                );
+            }
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 for c in contacts {
-                    ui.horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-                        ui.painter().circle_filled(rect.center(), 18.0, t.accent_soft);
-                        let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
-                        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.0), t.accent);
-                        ui.vertical(|ui| {
-                            ui.label(RichText::new(&c.name).strong().color(t.text));
-                            let emails = c.emails.iter().map(|a| a.email.clone()).collect::<Vec<_>>().join(", ");
-                            let org = c.organization.clone().unwrap_or_default();
-                            ui.label(RichText::new(format!("{emails}  {org}")).small().color(t.text_weak));
+                    let selected = self.contact_form.id == Some(c.id);
+                    let row = Frame::NONE
+                        .fill(if selected { t.accent_soft } else { Color32::TRANSPARENT })
+                        .inner_margin(Margin::symmetric(6, 4))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+                                ui.painter().circle_filled(rect.center(), 18.0, t.accent_soft);
+                                let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
+                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.0), t.accent);
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(&c.name).strong().color(t.text));
+                                    let mut line: Vec<String> = c.emails.first().map(|a| a.email.clone()).into_iter().collect();
+                                    line.extend(c.phones.first().map(|p| p.number.clone()));
+                                    line.extend(c.organization.clone());
+                                    ui.label(RichText::new(line.join("  ·  ")).small().color(t.text_weak));
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if let Some(a) = c.emails.first()
+                                        && ui.button("Email").clicked()
+                                    {
+                                        self.run("message.compose", json!({ "to": a.to_string() }));
+                                        self.run("view.mail", json!({}));
+                                    }
+                                });
+                            });
                         });
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if let Some(a) = c.emails.first()
-                                && ui.button("Email").clicked()
-                            {
-                                self.run("message.compose", json!({ "to": a.to_string() }));
-                                self.run("view.mail", json!({}));
-                            }
-                        });
-                    });
+                    if row.response.interact(Sense::click()).clicked() {
+                        self.contact_form = ContactForm::of(&c);
+                    }
                     ui.separator();
                 }
             });
         });
+    }
+
+    fn contact_card(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        let f = &mut self.contact_form;
+        ui.label(RichText::new(if f.id.is_some() { "Contact" } else { "New contact" }).strong());
+        ui.add_space(6.0);
+        let field = |ui: &mut Ui, label: &str, value: &mut String, hint: &str| {
+            ui.label(RichText::new(label).small().color(t.text_weak));
+            ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
+        };
+        field(ui, "Name", &mut f.name, "");
+        field(ui, "Email", &mut f.email, "one or more, comma-separated");
+        ui.label(RichText::new("Phone").small().color(t.text_weak));
+        let mut remove = None;
+        for (i, (kind, number)) in f.phones.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt(("phone-kind", i)).width(70.0).selected_text(phone_kind_label(kind)).show_ui(ui, |ui| {
+                    for k in ibercorreo_core::contact::PHONE_KINDS {
+                        ui.selectable_value(kind, (*k).to_string(), phone_kind_label(k));
+                    }
+                });
+                ui.add(egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
+                if ui.small_button("✖").on_hover_text("Remove this phone").clicked() {
+                    remove = Some(i);
+                }
+            });
+        }
+        if let Some(i) = remove {
+            f.phones.remove(i);
+        }
+        if f.phones.len() < 50 && ui.small_button("➕ Add phone").clicked() {
+            f.phones.push((if f.phones.is_empty() { "mobile" } else { "work" }.into(), String::new()));
+        }
+        field(ui, "Organization", &mut f.organization, "");
+        field(ui, "Job title", &mut f.title, "");
+        field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
+        ui.label(RichText::new("Notes").small().color(t.text_weak));
+        ui.add(egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
+        ui.add_space(8.0);
+        let (mut save, mut delete) = (false, false);
+        ui.horizontal(|ui| {
+            save = ui.button(if f.id.is_some() { "Save" } else { "Add" }).clicked();
+            if f.id.is_some() {
+                delete = ui.button("🗑 Delete").clicked();
+            }
+        });
+        if save {
+            let p = self.contact_form.params();
+            let id = if self.contact_form.id.is_some() { "contact.update" } else { "contact.add" };
+            if let Some(v) = self.run(id, p)
+                && let Some(c) = v.get("id").and_then(Value::as_u64).and_then(|id| self.session.store.contact(id).ok())
+            {
+                self.contact_form = ContactForm::of(c);
+            }
+        }
+        if delete
+            && let Some(id) = self.contact_form.id
+            && self.run("contact.delete", json!({ "id": id })).is_some()
+        {
+            self.contact_form = ContactForm::default();
+        }
     }
 }
 

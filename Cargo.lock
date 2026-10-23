@@ -1665,6 +1665,7 @@ dependencies = [
  "ibercorreo-mime",
  "ibercorreo-store",
  "ibercorreo-sync",
+ "ibercorreo-vcard",
  "serde",
  "serde_json",
 ]
@@ -1724,6 +1725,7 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-ical",
  "ibercorreo-mime",
+ "ibercorreo-vcard",
  "serde",
  "serde_json",
 ]
@@ -1750,6 +1752,13 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
  "serde_json",
+]
+
+[[package]]
+name = "ibercorreo-vcard"
+version = "0.1.0"
+dependencies = [
+ "ibercorreo-core",
 ]
 
 [[package]]

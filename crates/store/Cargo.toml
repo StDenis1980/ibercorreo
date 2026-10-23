@@ -9,6 +9,7 @@ description = "Iber Correo L2: the local mail, calendar and contact store, and s
 ibercorreo-core.workspace = true
 ibercorreo-ical.workspace = true
 ibercorreo-mime.workspace = true
+ibercorreo-vcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 

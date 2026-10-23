@@ -183,13 +183,11 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
         ("Rui Carvalho", "rui@example.pt", "Formação RC"),
         ("Олена Коваль", "olena@example.com.ua", "Коваль і партнери"),
     ] {
-        s.add_contact(Contact {
-            id: 0,
-            name: name.into(),
-            emails: vec![Address::new(Some(name), email)?],
-            phone: None,
-            organization: Some(org.into()),
-        });
+        let mut c = Contact::new(name);
+        c.uid = format!("sample-{email}");
+        c.emails = vec![Address::new(Some(name), email)?];
+        c.organization = Some(org.into());
+        s.add_contact(c);
     }
     Ok(s)
 }
