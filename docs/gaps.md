@@ -40,7 +40,7 @@ Status: 2026-10-23 · Pick from the top.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
     move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
-    Sunday, and invitations (M2).
+    Sunday.
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
@@ -53,6 +53,17 @@ Status: 2026-10-23 · Pick from the top.
     the status bar), `sync-collection` (RFC 6578) instead of listing every ETag, a separate
     CalDAV password, tasks (`VTODO`), creating, renaming or hiding a calendar, moving an
     appointment to another calendar, and checking against Nextcloud, Google and iCloud.
+13. **Meeting invitations, as an attendee (M2.6).** An invitation by mail (iMIP) shows a strip with
+    Accept, Tentative and Decline; the meeting goes into (or out of) the calendar, an update moves
+    the same event, and the answer (`METHOD:REPLY`) goes to the organizer, sent now, edited first
+    or not at all. A cancellation can be removed, a whole series or one day. Checked end to end:
+    an invitation sent through Postfix, accepted into a Radicale calendar, the answer delivered.
+    Missing: sending invitations (organizing a meeting: attendees in the appointment form,
+    `REQUEST`/`CANCEL` out, applying `REPLY`s to the attendee list), showing tentative meetings
+    differently, `COUNTER` (propose a new time) and `DELEGATED`, conflicts with the calendar shown
+    in the strip, the invitation's attendees and organizer kept on the event (a server calendar gets
+    the meeting without them), server-side scheduling (CalDAV `schedule-inbox`, RFC 6638), and
+    moving an already accepted meeting to the calendar chosen when answering again.
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -68,3 +79,4 @@ Status: 2026-10-23 · Pick from the top.
 - 2026-10-22 — gap 11 added: reminders (M2.4).
 - 2026-10-23 — gap 12 added: CalDAV pull (M2.5a).
 - 2026-10-23 — gap 12 narrowed: CalDAV push (M2.5b).
+- 2026-10-23 — gap 13 added: meeting invitations (M2.6); gap 10 no longer lists them.

@@ -163,9 +163,26 @@ The test fills and empties `/ana/work/`, and checks that changes made in the sto
 appointment, a deletion) reach the server. To try the app: `caldav` `https://localhost:15232/`
 in Account settings (discovery goes through `/.well-known/caldav`) and `IBERCORREO_CA=$D/cert.der`.
 
+## Meeting invitations end to end
+With Postfix, Dovecot and Radicale as above (and a Radicale user named like the mail sign-in,
+since the calendar uses the same name and password): send an invitation to the test mailbox
+(a `multipart/alternative` message with a `text/calendar; method=REQUEST` part, for example
+with Python's `smtplib`), then
+
+```sh
+ibercorreo-cli sync --store s.json --ca $D/cert.der           # the invitation arrives
+ibercorreo-cli run --store s.json --save --cmd 'invite.respond={"id":1,"response":"accept","calendar":1}'
+ibercorreo-cli sync --store s.json --ca $D/cert.der           # answer sent, meeting PUT
+```
+
+The organizer's mailbox gets the `METHOD:REPLY` with `PARTSTAT=ACCEPTED`, and the calendar
+collection holds the meeting. In memory, `crates/engine/src/tests.rs` covers accepting, updating,
+declining, editing the answer and cancelling one day of a series.
+
 ## Revision history
 - 2026-10-22 — created with M1.2 (local TLS and the Dovecot check).
 - 2026-10-22 — M1.3: sync tests.
 - 2026-10-22 — M1.4: SMTP tests and the Postfix setup.
 - 2026-10-23 — M2.5a: HTTP/WebDAV/CalDAV tests, calendar sync tests and the Radicale setup.
 - 2026-10-23 — M2.5b: push tests (in memory and against Radicale).
+- 2026-10-23 — M2.6: invitations end to end.

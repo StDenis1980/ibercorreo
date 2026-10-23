@@ -117,6 +117,25 @@ pub fn store(today: Date) -> Result<Store> {
         m.seen = role != FolderRole::Inbox;
         s.add_message(m)?;
     }
+    // A meeting invitation, to answer from the reading pane.
+    let mut m = Message::new(MessageId(0), inbox);
+    m.from = Some(addr("Marta Iglesias <marta@example.es>")?);
+    m.to = vec![addr("Denys <denys@example.com>")?];
+    m.set_subject("Invitación: Revisión del presupuesto");
+    m.date = Some(DateTime::new(today, 7, 50, 0)?);
+    m.body = "Marta Iglesias te invita a una reunión.\n\nRevisión del presupuesto\nMañana, 16:00–17:00 (Madrid), Sala 1\n\nRepasamos las cifras del segundo trimestre.".into();
+    let day = today.add_days(1)?;
+    let ymd = format!("{:04}{:02}{:02}", day.year(), day.month(), day.day());
+    m.invite = Some(format!(
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IberOffice//Iber Correo sample//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+UID:sample-budget-review@example.es\r\nSEQUENCE:0\r\nDTSTAMP:{ymd}T065000Z\r\n\
+DTSTART;TZID=Europe/Madrid:{ymd}T160000\r\nDTEND;TZID=Europe/Madrid:{ymd}T170000\r\n\
+SUMMARY:Revisión del presupuesto\r\nLOCATION:Sala 1\r\nDESCRIPTION:Repasamos las cifras del segundo trimestre.\r\n\
+ORGANIZER;CN=Marta Iglesias:mailto:marta@example.es\r\n\
+ATTENDEE;CN=Denys;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:denys@example.com\r\n\
+ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+    ));
+    s.add_message(m)?;
     let mut m = Message::new(MessageId(0), sent);
     m.from = Some(addr("Denys <denys@example.com>")?);
     m.to = vec![addr("Marta Iglesias <marta@example.es>")?];

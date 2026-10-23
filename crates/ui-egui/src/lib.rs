@@ -95,6 +95,10 @@ pub struct App {
     /// Reminders due, as `reminder.list` gave them, and when (egui time) that was asked.
     due: Vec<Value>,
     due_checked: Option<f64>,
+    /// The open message's invitation, read once per message (and again after anything runs).
+    invite: Option<(ibercorreo_core::MessageId, Option<ibercorreo_engine::commands::InviteInfo>)>,
+    /// How an answer to an invitation goes: 0 sent now, 1 edited first, 2 not at all.
+    invite_reply: usize,
 }
 
 impl App {
@@ -116,6 +120,8 @@ impl App {
             due: Vec::new(),
             due_checked: None,
             last_calendar: None,
+            invite: None,
+            invite_reply: 0,
         }
     }
 
@@ -242,8 +248,9 @@ impl App {
     /// Run a command; a failure is shown in the status bar (the session records it).
     fn run(&mut self, id: &str, params: Value) -> Option<Value> {
         let out = self.session.run(id, &params).ok();
-        // Anything may have changed what is due.
+        // Anything may have changed what is due, or whether a meeting is in the calendar.
         self.due_checked = None;
+        self.invite = None;
         out
     }
 
@@ -668,6 +675,11 @@ impl App {
 
     fn reading(&mut self, ui: &mut Ui) {
         let t = self.tokens;
+        if let Some(id) = self.session.message
+            && self.invite.as_ref().is_none_or(|(at, _)| *at != id)
+        {
+            self.invite = Some((id, self.session.invite_info(id)));
+        }
         // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
         let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
             ui.centered_and_justified(|ui| ui.label(RichText::new("Select a message to read it").color(t.text_weak)));
@@ -708,6 +720,11 @@ impl App {
                 }
             });
         }
+        let mut answer: Option<Value> = None;
+        if let Some((_, Some(info))) = &self.invite {
+            ui.add_space(8.0);
+            answer = invite_banner(ui, &t, info, &mut self.invite_reply);
+        }
         let mut toggle_plain = false;
         if let Some(rich) = &m.rich {
             ui.add_space(6.0);
@@ -732,6 +749,10 @@ impl App {
         });
         if toggle_plain {
             self.run("view.plainText", json!({}));
+        }
+        if let Some(p) = answer {
+            let id = if p.get("response").is_some() { "invite.respond" } else { "invite.remove" };
+            self.run(id, p);
         }
     }
 
@@ -1273,6 +1294,96 @@ impl App {
             });
         });
     }
+}
+
+/// The invitation strip above a message: what the meeting is, and Accept / Tentative / Decline
+/// (or Remove from Calendar, for a cancellation). Returns the parameters of the command to run.
+fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::InviteInfo, reply: &mut usize) -> Option<Value> {
+    use ibercorreo_core::calendar::When;
+    let cancelled = info.method == "CANCEL";
+    let mut out = None;
+    let fill = if cancelled { soft(t.flag, t.reading) } else { t.accent_soft };
+    Frame::NONE.fill(fill).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        let answered = |s: &str| match s {
+            "ACCEPTED" => "accepted",
+            "TENTATIVE" => "tentatively accepted",
+            "DECLINED" => "declined",
+            "DELEGATED" => "delegated",
+            _ => "answered",
+        };
+        let headline = match info.method.as_str() {
+            "CANCEL" => "This meeting has been cancelled".to_string(),
+            "REPLY" => format!(
+                "{} has {} this meeting",
+                info.replier.as_deref().unwrap_or("An attendee"),
+                info.status.as_deref().map_or("answered", answered)
+            ),
+            "PUBLISH" => "Event".to_string(),
+            "COUNTER" => "An attendee proposes a new time".to_string(),
+            _ => match &info.organizer {
+                Some(o) => format!("Meeting invitation from {o}"),
+                None => "Meeting invitation".to_string(),
+            },
+        };
+        ui.label(RichText::new(format!("📅 {headline}")).small().color(t.text_weak));
+        ui.label(RichText::new(if info.summary.is_empty() { "(no title)" } else { &info.summary }).size(16.0).strong().color(t.text));
+        let mut when = match info.when {
+            Some(When::AllDay { start, end }) => {
+                let last = end.add_days(-1).unwrap_or(start);
+                if last <= start { format!("{}, all day", long_date(start)) } else { format!("{} – {}", long_date(start), long_date(last)) }
+            }
+            Some(When::Timed { start, end, .. }) if start.date == end.date => {
+                format!("{}, {:02}:{:02}–{:02}:{:02}", long_date(start.date), start.hour(), start.minute(), end.hour(), end.minute())
+            }
+            Some(When::Timed { start, end, .. }) => format!(
+                "{}, {:02}:{:02} – {}, {:02}:{:02}",
+                long_date(start.date),
+                start.hour(),
+                start.minute(),
+                long_date(end.date),
+                end.hour(),
+                end.minute()
+            ),
+            None => String::new(),
+        };
+        if info.repeats {
+            when.push_str(" · repeats");
+        }
+        if !info.location.is_empty() {
+            when.push_str(&format!(" · {}", info.location));
+        }
+        ui.label(RichText::new(when).color(t.text));
+        if info.in_calendar {
+            ui.label(RichText::new("✔ In your calendar").small().color(t.accent));
+        } else if info.method == "REQUEST"
+            && let Some(status) = info.status.as_deref().filter(|s| *s != "NEEDS-ACTION")
+        {
+            ui.label(RichText::new(format!("You have {} it", answered(status))).small().color(t.text_weak));
+        }
+        ui.add_space(4.0);
+        ui.horizontal(|ui| match info.method.as_str() {
+            "REQUEST" | "PUBLISH" => {
+                let mode = ["send", "edit", "none"].get(*reply).copied().unwrap_or("send");
+                for (label, response) in [("✔ Accept", "accept"), ("？ Tentative", "tentative"), ("✖ Decline", "decline")] {
+                    if ui.button(label).clicked() {
+                        out = Some(json!({ "response": response, "reply": mode }));
+                    }
+                }
+                if info.method == "REQUEST" && info.organizer.is_some() {
+                    let names = ["Send the response now", "Edit the response first", "Do not send a response"];
+                    egui::ComboBox::from_id_salt("invite-reply").selected_text(names.get(*reply).copied().unwrap_or(names[0])).show_ui(ui, |ui| {
+                        for (i, n) in names.iter().enumerate() {
+                            ui.selectable_value(reply, i, *n);
+                        }
+                    });
+                }
+            }
+            "CANCEL" if ui.add_enabled(info.in_calendar, egui::Button::new("Remove from Calendar")).clicked() => out = Some(json!({})),
+            _ => {}
+        });
+    });
+    out
 }
 
 fn short_when(dt: ibercorreo_core::DateTime, today: Date) -> String {

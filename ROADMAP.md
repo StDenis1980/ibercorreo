@@ -6,9 +6,9 @@ Status: 2026-10-23 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 51 |
+| Commands in the registry | 53 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -62,6 +62,14 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   categories, `VTIMEZONE`, the exact `RECURRENCE-ID`; `ical::write_resource`), with a fresh
   `DTSTAMP` and `SEQUENCE`. `EXDATE` now takes `DTSTART`'s form. A Calendar choice in the
   appointment form, `event.add` `calendar`, `calendar.list`, unique UIDs. 51 commands.
+- 2026-10-23 — M2.6: meeting invitations. A message's `text/calendar` part is kept
+  (`Message.invite`); `ical::invite` reads `METHOD`, `ORGANIZER`, `ATTENDEE` and `SEQUENCE`, and
+  `ical::reply` writes the `METHOD:REPLY` for one attendee. `invite.respond` (accept, tentative,
+  decline; answer sent now, edited first or not at all) puts the meeting in a calendar or takes it
+  out and queues the answer, sent as `multipart/alternative` with the calendar part;
+  `invite.remove` takes a cancelled meeting (or one day of it) out. An invitation strip in the
+  reading pane; a sample invitation. Checked end to end through Postfix, Dovecot and Radicale.
+  53 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -73,6 +81,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.6; M1 done.
 - 2026-10-23 — M2.5a.
 - 2026-10-23 — M2.5b.
+- 2026-10-23 — M2.6.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
