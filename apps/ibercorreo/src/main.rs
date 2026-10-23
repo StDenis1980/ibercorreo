@@ -120,6 +120,7 @@ impl Shell {
             outbox: s.outbox(),
             sent_path: s.sent_path(),
             limits: ibercorreo_sync::Limits::default(),
+            calendar: s.calendar_sync_state(),
         };
         let (tx, rx) = mpsc::channel();
         let spawned = std::thread::Builder::new().name("send-receive".into()).spawn(move || {
@@ -158,6 +159,16 @@ impl Shell {
                 }
                 self.app.session.status = format!("Send/Receive failed: {e}");
             }
+        }
+        match finished.calendar {
+            Some(Ok(batch)) => {
+                self.app.session.apply_calendar_sync(batch);
+            }
+            Some(Err(e)) => {
+                let status = &mut self.app.session.status;
+                status.push_str(&format!("; calendars: {e}"));
+            }
+            None => {}
         }
     }
     fn save_if_dirty(&mut self) {

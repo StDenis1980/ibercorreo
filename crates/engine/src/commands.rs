@@ -428,7 +428,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\n(The password is never a parameter: the app keeps it in the system's credential store.)",
+        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\n(The password is never a parameter: the app keeps it in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -1000,6 +1000,7 @@ fn event_add(s: &mut Session, p: &Value) -> Result<Value> {
             None if matches!(when, When::Timed { .. }) => vec![15],
             None => Vec::new(),
         },
+        remote: None,
     };
     let id = s.store.add_event(e)?;
     s.event = Some(id);
@@ -1206,6 +1207,15 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
     if user.len() > 320 || user.chars().any(char::is_control) {
         return Err(Error::invalid("params", "user is not a sign-in name"));
     }
+    let old_caldav = s.store.accounts.first().map(|a| a.caldav.clone()).unwrap_or_default();
+    let caldav = match str_param(p, "caldav")?.map(str::trim) {
+        None => old_caldav.clone(),
+        Some("") => String::new(),
+        Some(url) => {
+            ibercorreo_dav::Url::parse(url).map_err(|e| Error::invalid("caldav", e.to_string()))?;
+            url.to_string()
+        }
+    };
     let kind = AccountKind::Imap {
         imap_host: host_param(p, "imapHost")?,
         imap_port: port_param(p, "imapPort", imap_security.default_imap_port())?,
@@ -1215,11 +1225,17 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
         imap_security,
         smtp_security,
     };
-    let account = Account { name: address.display().to_string(), address, kind };
+    let server_changed = !old_caldav.is_empty() && old_caldav != caldav;
+    let account = Account { name: address.display().to_string(), address, kind, caldav };
     // One account for now (several arrive in M3): the first is replaced.
     match s.store.accounts.first_mut() {
         Some(a) => *a = account,
         None => s.store.accounts.push(account),
+    }
+    // Another server (or none): the calendars mirrored from the old one go.
+    if server_changed {
+        ibercorreo_sync::calendar::forget(&mut s.store);
+        s.fix_selection();
     }
     s.status = "Account saved".into();
     account_get(s, &Value::Null)
@@ -1227,7 +1243,7 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn account_get(s: &mut Session, _: &Value) -> Result<Value> {
     let a = s.store.accounts.first().ok_or_else(|| Error::not_found("account", "none set up"))?;
-    let mut v = json!({ "name": a.name, "email": a.address.email, "displayName": a.address.name });
+    let mut v = json!({ "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav });
     if let (AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. }, Some(obj)) =
         (&a.kind, v.as_object_mut())
     {

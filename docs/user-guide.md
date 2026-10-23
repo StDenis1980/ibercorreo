@@ -60,6 +60,15 @@
   назвами Windows, як пише Outlook) показуються за вибраним часом; повторювані зустрічі
   тримаються свого поясу, тож після переходу на літній час не «з'їжджають». Нова зустріч
   записується в поясі календаря. Час листів показується за вибраним поясом.
+- **Календарі з сервера (CalDAV)**: Nextcloud, Radicale, Fastmail, iCloud та інші. Додайте адресу
+  в **Account…** → «Calendars (CalDAV)» (адресу сервера, наприклад `https://cloud.example.org`,
+  або адресу конкретного календаря). Вхід — тим самим імʼям і паролем, що й пошта. Під час
+  **⟳ Send/Receive** (є і на стрічці календаря) календарі сервера з'являються в списку
+  «Calendars» праворуч зі своїми кольорами (позначка ⟳), а зміни на сервері приходять сюди:
+  нові, змінені й видалені зустрічі. Календар, видалений на сервері, зникає і тут. Якщо стерти
+  адресу, календарі сервера прибираються з програми (на сервері нічого не змінюється).
+  **Поки що зміни йдуть лише з сервера**: зустріч, додана чи змінена тут у календарі сервера,
+  ще не відправляється на сервер (це наступний крок) і буде замінена, коли її змінять на сервері.
 - «Сьогодні», ◀ ▶ (Alt+← / Alt+→) — на день, тиждень або місяць назад і вперед, залежно від вигляду.
 - Файли `.ics` (запрошення, експорт з інших календарів) імпортуються, якщо відкрити їх програмою:
   `ibercorreo зустріч.ics`. Подія з тим самим UID оновлюється, а не дублюється.
@@ -102,7 +111,7 @@ Windows, Secret Service на Linux), а не у файлі пошти. Якщо 
 
 ### З командного рядка
 ```sh
-ibercorreo-cli run --store store.json --save --cmd 'account.set={"email":"me@example.org","imapHost":"imap.example.org","smtpHost":"smtp.example.org"}'
+ibercorreo-cli run --store store.json --save --cmd 'account.set={"email":"me@example.org","imapHost":"imap.example.org","smtpHost":"smtp.example.org","caldav":"https://cloud.example.org"}'
 IBERCORREO_PASSWORD='…' ibercorreo-cli sync --store store.json
 ```
 
@@ -116,3 +125,4 @@ IBERCORREO_PASSWORD='…' ibercorreo-cli sync --store store.json
 - 2026-10-22 — M2.2: day, work week and week views.
 - 2026-10-22 — M2.3: time zones.
 - 2026-10-22 — M2.4: reminders.
+- 2026-10-23 — M2.5a: calendars from a CalDAV server.

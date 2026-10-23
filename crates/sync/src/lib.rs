@@ -23,6 +23,7 @@ use serde::Serialize;
 
 pub use ibercorreo_imap::{Error, Result};
 
+pub mod calendar;
 pub mod outbox;
 
 #[cfg(test)]

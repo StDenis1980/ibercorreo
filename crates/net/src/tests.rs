@@ -345,3 +345,59 @@ fn real_submission_when_configured() {
     let raw = String::from_utf8(found.expect("delivered")).unwrap();
     assert!(raw.contains(&format!("Subject: s{stamp}")) && raw.contains("\r\n.dot line\r\nend"), "{raw}");
 }
+
+/// Against a real CalDAV server when one is configured:
+/// `IBERCORREO_TEST_CALDAV="https://host:port/calendar/ user password cert.der"`, the address being
+/// a calendar the test may fill and empty (docs/testing.md has a throwaway Radicale).
+#[test]
+fn real_caldav_sync_when_configured() {
+    use ibercorreo_store::Store;
+    use ibercorreo_sync::calendar;
+    let Ok(spec) = std::env::var("IBERCORREO_TEST_CALDAV") else { return };
+    let parts: Vec<&str> = spec.split_whitespace().collect();
+    let [url, user, password, cert] = parts.as_slice() else { panic!("bad IBERCORREO_TEST_CALDAV: {spec}") };
+    let tls = Tls::with_roots(&[std::fs::read(cert).unwrap()]).unwrap();
+    let url = dav::Url::parse(url).unwrap();
+    let mut client = dav(&url, &tls, user, password);
+    let ics = |uid: &str, summary: &str| {
+        format!(
+            "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//test//EN\r\nBEGIN:VEVENT\r\nUID:{uid}\r\nDTSTAMP:20261022T000000Z\r\nDTSTART:20261102T100000Z\r\nDTEND:20261102T110000Z\r\nSUMMARY:{summary}\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+        )
+    };
+    let put = |c: &mut dyn dav::caldav::Http, name: &str, body: &str| {
+        let r = c.send("PUT", &format!("{}{name}", url.path), &[("Content-Type", "text/calendar; charset=utf-8")], body.as_bytes()).unwrap();
+        assert!(r.is_success(), "PUT {name}: {}", r.status);
+    };
+    // Start from an empty calendar.
+    for name in ["iber-a.ics", "iber-b.ics", "iber-c.ics"] {
+        let _ = client.send("DELETE", &format!("{}{name}", url.path), &[], b"");
+    }
+    put(&mut client, "iber-a.ics", &ics("iber-a", "Planning"));
+    put(&mut client, "iber-b.ics", &ics("iber-b", "Review"));
+
+    let mut store = Store::new();
+    let sync = |client: &mut dyn dav::caldav::Http, store: &mut Store| {
+        let batch = calendar::run(client, &url, &calendar::state(store)).unwrap();
+        calendar::apply(store, batch)
+    };
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.calendars_added, r.added), (1, 2), "{r:?}");
+    let mut names: Vec<&str> = store.events().iter().map(|e| e.summary.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["Planning", "Review"]);
+
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.added, r.updated, r.removed), (0, 0, 0), "{r:?}");
+
+    put(&mut client, "iber-a.ics", &ics("iber-a", "Planning (moved)"));
+    assert!(client.send("DELETE", &format!("{}iber-b.ics", url.path), &[], b"").unwrap().is_success());
+    put(&mut client, "iber-c.ics", &ics("iber-c", "Retro"));
+    let r = sync(&mut client, &mut store);
+    assert_eq!((r.added, r.updated, r.removed), (1, 1, 1), "{r:?}");
+    let mut names: Vec<&str> = store.events().iter().map(|e| e.summary.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["Planning (moved)", "Retro"]);
+
+    let mut wrong = dav(&url, &tls, user, "wrong");
+    assert!(matches!(calendar::run(&mut wrong, &url, &calendar::State::default()), Err(dav::Error::Auth(401))));
+}

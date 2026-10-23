@@ -15,6 +15,28 @@ pub struct Calendar {
     pub name: String,
     /// `#RRGGBB`, shown as the event colour.
     pub color: String,
+    /// The calendar on a CalDAV server this one mirrors; `None` for a calendar kept only here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<CalendarRemote>,
+}
+
+/// Where a calendar lives on its CalDAV server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalendarRemote {
+    /// The collection's path on the server.
+    pub href: String,
+    /// The server's change marker when last synced; while it is the same, nothing changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ctag: Option<String>,
+}
+
+/// The server resource an event came from. A repeating event and its changed occurrences share
+/// one resource.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventRemote {
+    pub href: String,
+    /// The resource's version when last synced.
+    pub etag: String,
 }
 
 /// When an event happens. All-day events span whole dates, `end` exclusive (as in iCalendar).
@@ -209,6 +231,9 @@ pub struct Event {
     /// [`MAX_REMINDERS`], each within [`MAX_REMINDER_MINUTES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reminders: Vec<i32>,
+    /// The CalDAV resource this event was synced from, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote: Option<EventRemote>,
 }
 
 pub const MAX_REMINDERS: usize = 8;

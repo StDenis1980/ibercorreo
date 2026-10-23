@@ -47,6 +47,7 @@ impl IcsEvent {
             exdates: self.exdates,
             recurrence_id: self.recurrence_id,
             reminders: self.reminders,
+            remote: None,
         }
     }
 }

@@ -83,7 +83,7 @@ fn addr(s: &str) -> Result<Address> {
 /// The sample store, dated around `today`.
 pub fn store(today: Date) -> Result<Store> {
     let mut s = Store::new();
-    s.accounts.push(Account { name: "Work".into(), address: addr("Denys <denys@example.com>")?, kind: AccountKind::Local });
+    s.accounts.push(Account { name: "Work".into(), address: addr("Denys <denys@example.com>")?, kind: AccountKind::Local, caldav: String::new() });
     let inbox = s.folder_by_role(FolderRole::Inbox)?;
     let sent = s.folder_by_role(FolderRole::Sent)?;
     for (i, mail) in INBOX.iter().enumerate() {
@@ -139,6 +139,7 @@ pub fn store(today: Date) -> Result<Store> {
         exdates: Vec::new(),
         recurrence_id: None,
         reminders: vec![15],
+        remote: None,
     };
     let at = |d: Date, h: u8, m: u8| DateTime::new(d, h, m, 0);
     s.add_event(event("Reunión de presupuesto", "Sala 1", When::timed(at(today, 10, 0)?, at(today, 11, 0)?, false)?))?;

@@ -1,6 +1,6 @@
 # Iber Correo — roadmap summary
 
-Status: 2026-10-22 · M2 (calendar and contacts) in progress
+Status: 2026-10-23 · M2 (calendar and contacts) in progress
 
 **Stage:** M1 done. Mail, calendar and people in one window; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -8,7 +8,7 @@ Status: 2026-10-22 · M2 (calendar and contacts) in progress
 |---|---|
 | Commands in the registry | 50 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; files: `.eml`, `.ics` |
+| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV calendars from the server (pull); files: `.eml`, `.ics` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -49,6 +49,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `reminder.list`/`dismiss`/`snooze`, `event.setReminder`, `event.add` `reminder` defaulting to 15
   minutes; dismissals saved in the store; missed reminders kept two days; an Outlook-style
   reminder window and a Reminder choice in the appointment form). 50 commands.
+- 2026-10-23 — M2.5a: CalDAV pull. New `ibercorreo-dav` crate (HTTP/1.1 with capped replies,
+  WebDAV `multistatus` with bounded XML, CalDAV discovery via `/.well-known/caldav`, principal and
+  calendar home; `calendar-query` ETags; `calendar-multiget`), `net::dav` over TLS,
+  `sync::calendar` (only changed calendars are listed, only changed events fetched; calendars
+  gone from the server removed), `account.set` `caldav`, calendar colours and a calendar list in
+  the window, Send/Receive on the calendar ribbon. Checked against Radicale 3.8.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -58,6 +64,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M1.4.
 - 2026-10-22 — M1.5.
 - 2026-10-22 — M1.6; M1 done.
+- 2026-10-23 — M2.5a.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

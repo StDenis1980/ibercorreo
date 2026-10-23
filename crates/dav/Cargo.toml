@@ -1,0 +1,15 @@
+[package]
+name = "ibercorreo-dav"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L2: HTTP/1.1, WebDAV and CalDAV (RFC 4791) over any byte stream; never opens a socket itself"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-mime.workspace = true
+quick-xml = "0.38"
+thiserror.workspace = true
+
+[lints]
+workspace = true

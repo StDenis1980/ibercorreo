@@ -7,6 +7,7 @@ description = "Iber Correo L4: the session, undo and the command registry every 
 
 [dependencies]
 ibercorreo-core.workspace = true
+ibercorreo-dav.workspace = true
 ibercorreo-ical.workspace = true
 ibercorreo-mime.workspace = true
 ibercorreo-store.workspace = true

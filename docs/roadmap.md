@@ -1,19 +1,19 @@
 # Iber Correo — milestones
 
-Status: 2026-10-22 · Current focus: M2
+Status: 2026-10-23 · Current focus: M2
 
 | Milestone | Scope | State |
 |---|---|---|
 | M0 | Skeleton: model, MIME, iCalendar, store, commands, undo, UI (mail, month calendar, people), CLI, CI | done |
 | M1 | IMAP (RFC 9051/3501: folders, sync, IDLE, flags, move) and SMTP (RFC 5321, STARTTLS/TLS via rustls), account setup, OS keychain, offline queue (Outbox really sends), HTML mail shown safely | done (M1.1–M1.6: IMAP, TLS, two-way sync, SMTP and the Outbox, accounts in the window, safe HTML) except IDLE, which moves to M3 with push and autodiscovery |
-| M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | in progress: recurrence (M2.1), day and week views (M2.2), time zones (M2.3), reminders (M2.4) done |
+| M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | in progress: recurrence (M2.1), day and week views (M2.2), time zones (M2.3), reminders (M2.4), CalDAV from the server (M2.5a) done; next: sending changes to CalDAV (M2.5b), invitations, contacts |
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | |
 | M4 | Exchange: EWS mail (Thunderbird's MPL-2.0 `ews` crate, unmodified), then EWS calendar and contacts, then Microsoft Graph | |
 | M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | |
 | M6 | MCP server (agent control), PGP/S-MIME, accessibility pass, translations (uk, es, pt, en) | |
 
 ## Current focus
-M1: IMAP/SMTP accounts, so Iber Correo reads and sends real mail.
+M2: the calendar, synced with CalDAV servers; then invitations and contacts.
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -27,3 +27,4 @@ M1: IMAP/SMTP accounts, so Iber Correo reads and sends real mail.
 - 2026-10-22 — M2.2 (day, work week and week views) landed.
 - 2026-10-22 — M2.3 (time zones) landed.
 - 2026-10-22 — M2.4 (reminders) landed.
+- 2026-10-23 — M2.5a (CalDAV pull) landed; Current focus brought up to date.

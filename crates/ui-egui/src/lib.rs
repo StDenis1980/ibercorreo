@@ -66,6 +66,7 @@ struct AccountForm {
     smtp_host: String,
     smtp_port: String,
     smtp_starttls: bool,
+    caldav: String,
     /// Why the dialog opened by itself (a missing or refused password).
     note: String,
 }
@@ -135,6 +136,7 @@ impl App {
             smtp_host: text("smtpHost"),
             smtp_port: port("smtpPort"),
             smtp_starttls: text("smtpSecurity") == "starttls",
+            caldav: text("caldav"),
             note: note.to_string(),
         };
         if self.account_form.user == self.account_form.email {
@@ -194,6 +196,11 @@ impl App {
                         });
                         ui.end_row();
                     }
+                    ui.label(RichText::new("Calendars (CalDAV)").strong());
+                    ui.end_row();
+                    ui.label("Address");
+                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://calendar.example.org (optional)").desired_width(280.0));
+                    ui.end_row();
                 });
                 ui.add_space(6.0);
                 save = ui.add(egui::Button::new(RichText::new("Save and Send/Receive").strong())).clicked();
@@ -204,6 +211,7 @@ impl App {
                 "name": f.name, "email": f.email, "user": f.user,
                 "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
                 "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
+                "caldav": f.caldav,
             });
             if let Some(o) = p.as_object_mut() {
                 for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -472,6 +480,15 @@ impl App {
                     }
                     ui.separator();
                     self.zone_picker(ui);
+                    ui.separator();
+                    let label = if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" };
+                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Sync mail and the CalDAV calendars (F9)").clicked() {
+                        if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
+                            self.run("account.sync", json!({}));
+                        } else {
+                            self.open_account_settings("Set up your account to sync calendars.");
+                        }
+                    }
                 }
                 View::Contacts => {
                     ui.label(RichText::new("People").heading());
@@ -830,7 +847,7 @@ impl App {
                             }
                             _ => format!("{repeat}{}", e.summary),
                         };
-                        p.rect_filled(chip, 3.0, t.accent.gamma_multiply(0.85));
+                        p.rect_filled(chip, 3.0, self.calendar_color(e.calendar).gamma_multiply(0.85));
                         p.with_clip_rect(chip).text(
                             chip.left_center() + vec2(4.0, 0.0),
                             egui::Align2::LEFT_CENTER,
@@ -880,7 +897,7 @@ impl App {
         }
 
         // The all-day strip: one row per all-day appointment of the busiest day.
-        let all_day: Vec<Vec<(String, Date)>> = days
+        let all_day: Vec<Vec<(String, Date, u32)>> = days
             .iter()
             .map(|d| {
                 self.session
@@ -888,7 +905,7 @@ impl App {
                     .events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
-                    .map(|o| (o.event.summary.clone(), *d))
+                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar))
                     .collect()
             })
             .collect();
@@ -898,7 +915,7 @@ impl App {
             let p = ui.painter_at(strip);
             p.rect_filled(strip, 0.0, t.list);
             for (n, list) in all_day.iter().enumerate() {
-                for (row, (summary, day)) in list.iter().take(rows).enumerate() {
+                for (row, (summary, day, calendar)) in list.iter().take(rows).enumerate() {
                     let chip = egui::Rect::from_min_size(
                         egui::pos2(x_of(strip.left(), n) + 2.0, strip.top() + 2.0 + ALL_DAY_ROW * row as f32),
                         vec2(col_w - 4.0, ALL_DAY_ROW - 2.0),
@@ -907,7 +924,7 @@ impl App {
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
-                    p.rect_filled(chip, 3.0, t.accent_soft);
+                    p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.reading));
                     p.with_clip_rect(chip).text(
                         chip.left_center() + vec2(4.0, 0.0),
                         egui::Align2::LEFT_CENTER,
@@ -1012,8 +1029,9 @@ impl App {
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
-                    p.rect_filled(rect, 3.0, t.accent_soft);
-                    p.rect_filled(egui::Rect::from_min_size(rect.left_top(), vec2(3.0, rect.height())), 1.0, t.accent);
+                    let color = self.calendar_color(e.calendar);
+                    p.rect_filled(rect, 3.0, soft(color, t.reading));
+                    p.rect_filled(egui::Rect::from_min_size(rect.left_top(), vec2(3.0, rect.height())), 1.0, color);
                     let clip = p.with_clip_rect(rect.shrink(1.0));
                     let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
                     let title = format!("{repeat}{}", e.summary);
@@ -1087,6 +1105,30 @@ impl App {
             });
             ui.add_space(6.0);
         }
+        self.calendar_list(ui);
+    }
+
+    /// The calendars, with their colours; the ones synced from a server are marked.
+    fn calendar_list(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        ui.add_space(12.0);
+        ui.label(RichText::new("Calendars").strong().color(t.text));
+        let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
+        for (id, name, synced) in calendars {
+            ui.horizontal(|ui| {
+                let (dot, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+                ui.painter().rect_filled(dot, 3.0, self.calendar_color(id));
+                ui.label(RichText::new(name).color(t.text));
+                if synced {
+                    ui.label(RichText::new("⟳").small().color(t.text_weak)).on_hover_text("Synced with the CalDAV server at Send/Receive");
+                }
+            });
+        }
+    }
+
+    /// The colour of calendar `id` (`#RRGGBB`), or the accent when it has none.
+    fn calendar_color(&self, id: u32) -> Color32 {
+        self.session.store.calendar(id).ok().and_then(|c| parse_hex_color(&c.color)).unwrap_or(self.tokens.accent)
     }
 
     fn event_window(&mut self, ui: &mut Ui) {
@@ -1215,6 +1257,21 @@ fn short_when(dt: ibercorreo_core::DateTime, today: Date) -> String {
     } else {
         dt.date.to_string()
     }
+}
+
+/// `#RRGGBB` as a colour.
+fn parse_hex_color(s: &str) -> Option<Color32> {
+    let hex = s.strip_prefix('#')?;
+    let channel = |i: usize| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok());
+    (hex.len() == 6).then_some(())?;
+    Some(Color32::from_rgb(channel(0)?, channel(2)?, channel(4)?))
+}
+
+/// `c` a quarter of the way from `bg`: an appointment's background, readable under the theme's
+/// text colour in light and dark themes.
+fn soft(c: Color32, bg: Color32) -> Color32 {
+    let mix = |v: u8, b: u8| u8::try_from((u16::from(v) + 3 * u16::from(b)) / 4).unwrap_or(255);
+    Color32::from_rgb(mix(c.r(), bg.r()), mix(c.g(), bg.g()), mix(c.b(), bg.b()))
 }
 
 fn month_abbr(m: u8) -> &'static str {

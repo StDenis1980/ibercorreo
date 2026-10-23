@@ -319,6 +319,47 @@ fn account_settings_and_sync_request() {
 }
 
 #[test]
+fn caldav_address_is_checked_kept_and_forgotten() {
+    let mut s = session();
+    let base = json!({"email": "denys@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});
+    let with = |extra: Value| {
+        let mut p = base.clone();
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    for bad in ["http://cal.example.org/", "cal.example.org", "https://ana:pw@cal.example.org/", "https://cal example.org/"] {
+        assert!(s.run("account.set", &with(json!({ "caldav": bad }))).is_err(), "{bad}");
+    }
+    let v = s.run("account.set", &with(json!({"caldav": " https://cal.example.org/dav/ "}))).unwrap();
+    assert_eq!(v["caldav"], "https://cal.example.org/dav/");
+    assert_eq!(s.run("account.set", &base).unwrap()["caldav"], "https://cal.example.org/dav/", "omitted keeps it");
+
+    // A synced calendar, then the address removed: the mirrored calendar goes.
+    let batch = ibercorreo_sync::calendar::Batch {
+        calendars: vec![ibercorreo_sync::calendar::CalendarSync {
+            calendar: ibercorreo_dav::caldav::RemoteCalendar { href: "/dav/work/".into(), name: "Work".into(), color: None, ctag: Some("1".into()) },
+            unchanged: false,
+            fetched: vec![ibercorreo_dav::caldav::FetchedItem {
+                href: "/dav/work/a.ics".into(),
+                etag: "e".into(),
+                data: "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:a\r\nDTSTART:20261102T100000Z\r\nDTEND:20261102T110000Z\r\nSUMMARY:Planning\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n".into(),
+            }],
+            removed: Vec::new(),
+        }],
+        errors: Vec::new(),
+    };
+    let calendars = s.store.calendars().len();
+    let r = s.apply_calendar_sync(batch);
+    assert_eq!((r.calendars_added, r.added), (1, 1));
+    assert!(s.status.contains("calendars: 1 new"), "{}", s.status);
+    assert!(!s.can_undo());
+    assert_eq!(s.calendar_sync_state().calendars.len(), 1);
+    s.run("account.set", &with(json!({"caldav": ""}))).unwrap();
+    assert_eq!(s.store.calendars().len(), calendars);
+    assert!(s.store.events().iter().all(|e| e.uid != "a"));
+}
+
+#[test]
 fn html_mail_reads_safely_and_can_show_as_plain_text() {
     let mut s = session();
     let list = s.run("message.list", &Value::Null).unwrap();
