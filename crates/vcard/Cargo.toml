@@ -1,0 +1,12 @@
+[package]
+name = "ibercorreo-vcard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Iber Correo L1: vCard (RFC 6350, 2426 and 2.1) reading and writing, written from the RFCs"
+
+[dependencies]
+ibercorreo-core.workspace = true
+
+[lints]
+workspace = true

@@ -2,7 +2,9 @@
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind};
-use ibercorreo_core::{Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Result, Security, Zone};
+use ibercorreo_core::{
+    Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Phone, Result, Security, Zone,
+};
 use serde_json::{Value, json};
 
 use crate::{CalendarMode, Session, View};
@@ -400,10 +402,37 @@ pub static REGISTRY: &[CommandSpec] = &[
         id: "contact.add",
         label: "New Contact",
         group: "People/New",
-        shortcut: None,
-        params: "name: string\nemail?: string\nphone?: string\norganization?: string",
+        shortcut: Some("Ctrl+Shift+C"),
+        params: CONTACT_FIELDS,
         edits: true,
         run: contact_add,
+    },
+    CommandSpec {
+        id: "contact.update",
+        label: "Edit Contact",
+        group: "People/Current View",
+        shortcut: None,
+        params: "id: number\n(then any of the fields of contact.add; a field left out stays as it is, \"\" clears it)",
+        edits: true,
+        run: contact_update,
+    },
+    CommandSpec {
+        id: "contact.delete",
+        label: "Delete Contact",
+        group: "People/Delete",
+        shortcut: None,
+        params: "id: number",
+        edits: true,
+        run: contact_delete,
+    },
+    CommandSpec {
+        id: "contact.get",
+        label: "Show contact",
+        group: "People/Current View",
+        shortcut: None,
+        params: "id: number",
+        edits: false,
+        run: contact_get,
     },
     CommandSpec {
         id: "contact.list",
@@ -413,6 +442,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "query?: string",
         edits: false,
         run: contact_list,
+    },
+    CommandSpec {
+        id: "contact.importVcf",
+        label: "Import contacts (.vcf)",
+        group: "File/Open",
+        shortcut: None,
+        params: "text: string — vCard 2.1, 3.0 or 4.0; a card whose UID (or, without one, an address) is already here updates that contact",
+        edits: true,
+        run: contact_import,
+    },
+    CommandSpec {
+        id: "contact.exportVcf",
+        label: "Export contacts (.vcf)",
+        group: "File/Save",
+        shortcut: None,
+        params: "id?: number — one contact (default: all)",
+        edits: false,
+        run: contact_export,
     },
     CommandSpec {
         id: "edit.undo",
@@ -1415,35 +1462,158 @@ fn event_set_reminder(s: &mut Session, p: &Value) -> Result<Value> {
 
 // ---- people ----
 
-fn contact_add(s: &mut Session, p: &Value) -> Result<Value> {
-    let name = required_str(p, "name")?.trim();
-    if name.is_empty() {
-        return Err(Error::invalid("params", "name is empty"));
+const CONTACT_FIELDS: &str = "name: string\nemail?: string — one address or several, comma-separated\nphone?: string — the main phone\nphoneKind?: \"mobile\" | \"work\" | \"home\" | \"fax\" | \"\" — what the main phone is\nphones?: [{kind, number}] — every phone, instead of phone\norganization?: string\ntitle?: string — job title\nnote?: string\nbirthday?: YYYY-MM-DD";
+
+fn contact_json(c: &Contact) -> Value {
+    json!({
+        "id": c.id, "uid": c.uid, "name": c.name, "emails": c.emails.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        "phones": c.phones.iter().map(|p| json!({ "kind": p.kind, "number": p.number })).collect::<Vec<_>>(),
+        "organization": c.organization, "title": c.title, "note": c.note, "birthday": c.birthday.map(|b| b.to_string()),
+        "kept": c.kept.len(),
+    })
+}
+
+/// A short text field: trimmed, at most 1024 bytes, `None` when empty.
+fn short(v: &str) -> Option<String> {
+    Some(ibercorreo_core::clamp_text(v.trim(), 1024).to_string()).filter(|v| !v.is_empty())
+}
+
+fn phone_param(p: &Value) -> Result<Option<Vec<Phone>>> {
+    let one = |kind: &str, number: &str| -> Result<Phone> {
+        let kind = kind.trim().to_ascii_lowercase();
+        if !ibercorreo_core::contact::PHONE_KINDS.contains(&kind.as_str()) {
+            return Err(Error::invalid("phoneKind", format!("{kind:?}: use mobile, work, home, fax or \"\"")));
+        }
+        if number.contains(['\r', '\n']) {
+            return Err(Error::invalid("phone", "one line"));
+        }
+        Ok(Phone { kind, number: ibercorreo_core::clamp_text(number.trim(), 256).to_string() })
+    };
+    match p.get("phones") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(list)) => {
+            let mut out = Vec::new();
+            for item in list.iter().take(50) {
+                let number = item.get("number").and_then(Value::as_str).ok_or_else(|| Error::invalid("phones", "each needs a number"))?;
+                let kind = item.get("kind").and_then(Value::as_str).unwrap_or("");
+                if !number.trim().is_empty() {
+                    out.push(one(kind, number)?);
+                }
+            }
+            return Ok(Some(out));
+        }
+        Some(_) => return Err(Error::invalid("phones", "a list of {kind, number}")),
     }
-    let emails = match str_param(p, "email")? {
-        Some(e) => Address::parse_list(e)?,
-        None => Vec::new(),
+    match str_param(p, "phone")? {
+        None => Ok(None),
+        Some(n) if n.trim().is_empty() => Ok(Some(Vec::new())),
+        Some(n) => Ok(Some(vec![one(str_param(p, "phoneKind")?.unwrap_or(""), n)?])),
+    }
+}
+
+/// Apply the fields present in `p` to `c` (all parsed before anything changes).
+fn apply_contact_fields(c: &mut Contact, p: &Value) -> Result<()> {
+    let name = str_param(p, "name")?.map(str::trim);
+    if name.is_some_and(str::is_empty) {
+        return Err(Error::invalid("name", "a contact needs a name"));
+    }
+    let emails = str_param(p, "email")?.map(Address::parse_list).transpose()?;
+    let phones = phone_param(p)?;
+    let organization = str_param(p, "organization")?;
+    let title = str_param(p, "title")?;
+    let note = str_param(p, "note")?;
+    let birthday = match str_param(p, "birthday")?.map(str::trim) {
+        None => None,
+        Some("") => Some(None),
+        Some(b) => Some(Some(Date::parse(b)?)),
     };
-    let clamp = |v: Option<&str>| v.map(|v| ibercorreo_core::clamp_text(v.trim(), 1024).to_string()).filter(|v| !v.is_empty());
-    let c = Contact {
-        id: 0,
-        name: ibercorreo_core::clamp_text(name, 1024).to_string(),
-        emails,
-        phone: clamp(str_param(p, "phone")?),
-        organization: clamp(str_param(p, "organization")?),
+    if let Some(name) = name {
+        let name = ibercorreo_core::clamp_text(name, 1024).to_string();
+        if name != c.name {
+            // The written-out parts of the old name (vCard N) no longer apply.
+            c.kept.retain(|l| ibercorreo_vcard::property_name(l).as_deref() != Some("N"));
+        }
+        c.name = name;
+    }
+    if let Some(mut emails) = emails {
+        emails.truncate(50);
+        c.emails = emails;
+    }
+    if let Some(phones) = phones {
+        c.phones = phones;
+    }
+    if let Some(o) = organization {
+        c.organization = short(o);
+    }
+    if let Some(t) = title {
+        c.title = short(t);
+    }
+    if let Some(n) = note {
+        c.note = ibercorreo_core::clamp_text(n.trim(), ibercorreo_core::MAX_FIELD_LEN).to_string();
+    }
+    if let Some(b) = birthday {
+        c.birthday = b;
+    }
+    Ok(())
+}
+
+fn contact_add(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = required_str(p, "name")?;
+    if s.store.contact_count() >= ibercorreo_store::Store::MAX_CONTACTS {
+        return Err(Error::invalid("contact", "the address book is full"));
+    }
+    let mut c = Contact::new(name);
+    apply_contact_fields(&mut c, p)?;
+    c.uid = {
+        use std::hash::{Hash, Hasher};
+        let unix = s.now().to_unix();
+        let seq = s.store.contact_count();
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (unix, seq, &c.name).hash(&mut h);
+        format!("{unix}-{seq}-{:016x}@ibercorreo", h.finish())
     };
-    Ok(json!({ "id": s.store.add_contact(c) }))
+    let id = s.store.add_contact(c);
+    s.status = "Contact added".into();
+    Ok(contact_json(s.store.contact(id)?))
+}
+
+fn contact_id(p: &Value) -> Result<u64> {
+    u64_param(p, "id")?.ok_or_else(|| Error::invalid("params", "id is required"))
+}
+
+fn contact_update(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = contact_id(p)?;
+    apply_contact_fields(s.store.contact_mut(id)?, p)?;
+    Ok(contact_json(s.store.contact(id)?))
+}
+
+fn contact_delete(s: &mut Session, p: &Value) -> Result<Value> {
+    let c = s.store.remove_contact(contact_id(p)?)?;
+    s.status = format!("Deleted {}", c.name);
+    Ok(json!({ "id": c.id, "deleted": true }))
+}
+
+fn contact_get(s: &mut Session, p: &Value) -> Result<Value> {
+    Ok(contact_json(s.store.contact(contact_id(p)?)?))
 }
 
 fn contact_list(s: &mut Session, p: &Value) -> Result<Value> {
     let q = str_param(p, "query")?.unwrap_or("");
-    Ok(Value::Array(
-        s.store
-            .contacts(q)
-            .into_iter()
-            .map(|c| json!({ "id": c.id, "name": c.name, "emails": c.emails.iter().map(ToString::to_string).collect::<Vec<_>>(), "phone": c.phone, "organization": c.organization }))
-            .collect(),
-    ))
+    Ok(Value::Array(s.store.contacts(q).into_iter().map(contact_json).collect()))
+}
+
+fn contact_import(s: &mut Session, p: &Value) -> Result<Value> {
+    let r = s.store.import_vcf(required_str(p, "text")?)?;
+    s.status = format!("Imported {} new and {} updated contacts", r.added, r.updated);
+    serde_json::to_value(&r).map_err(|e| Error::invalid("report", e.to_string()))
+}
+
+fn contact_export(s: &mut Session, p: &Value) -> Result<Value> {
+    let ids = match u64_param(p, "id")? {
+        Some(id) => vec![s.store.contact(id)?.id],
+        None => Vec::new(),
+    };
+    Ok(Value::String(s.store.export_vcf(&ids)))
 }
 
 // ---- account ----

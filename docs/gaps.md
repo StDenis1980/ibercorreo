@@ -64,6 +64,14 @@ Status: 2026-10-23 · Pick from the top.
     in the strip, the invitation's attendees and organizer kept on the event (a server calendar gets
     the meeting without them), server-side scheduling (CalDAV `schedule-inbox`, RFC 6638), and
     moving an already accepted meeting to the calendar chosen when answering again.
+14. **Contacts, local only (M2.7a).** Cards with several addresses and phones, organization, job
+    title, birthday and notes, edited in People; `.vcf` import (vCard 2.1 from Outlook, 3.0, 4.0)
+    and export (3.0), keeping every property not shown (postal addresses, photos, web sites) so a
+    round trip loses nothing. Missing: CardDAV sync (M2.7b), contact groups and lists, photos
+    shown, postal addresses and web sites edited, address completion in the To field, an
+    "add sender to contacts" action, birthdays in the calendar, and an export button in the
+    window (export is a command). A multi-part organization (`ORG:Company;Department`) is kept
+    as one text ("Company, Department").
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -80,3 +88,4 @@ Status: 2026-10-23 · Pick from the top.
 - 2026-10-23 — gap 12 added: CalDAV pull (M2.5a).
 - 2026-10-23 — gap 12 narrowed: CalDAV push (M2.5b).
 - 2026-10-23 — gap 13 added: meeting invitations (M2.6); gap 10 no longer lists them.
+- 2026-10-23 — gap 14 added: contacts and vCard (M2.7a).

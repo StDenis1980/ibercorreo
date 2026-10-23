@@ -89,8 +89,17 @@
   `ibercorreo зустріч.ics`. Подія з тим самим UID оновлюється, а не дублюється.
 
 ## Люди
-Пошук за імʼям, адресою чи організацією; праворуч форма нового контакту; кнопка **Email** біля
-контакту створює лист йому.
+- Пошук за імʼям, адресою, телефоном чи організацією. Кнопка **Email** біля контакту створює лист
+  йому.
+- Клацніть контакт, щоб побачити й змінити його картку праворуч: імʼя, адреси (через кому),
+  телефони (мобільний, робочий, домашній, факс, інший; **Add phone** додає ще один, ✖ прибирає),
+  організація, посада, день народження (`1985-04-23`) і нотатки. **Save** зберігає, **Delete**
+  видаляє (Ctrl+Z повертає). **New Contact** відкриває порожню картку.
+- **Імпорт контактів**: відкрийте файл `.vcf` програмою (`ibercorreo контакти.vcf`) — підходять
+  експорти з Outlook (vCard 2.1), Google, iPhone/macOS і Thunderbird (3.0, 4.0). Контакт, що вже є
+  (той самий UID, а для карток без UID — та сама адреса), оновлюється, а не дублюється. Поля, яких
+  Iber Correo поки не показує (поштова адреса, фото, сайт), зберігаються й повертаються при
+  експорті. Експорт: `ibercorreo-cli run --store store.json --cmd contact.exportVcf > контакти.vcf`.
 
 ## Де зберігаються дані
 Один файл `store.json`: Windows `%APPDATA%\Iber Correo`, macOS `~/Library/Application Support/Iber Correo`,
@@ -143,3 +152,4 @@ IBERCORREO_PASSWORD='…' ibercorreo-cli sync --store store.json
 - 2026-10-23 — M2.5a: calendars from a CalDAV server.
 - 2026-10-23 — M2.5b: changes go back to the CalDAV server.
 - 2026-10-23 — M2.6: meeting invitations.
+- 2026-10-23 — M2.7a: contact cards, vCard import and export.

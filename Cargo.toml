@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/mime", "crates/ical", "crates/store", "crates/imap", "crates/smtp", "crates/dav", "crates/net", "crates/sync", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
+members = ["crates/core", "crates/mime", "crates/ical", "crates/vcard", "crates/store", "crates/imap", "crates/smtp", "crates/dav", "crates/net", "crates/sync", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,6 +14,7 @@ repository = "https://github.com/StDenis1980/ibercorreo"
 ibercorreo-core = { path = "crates/core" }
 ibercorreo-mime = { path = "crates/mime" }
 ibercorreo-ical = { path = "crates/ical" }
+ibercorreo-vcard = { path = "crates/vcard" }
 ibercorreo-store = { path = "crates/store" }
 ibercorreo-imap = { path = "crates/imap" }
 ibercorreo-smtp = { path = "crates/smtp" }

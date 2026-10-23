@@ -523,3 +523,50 @@ fn declining_one_occurrence_cancels_only_that_day() {
     let e = s.store.event(event).unwrap();
     assert_eq!(e.exdates, [Date::new(2026, 10, 25).unwrap()]);
 }
+
+#[test]
+fn contacts_are_added_edited_deleted_and_travel_as_vcards() {
+    let mut s = session();
+    let c = s
+        .run(
+            "contact.add",
+            &json!({"name": "Taras Shevchuk", "email": "taras@example.com.ua, t.shevchuk@example.org", "phone": "+380 44 000 0000", "phoneKind": "work", "title": "Інженер", "birthday": "1990-03-09"}),
+        )
+        .unwrap();
+    let id = c["id"].as_u64().unwrap();
+    assert!(c["uid"].as_str().unwrap().ends_with("@ibercorreo"));
+    assert_eq!(c["phones"][0]["kind"], "work");
+    assert_eq!(c["emails"].as_array().unwrap().len(), 2);
+    // A field left out stays; "" clears.
+    let u = s.run("contact.update", &json!({"id": id, "organization": "Lviv Soft", "title": "", "phones": [{"kind": "mobile", "number": "+380 67 000 0000"}, {"number": "+380 44 111 1111"}]})).unwrap();
+    assert_eq!((u["organization"].as_str(), u["title"].is_null(), u["birthday"].as_str()), (Some("Lviv Soft"), true, Some("1990-03-09")));
+    assert_eq!(u["phones"].as_array().unwrap().len(), 2);
+    for bad in [
+        json!({"id": id, "name": " "}),
+        json!({"id": id, "phoneKind": "pager", "phone": "1"}),
+        json!({"id": id, "birthday": "soon"}),
+        json!({"id": 999, "name": "x"}),
+        json!({"id": id, "email": "broken"}),
+    ] {
+        assert!(s.run("contact.update", &bad).is_err(), "{bad}");
+    }
+    // Out as a vCard, and back in: the same person, updated rather than copied.
+    let card = s.run("contact.exportVcf", &json!({"id": id})).unwrap().as_str().unwrap().to_string();
+    assert!(card.contains("FN:Taras Shevchuk") && card.contains("TEL;TYPE=CELL:+380 67 000 0000"), "{card}");
+    let edited = card.replace("ORG:Lviv Soft", "ORG:Kyiv Soft");
+    let r = s.run("contact.importVcf", &json!({"text": edited})).unwrap();
+    assert_eq!((r["added"].as_u64(), r["updated"].as_u64()), (Some(0), Some(1)));
+    assert_eq!(s.run("contact.get", &json!({"id": id})).unwrap()["organization"], "Kyiv Soft");
+    // Renaming drops the old written-out name parts, so the card says the new name.
+    s.run("contact.importVcf", &json!({"text": card.replace("N:Shevchuk;Taras;;;", "N:Shevchuk;Taras;Hryhorovych;;")})).unwrap();
+    assert!(s.store.contact(id).unwrap().kept.iter().any(|l| l.starts_with("N:")));
+    s.run("contact.update", &json!({"id": id, "name": "Taras H. Shevchuk"})).unwrap();
+    let card = s.run("contact.exportVcf", &json!({"id": id})).unwrap().as_str().unwrap().to_string();
+    assert!(card.contains("N:Shevchuk;Taras H.;;;"), "{card}");
+    s.run("contact.delete", &json!({"id": id})).unwrap();
+    assert!(s.run("contact.get", &json!({"id": id})).is_err());
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.run("contact.get", &json!({"id": id})).unwrap()["name"], "Taras H. Shevchuk");
+    assert_eq!(s.run("contact.list", &json!({"query": "067"})).unwrap().as_array().unwrap().len(), 0);
+    assert_eq!(s.run("contact.list", &json!({"query": "67 000"})).unwrap().as_array().unwrap().len(), 1, "phones are searched");
+}

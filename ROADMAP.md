@@ -6,7 +6,7 @@ Status: 2026-10-23 · M2 (calendar and contacts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 53 |
+| Commands in the registry | 58 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics` |
 
@@ -70,6 +70,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `invite.remove` takes a cancelled meeting (or one day of it) out. An invitation strip in the
   reading pane; a sample invitation. Checked end to end through Postfix, Dovecot and Radicale.
   53 commands.
+- 2026-10-23 — M2.7a: contacts. New `ibercorreo-vcard` crate (vCard 2.1 with quoted-printable in
+  Windows-1252, 3.0 and 4.0 read; 3.0 written; unread properties kept and written back; bounded).
+  Contacts hold several phones, a UID, job title, note and birthday (store format 3; format 2
+  phones carried over). `contact.update`, `contact.delete`, `contact.get`, `contact.importVcf`,
+  `contact.exportVcf`; `.vcf` files open with the app; an editable contact card in People.
+  58 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -82,6 +88,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.5a.
 - 2026-10-23 — M2.5b.
 - 2026-10-23 — M2.6.
+- 2026-10-23 — M2.7a.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

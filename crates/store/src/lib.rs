@@ -22,7 +22,8 @@ pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// Format version written into the file; a newer file is refused rather than misread.
 /// 2: folders and messages remember their server copy (`remote`), and deleted synced messages
 /// leave a tombstone until the server has deleted them too.
-pub const FORMAT_VERSION: u32 = 2;
+/// 3: contacts hold several phones (`phones`), a UID, title, note, birthday and unread vCard lines.
+pub const FORMAT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Store {
@@ -94,6 +95,15 @@ pub struct Occurrence<'a> {
     /// The same occurrence in the event's own times; its start date is the one `EXDATE` and
     /// `RECURRENCE-ID` name.
     pub own: When,
+}
+
+/// What a `.vcf` import did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VcfReport {
+    pub added: usize,
+    pub updated: usize,
+    pub skipped_properties: usize,
+    pub rejected: Vec<String>,
 }
 
 /// What an `.ics` import did, for the report shown to the person.
@@ -553,6 +563,60 @@ impl Store {
         id
     }
 
+    /// Most contacts kept.
+    pub const MAX_CONTACTS: usize = 100_000;
+
+    pub fn contact_count(&self) -> usize {
+        self.contacts.len()
+    }
+
+    pub fn contact(&self, id: u64) -> Result<&Contact> {
+        self.contacts.iter().find(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))
+    }
+
+    pub fn contact_mut(&mut self, id: u64) -> Result<&mut Contact> {
+        self.contacts.iter_mut().find(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))
+    }
+
+    pub fn remove_contact(&mut self, id: u64) -> Result<Contact> {
+        let pos = self.contacts.iter().position(|c| c.id == id).ok_or_else(|| Error::not_found("contact", id.to_string()))?;
+        Ok(self.contacts.remove(pos))
+    }
+
+    /// Import a `.vcf` file. A card whose UID is already here, or (for cards without one) that
+    /// shares an address with a contact here, updates that contact; the rest are added.
+    pub fn import_vcf(&mut self, text: &str) -> Result<VcfReport> {
+        let parsed = ibercorreo_vcard::parse(text)?;
+        let mut report = VcfReport { added: 0, updated: 0, skipped_properties: parsed.skipped, rejected: parsed.rejected };
+        for card in parsed.contacts {
+            let same = |c: &Contact| {
+                if !card.uid.is_empty() {
+                    c.uid == card.uid
+                } else {
+                    c.emails.iter().any(|a| card.emails.iter().any(|b| a.email.eq_ignore_ascii_case(&b.email)))
+                }
+            };
+            if let Some(existing) = self.contacts.iter_mut().find(|c| same(c)) {
+                let id = existing.id;
+                let uid = if card.uid.is_empty() { existing.uid.clone() } else { card.uid.clone() };
+                *existing = Contact { id, uid, ..card };
+                report.updated += 1;
+            } else {
+                if self.contacts.len() >= Self::MAX_CONTACTS {
+                    return Err(Error::TooLarge { what: "contacts", size: self.contacts.len() + 1, limit: Self::MAX_CONTACTS });
+                }
+                self.add_contact(card);
+                report.added += 1;
+            }
+        }
+        Ok(report)
+    }
+
+    /// The contacts `ids` (every contact when empty) as a `.vcf` file.
+    pub fn export_vcf(&self, ids: &[u64]) -> String {
+        ibercorreo_vcard::write(self.contacts.iter().filter(|c| ids.is_empty() || ids.contains(&c.id)))
+    }
+
     pub fn contacts(&self, query: &str) -> Vec<&Contact> {
         let q = query.to_lowercase();
         let mut v: Vec<&Contact> = self.contacts.iter().filter(|c| c.matches(&q)).collect();
@@ -588,6 +652,9 @@ impl Store {
             return Err(Error::invalid("store file", format!("format {} is newer than this build ({FORMAT_VERSION})", s.version)));
         }
         s.check()?;
+        for c in &mut s.contacts {
+            c.upgrade();
+        }
         // Older files read as this format (new fields default) and are written back as it.
         s.version = FORMAT_VERSION;
         Ok(s)
@@ -794,5 +861,34 @@ END:VCALENDAR\r\n";
         let mut bad = serde_json::to_value(Store::new()).unwrap();
         bad.as_object_mut().unwrap().insert("tombstones".into(), serde_json::json!([{ "folder": 999, "uid": 1, "seen": false, "flagged": false }]));
         assert!(Store::from_json(bad.to_string().as_bytes()).is_err());
+    }
+
+    #[test]
+    fn format_2_contacts_keep_their_phone() {
+        let mut v2 = serde_json::to_value(Store::new()).unwrap();
+        let obj = v2.as_object_mut().unwrap();
+        obj.insert("version".into(), serde_json::json!(2));
+        obj.insert("contacts".into(), serde_json::json!([{ "id": 0, "name": "Ana", "emails": [], "phone": "+351 1", "organization": null }]));
+        let s = Store::from_json(v2.to_string().as_bytes()).unwrap();
+        assert_eq!(s.contact(0).unwrap().phones[0].number, "+351 1");
+    }
+
+    #[test]
+    fn vcf_import_updates_by_uid_or_address_and_exports() {
+        let mut s = Store::new();
+        let one = "BEGIN:VCARD\r\nVERSION:3.0\r\nUID:u1\r\nFN:Ana\r\nEMAIL:ana@example.org\r\nEND:VCARD\r\n\
+BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
+        let r = s.import_vcf(one).unwrap();
+        assert_eq!((r.added, r.updated), (2, 0));
+        let again = "BEGIN:VCARD\r\nUID:u1\r\nFN:Ana Souza\r\nEND:VCARD\r\nBEGIN:VCARD\r\nFN:Rui Carvalho\r\nEMAIL:RUI@example.pt\r\nEND:VCARD\r\n";
+        let r = s.import_vcf(again).unwrap();
+        assert_eq!((r.added, r.updated), (0, 2), "the same people, not copies");
+        let names: Vec<&str> = s.contacts("").iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Ana Souza", "Rui Carvalho"]);
+        let out = s.export_vcf(&[]);
+        assert_eq!(out.matches("BEGIN:VCARD").count(), 2);
+        assert_eq!(ibercorreo_vcard::parse(&out).unwrap().contacts.len(), 2);
+        assert_eq!(s.export_vcf(&[0]).matches("BEGIN:VCARD").count(), 1);
+        assert!(s.import_vcf("not a card").is_err());
     }
 }

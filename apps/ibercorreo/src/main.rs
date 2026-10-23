@@ -1,12 +1,12 @@
 //! The Iber Correo desktop app.
 //!
 //! ```text
-//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics]...
+//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf]...
 //! ```
 //!
 //! The mailbox is one store file in the platform's data folder (`--store` picks another).
-//! `--sample` opens the sample mailbox instead, without touching the store. `.eml` and `.ics`
-//! files on the command line (or from the file manager's "Open with") are imported.
+//! `--sample` opens the sample mailbox instead, without touching the store. `.eml`, `.ics` and
+//! `.vcf` files on the command line (or from the file manager's "Open with") are imported.
 //!
 //! Send/Receive runs on a background thread (`ibercorreo_net::job`), at start, every five
 //! minutes and on request; its result is applied to the session on the interface thread. The
@@ -216,7 +216,7 @@ fn main() -> eframe::Result {
             Some("--view") => view = args.next().and_then(|v| v.into_string().ok()),
             Some("--help" | "-h") => {
                 println!(
-                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics]..."
+                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf]..."
                 );
                 return Ok(());
             }
@@ -264,6 +264,9 @@ fn main() -> eframe::Result {
         let outcome = match (result, ext.as_deref()) {
             (Ok(bytes), Some("ics")) => {
                 session.run("calendar.importIcs", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
+            }
+            (Ok(bytes), Some("vcf" | "vcard")) => {
+                session.run("contact.importVcf", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
             }
             (Ok(bytes), _) => session.run("message.importEml", &serde_json::json!({ "raw": String::from_utf8_lossy(&bytes) })).map(|_| ()),
             (Err(e), _) => Err(ibercorreo_core::Error::Storage(e)),
