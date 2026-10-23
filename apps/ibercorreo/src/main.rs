@@ -1,4 +1,4 @@
-//! The Iber Correo desktop app.
+//! The Tinta Correo desktop app.
 //!
 //! ```text
 //! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf]...
@@ -36,10 +36,15 @@ const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 const AUTOSAVE: Duration = Duration::from_secs(20);
 /// How often mail is fetched while the app runs.
 const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
-/// The credential store's service name for account passwords.
+/// The credential store's service name for account passwords. It keeps the app's first name
+/// ("Iber Correo"), so passwords saved before the rename to Tinta Correo are still found.
 const KEYRING_SERVICE: &str = "Iber Correo";
-/// The credential store's service name for OAuth refresh tokens (`provider:login`).
+/// The credential store's service name for OAuth refresh tokens (`provider:login`), kept like
+/// [`KEYRING_SERVICE`].
 const OAUTH_KEYRING_SERVICE: &str = "Iber Correo OAuth";
+/// The store's folder name on Windows and macOS. Like [`KEYRING_SERVICE`] it keeps the app's
+/// first name, so the mail saved before the rename stays where the app looks for it.
+const DATA_DIR_NAME: &str = "Iber Correo";
 
 fn now() -> DateTime {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -51,9 +56,9 @@ fn now() -> DateTime {
 fn data_dir() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if cfg!(target_os = "windows") {
-        env("APPDATA").map(|p| p.join(NAME))
+        env("APPDATA").map(|p| p.join(DATA_DIR_NAME))
     } else if cfg!(target_os = "macos") {
-        env("HOME").map(|p| p.join("Library/Application Support").join(NAME))
+        env("HOME").map(|p| p.join("Library/Application Support").join(DATA_DIR_NAME))
     } else {
         env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share"))).map(|p| p.join("ibercorreo"))
     }
@@ -224,7 +229,7 @@ impl Shell {
         let login = self.app.session.store.accounts.first().and_then(|a| a.login()).map(str::to_owned);
         let stored = login.as_deref().and_then(keyring_entry).is_some_and(|e| e.set_password(&password).is_ok());
         if !stored {
-            self.app.session.status = "The system credential store is unavailable: the password is kept until Iber Correo closes".into();
+            self.app.session.status = "The system credential store is unavailable: the password is kept until Tinta Correo closes".into();
         }
         self.password = Some(password);
     }
@@ -257,7 +262,7 @@ impl Shell {
         if let Some((key, c)) = &self.credential
             && let Some(token) = c.take_rotated()
         {
-            // Unstored, it still serves until Iber Correo closes.
+            // Unstored, it still serves until Tinta Correo closes.
             let _ = oauth_entry(key).map(|e| e.set_password(&token));
         }
     }
@@ -296,7 +301,7 @@ impl Shell {
                         self.app.apply_oauth(Ok(name));
                         if !stored {
                             self.app.session.status =
-                                "Signed in; the system credential store is unavailable, so you sign in again after Iber Correo closes".into();
+                                "Signed in; the system credential store is unavailable, so you sign in again after Tinta Correo closes".into();
                         }
                     }
                     Err(e) => self.app.apply_oauth(Err(e)),

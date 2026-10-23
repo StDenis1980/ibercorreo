@@ -1,4 +1,4 @@
-//! Iber Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
+//! Tinta Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
 //! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587), and
 //! CalDAV and CardDAV clients over HTTPS, finding an address's servers ([`autoconfig`]) and OAuth

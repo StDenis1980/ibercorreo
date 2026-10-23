@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""IberOffice app icons (the "azulejo" tile): one source for every icon file of the five apps.
+"""Tinta Office app icons (the "azulejo" tile): one source for every icon file of the five apps.
 
 The tile is an ivory rounded square with a quarter circle in each corner, like a glazed wall
 tile, and the app's glyph in the middle. The suite mark carries all four office app colours.
-Original artwork for IberOffice, MIT OR Apache-2.0 like the code.
+Original artwork for Tinta Office, MIT OR Apache-2.0 like the code.
 
-    python3 packaging/iberoffice-icons.py preview DIR            # every icon, every size, into DIR
-    python3 packaging/iberoffice-icons.py apply REPO KIND BASE   # rewrite REPO/assets/app-icon
+    python3 packaging/tinta-icons.py preview DIR            # every icon, every size, into DIR
+    python3 packaging/tinta-icons.py apply REPO KIND BASE   # rewrite REPO/assets/app-icon
 
 KIND is pdf, texto, calculo, presenta, correo or suite. Needs cairosvg and Pillow.
 """
@@ -22,16 +22,18 @@ IVORY = "#F3EDE1"
 EDGE = "#D8CBB2"
 INK = "#1E2547"
 COLORS = {"pdf": "#B03A2E", "texto": "#2D4BA0", "calculo": "#4F7A28", "presenta": "#C7780F", "correo": "#1F7A8C"}
-SLUG = {"suite": "iberoffice", "pdf": "iber-pdf", "texto": "iber-texto", "calculo": "iber-calculo", "presenta": "iber-presenta", "correo": "iber-correo"}
+SLUG = {"suite": "tinta-office", "pdf": "tinta-pdf", "texto": "tinta-texto", "calculo": "tinta-calculo", "presenta": "tinta-presenta", "correo": "tinta-correo"}
 SMALL_MAX = 32  # sizes up to this use the simplified tile
 
 
 def glyph(kind, small):
     c = COLORS.get(kind, INK)
     if kind == "suite":
+        # An ink drop ("tinta" is Spanish for ink), with a glint at the large sizes.
         if small:
-            return f'<circle cx="50" cy="33" r="7.5" fill="{c}"/><rect x="43" y="45" width="14" height="25" rx="2.5" fill="{c}"/>'
-        return f'<circle cx="50" cy="37" r="5.5" fill="{c}"/><rect x="45" y="47" width="10" height="21" rx="2" fill="{c}"/>'
+            return f'<path d="M50 26 C50 26 33 45 33 56.5 A17 17 0 0 0 67 56.5 C67 45 50 26 50 26 Z" fill="{c}"/>'
+        return (f'<path d="M50 29 C50 29 35.5 46 35.5 56 A14.5 14.5 0 0 0 64.5 56 C64.5 46 50 29 50 29 Z" fill="{c}"/>'
+                f'<path d="M43.5 55 A7 7 0 0 0 48 62" fill="none" stroke="{IVORY}" stroke-width="2.6" stroke-linecap="round"/>')
     if kind == "pdf":
         if small:
             return f'<path d="M35 31 L54 31 L65 42 L65 69 L35 69 Z" fill="{c}"/>'

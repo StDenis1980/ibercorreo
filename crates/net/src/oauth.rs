@@ -1,7 +1,7 @@
 //! OAuth 2.0 sign-in for mail accounts (Gmail, Microsoft 365), written from RFC 6749 (OAuth 2.0),
 //! RFC 7636 (PKCE) and RFC 8252 (OAuth for native apps).
 //!
-//! The person signs in on the provider's own page in their browser; Iber Correo never sees the
+//! The person signs in on the provider's own page in their browser; Tinta Correo never sees the
 //! password. The browser comes back to a one-time listener on this machine (`127.0.0.1`, a free
 //! port), which takes the authorization code; the code and the PKCE verifier are exchanged for an
 //! access token (an hour) and a refresh token (kept in the system credential store by the app).
@@ -38,7 +38,7 @@ const MAX_TOKEN: usize = 16 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
     /// This build has no client ID for the provider.
-    #[error("this build of Iber Correo has no {0} client ID for OAuth sign-in (see docs/oauth.md)")]
+    #[error("this build of Tinta Correo has no {0} client ID for OAuth sign-in (see docs/oauth.md)")]
     NotConfigured(&'static str),
     /// The grant is gone (revoked, expired, password changed): sign in again in the browser.
     #[error("{0} asks you to sign in again")]
@@ -369,12 +369,12 @@ impl Listener {
     }
 }
 
-const PAGE_DONE: &str = "Signed in. You can close this tab and go back to Iber Correo.";
-const PAGE_FAILED: &str = "The sign-in did not finish. Go back to Iber Correo and try again.";
+const PAGE_DONE: &str = "Signed in. You can close this tab and go back to Tinta Correo.";
+const PAGE_FAILED: &str = "The sign-in did not finish. Go back to Tinta Correo and try again.";
 
 fn reply(tcp: &mut TcpStream, status: &str, text: &str) {
     let body = format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Iber Correo</title></head>\
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tinta Correo</title></head>\
 <body style=\"font-family:sans-serif;margin:3em\"><p>{text}</p></body></html>"
     );
     let head = format!(

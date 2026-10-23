@@ -1,4 +1,4 @@
-# Iber Correo — roadmap summary
+# Tinta Correo — roadmap summary
 
 Status: 2026-10-23 · M3 (accounts) in progress
 
@@ -58,7 +58,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.5b: CalDAV push. Appointments added to a server calendar, changed or deleted
   here are written back (`PUT` with `If-None-Match`/`If-Match`, `DELETE` with `If-Match`), only
   inside their calendar; the server's copy wins a conflict; offline changes wait for the next
-  sync. Written-back events keep what Iber Correo does not read (attendees, organizer,
+  sync. Written-back events keep what Tinta Correo does not read (attendees, organizer,
   categories, `VTIMEZONE`, the exact `RECURRENCE-ID`; `ical::write_resource`), with a fresh
   `DTSTAMP` and `SEQUENCE`. `EXDATE` now takes `DTSTART`'s form. A Calendar choice in the
   appointment form, `event.add` `calendar`, `calendar.list`, unique UIDs. 51 commands.

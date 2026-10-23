@@ -3,7 +3,7 @@ name = "ibercorreo-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo on the command line: list and run commands, read .eml and .ics files"
+description = "Tinta Correo on the command line: list and run commands, read .eml and .ics files"
 
 [[bin]]
 name = "ibercorreo-cli"

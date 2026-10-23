@@ -1,4 +1,4 @@
-# Iber Correo — ranked gaps
+# Tinta Correo — ranked gaps
 
 Status: 2026-10-23 · Pick from the top.
 
@@ -40,8 +40,8 @@ Status: 2026-10-23 · Pick from the top.
    a sync would resurrect stale server state). Replace with operation-level undo.
 7. **Store** is one JSON file loaded in memory. Move to an on-disk index (per-folder files or an
    embedded database) before IMAP sync of large mailboxes.
-8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Iber PDF,
-   Iber Texto, Iber Calculo hand-off planned).
+8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Tinta PDF,
+   Tinta Texto, Tinta Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
     move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
@@ -53,7 +53,7 @@ Status: 2026-10-23 · Pick from the top.
 12. **CalDAV sync works both ways (M2.5).** Calendars are found from a server, principal or
     calendar address; at Send/Receive changes made here go up (each only if the server's copy is
     unchanged; otherwise the server's copy wins and comes down) and changes there come down
-    (only what changed). Events written back keep what Iber Correo does not read. Checked
+    (only what changed). Events written back keep what Tinta Correo does not read. Checked
     against Radicale. Missing: telling the person which change lost a conflict (only a count in
     the status bar), `sync-collection` (RFC 6578) instead of listing every ETag, a separate
     CalDAV password, tasks (`VTODO`), creating, renaming or hiding a calendar, moving an

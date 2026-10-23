@@ -1,4 +1,4 @@
-# Iber Correo — milestones
+# Tinta Correo — milestones
 
 Status: 2026-10-23 · Current focus: M3
 

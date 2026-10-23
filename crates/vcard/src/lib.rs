@@ -397,7 +397,7 @@ fn structured_name(name: &str) -> String {
 /// One card, as vCard 3.0.
 pub fn write_card(c: &Contact) -> String {
     let mut out = String::new();
-    for l in ["BEGIN:VCARD", "VERSION:3.0", "PRODID:-//IberOffice//Iber Correo//EN"] {
+    for l in ["BEGIN:VCARD", "VERSION:3.0", "PRODID:-//Tinta Office//Tinta Correo//EN"] {
         push_folded(&mut out, l);
     }
     if !c.uid.is_empty() {

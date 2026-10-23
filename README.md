@@ -1,11 +1,11 @@
-<p align="center"><img src="assets/app-icon/ibercorreo-1024.png" width="128" alt="Iber Correo icon"></p>
+<p align="center"><img src="assets/app-icon/ibercorreo-1024.png" width="128" alt="Tinta Correo icon"></p>
 
-# Iber Correo
+# Tinta Correo
 
-**Пошта, календар і контакти для IberOffice** — вільна програма на чистому Rust, у тому ж стилі,
-що й Iber PDF, Iber Texto, Iber Calculo та Iber Presenta. Працює на macOS, Windows, Linux і BSD.
+**Пошта, календар і контакти для Tinta Office** — вільна програма на чистому Rust, у тому ж стилі,
+що й Tinta PDF, Tinta Texto, Tinta Calculo та Tinta Presenta. Працює на macOS, Windows, Linux і BSD.
 
-*Mail, calendar and people for the IberOffice suite — an open-source, clean-room, Outlook-style
+*Mail, calendar and people for the Tinta Office suite — an open-source, clean-room, Outlook-style
 client in pure Rust.*
 
 > **Стан: M2 готово.** Уже є: пошта IMAP/SMTP (двостороння синхронізація, «Вихідні», безпечний
@@ -52,4 +52,4 @@ cargo run -p ibercorreo-cli -- ics зустріч.ics
 ## Ліцензія
 
 MIT або Apache-2.0 на ваш вибір ([LICENSE-MIT](LICENSE-MIT), [LICENSE-APACHE](LICENSE-APACHE)).
-Усі іконки — оригінальна робота IberOffice ([ATTRIBUTION.md](ATTRIBUTION.md)).
+Усі іконки — оригінальна робота Tinta Office ([ATTRIBUTION.md](ATTRIBUTION.md)).

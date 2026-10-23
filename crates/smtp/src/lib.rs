@@ -1,4 +1,4 @@
-//! Iber Correo's SMTP submission client, L2, written from RFC 5321 (SMTP), RFC 6409 (message
+//! Tinta Correo's SMTP submission client, L2, written from RFC 5321 (SMTP), RFC 6409 (message
 //! submission), RFC 3207 (STARTTLS), RFC 4954 and RFC 4616 (AUTH PLAIN), XOAUTH2 (OAuth 2.0 sign-in), RFC 1870 (SIZE) and
 //! RFC 6152 (8BITMIME).
 //!

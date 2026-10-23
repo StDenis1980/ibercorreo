@@ -1,4 +1,4 @@
-//! The error type every Iber Correo crate returns through `?`.
+//! The error type every Tinta Correo crate returns through `?`.
 
 use thiserror::Error;
 

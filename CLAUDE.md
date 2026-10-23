@@ -1,4 +1,4 @@
-# Iber Correo — notes for Claude
+# Tinta Correo — notes for Claude
 
 Read [AGENTS.md](AGENTS.md) first: its rules (assets, clean room, never crash, privacy) bind you.
 

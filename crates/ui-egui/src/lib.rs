@@ -1,4 +1,4 @@
-//! Iber Correo's front end, L6: an Outlook-style window (navigation rail, folder pane, message
+//! Tinta Correo's front end, L6: an Outlook-style window (navigation rail, folder pane, message
 //! list, reading pane; day, week and month calendar; people) over [`ibercorreo_engine::Session`].
 //!
 //! Thin by rule: every change goes through `Session::run` with a command id, so the interface
@@ -21,7 +21,7 @@ use icons::Icon;
 use theme::Tokens;
 
 /// The product name shown in the window.
-pub const NAME: &str = "Iber Correo";
+pub const NAME: &str = "Tinta Correo";
 
 #[derive(Default)]
 struct Draft {
@@ -946,7 +946,7 @@ impl App {
                 if rich.remote_images > 0 {
                     let n = rich.remote_images;
                     ui.label(RichText::new(format!("🛡 {n} remote image{} not loaded", if n == 1 { "" } else { "s" })).small().color(t.text_weak))
-                        .on_hover_text("Images on other servers can tell the sender that you opened the message, so Iber Correo never loads them.");
+                        .on_hover_text("Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.");
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     toggle_plain = ui.small_button(if self.session.plain_text { "Show formatted" } else { "Show as plain text" }).clicked();
@@ -1491,7 +1491,7 @@ impl App {
             let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
             if contacts.is_empty() {
                 ui.label(
-                    RichText::new(if q.is_empty() { "No contacts yet. Add one, or open a .vcf file with Iber Correo." } else { "Nobody matches." })
+                    RichText::new(if q.is_empty() { "No contacts yet. Add one, or open a .vcf file with Tinta Correo." } else { "Nobody matches." })
                         .color(t.text_weak),
                 );
             }

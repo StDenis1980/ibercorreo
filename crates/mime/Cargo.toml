@@ -3,7 +3,7 @@ name = "ibercorreo-mime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L1: reading RFC 5322 / MIME messages into the model and writing outgoing mail"
+description = "Tinta Correo L1: reading RFC 5322 / MIME messages into the model and writing outgoing mail"
 
 [dependencies]
 ibercorreo-core.workspace = true

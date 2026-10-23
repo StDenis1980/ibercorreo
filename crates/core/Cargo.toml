@@ -3,7 +3,7 @@ name = "ibercorreo-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L0: the mail, calendar and contact model, dates, time zones and the error type"
+description = "Tinta Correo L0: the mail, calendar and contact model, dates, time zones and the error type"
 
 [dependencies]
 serde.workspace = true

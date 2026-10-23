@@ -1,4 +1,4 @@
-//! Iber Correo's IMAP client, L2, written from RFC 9051 (IMAP4rev2) and RFC 3501 (IMAP4rev1)
+//! Tinta Correo's IMAP client, L2, written from RFC 9051 (IMAP4rev2) and RFC 3501 (IMAP4rev1)
 //! plus the extensions it uses: MOVE (RFC 6851), UIDPLUS (RFC 4315), LITERAL+ (RFC 7888) and
 //! SPECIAL-USE (RFC 6154).
 //!

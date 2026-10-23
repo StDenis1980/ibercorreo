@@ -428,7 +428,7 @@ pub fn write<'a>(events: impl IntoIterator<Item = &'a Event>) -> String {
     write_with(events, &Kept::default(), None)
 }
 
-/// What a server's copy of a resource holds that Iber Correo does not read, kept when the
+/// What a server's copy of a resource holds that Tinta Correo does not read, kept when the
 /// resource is written back: other components and calendar properties (`VTIMEZONE`, `X-…`), and
 /// per event (by `UID` and day of `RECURRENCE-ID`) its other properties (`ATTENDEE`,
 /// `ORGANIZER`, `CATEGORIES`, `X-…`), its other sub-components, and its own `RECURRENCE-ID`
@@ -518,7 +518,7 @@ fn kept_from(raw: &str) -> Kept {
 }
 
 /// `events` (one resource: a series and its changed occurrences) written to send back to the
-/// server, keeping what `raw`, the server's copy, holds that Iber Correo does not read. `DTSTAMP`
+/// server, keeping what `raw`, the server's copy, holds that Tinta Correo does not read. `DTSTAMP`
 /// is `now` and `SEQUENCE` goes up by one.
 pub fn write_resource<'a>(events: impl IntoIterator<Item = &'a Event>, raw: &str, now: DateTime) -> String {
     write_with(events, &kept_from(raw), Some(now))
@@ -526,7 +526,7 @@ pub fn write_resource<'a>(events: impl IntoIterator<Item = &'a Event>, raw: &str
 
 fn write_with<'a>(events: impl IntoIterator<Item = &'a Event>, kept: &Kept, now: Option<DateTime>) -> String {
     let mut out = String::new();
-    for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//IberOffice//Iber Correo//EN", "CALSCALE:GREGORIAN"] {
+    for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tinta Office//Tinta Correo//EN", "CALSCALE:GREGORIAN"] {
         push_folded(&mut out, l);
     }
     for l in &kept.calendar {
@@ -714,7 +714,7 @@ pub fn reply(text: &str, me: &ibercorreo_core::Address, status: &str, comment: &
         return Err(Error::invalid("status", "ACCEPTED, TENTATIVE or DECLINED"));
     }
     let mut out = String::new();
-    for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//IberOffice//Iber Correo//EN", "CALSCALE:GREGORIAN", "METHOD:REPLY"] {
+    for l in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tinta Office//Tinta Correo//EN", "CALSCALE:GREGORIAN", "METHOD:REPLY"] {
         push_folded(&mut out, l);
     }
     let unfolded = unfold(text.trim_start_matches('\u{feff}'));

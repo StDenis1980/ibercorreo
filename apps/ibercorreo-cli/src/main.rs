@@ -1,4 +1,4 @@
-//! `ibercorreo-cli`: Iber Correo without a window.
+//! `ibercorreo-cli`: Tinta Correo without a window.
 //!
 //! ```text
 //! ibercorreo-cli commands                         every command id, label, shortcut and parameters
