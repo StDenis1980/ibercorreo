@@ -486,3 +486,71 @@ fn real_carddav_sync_when_configured() {
         let _ = client.send("DELETE", &format!("{}{name}", url.path), &[], b"");
     }
 }
+
+#[test]
+fn autoconfig_probes_and_fetches_over_real_tls() {
+    use crate::autoconfig::{Net, Probe};
+    use crate::dav::autoconfig::{Server, Socket};
+    let c = cert(&["localhost"]);
+    let tls = Tls::with_roots(std::slice::from_ref(&c.der)).unwrap();
+    let at = |port| Server { host: "localhost".into(), port, socket: Socket::Tls, username: String::new(), oauth_only: false };
+    let mut net = Net { tls: &tls };
+    assert!(net.answers(&at(server(&c, false)), false), "an IMAP server with a trusted certificate answers");
+    let other = cert(&["localhost"]);
+    assert!(!net.answers(&at(server(&other, false)), false), "an untrusted certificate does not count");
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    assert!(!net.answers(&at(closed), true));
+
+    // A configuration file over HTTPS, fetched without credentials.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let config = Arc::clone(&c.server);
+    let seen = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut tls = StreamOwned::new(ServerConnection::new(config).unwrap(), tcp);
+        let mut head = String::new();
+        let mut reader = BufReader::new(&mut tls);
+        while reader.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+        let body = "<clientConfig/>";
+        let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        tls.write_all(reply.as_bytes()).unwrap();
+        tls.flush().unwrap();
+        head
+    });
+    let (status, _, body) = net.get(&format!("https://localhost:{port}/mail/config-v1.1.xml")).unwrap();
+    assert_eq!((status, body.as_slice()), (200, &b"<clientConfig/>"[..]));
+    let head = seen.join().unwrap();
+    assert!(head.starts_with("GET /mail/config-v1.1.xml HTTP/1.1\r\n") && !head.contains("Authorization"), "{head}");
+    assert!(net.get("http://localhost/x").is_err(), "plain HTTP is refused");
+}
+
+/// IDLE against the same real server: a message put in the Inbox from another connection wakes
+/// the watch within seconds, and stopping ends it.
+#[test]
+fn real_idle_when_configured() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let Ok(spec) = std::env::var("IBERCORREO_TEST_IMAP") else { return };
+    let parts: Vec<&str> = spec.split_whitespace().collect();
+    let [host, tls_port, _, user, password, cert] = parts.as_slice() else { panic!("bad IBERCORREO_TEST_IMAP: {spec}") };
+    let tls = Tls::with_roots(&[std::fs::read(cert).unwrap()]).unwrap();
+    let at = endpoint(host, tls_port.parse().unwrap(), Security::Tls);
+    let (w_at, w_tls, w_user, w_password) = (at.clone(), tls.clone(), user.to_string(), password.to_string());
+    let started = std::time::Instant::now();
+    let watcher = thread::spawn(move || idle::watch(&w_at, &w_tls, &w_user, &w_password, "INBOX", &|| false));
+    thread::sleep(std::time::Duration::from_secs(2));
+    let mut c = imap(&at, &tls).unwrap();
+    c.login(user, password).unwrap();
+    c.append("INBOX", &[], b"From: a@example.org\r\nSubject: idle\r\n\r\nnew\r\n").unwrap();
+    c.logout().unwrap();
+    assert_eq!(watcher.join().unwrap().unwrap(), idle::Wake::Changed);
+    assert!(started.elapsed() < std::time::Duration::from_secs(15), "woke in {:?}", started.elapsed());
+
+    let stop = std::sync::Arc::new(AtomicBool::new(false));
+    let (w_stop, w_user, w_password) = (stop.clone(), user.to_string(), password.to_string());
+    let watcher = thread::spawn(move || idle::watch(&at, &tls, &w_user, &w_password, "INBOX", &|| w_stop.load(Ordering::Relaxed)));
+    thread::sleep(std::time::Duration::from_secs(1));
+    stop.store(true, Ordering::Relaxed);
+    let stopping = std::time::Instant::now();
+    assert_eq!(watcher.join().unwrap().unwrap(), idle::Wake::Stopped);
+    assert!(stopping.elapsed() <= idle::SLICE + std::time::Duration::from_secs(2));
+}

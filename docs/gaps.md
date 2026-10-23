@@ -4,8 +4,10 @@ Status: 2026-10-23 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
-   Dovecot and Postfix. Missing: IDLE (push), autodiscovery and OAuth (M3: Gmail and Microsoft 365
-   need it), more than one account, a progress bar. Sent copies are
+   Dovecot and Postfix. Find settings (autoconfig files, the public database, the usual server
+   names) and IDLE push on the Inbox work (M3.1). Missing: OAuth (M3.2: Gmail and Microsoft 365
+   need it), more than one account, a progress bar, DNS SRV (RFC 6186) and MX lookups (no DNS
+   resolver yet), a separate CardDAV/CalDAV address in Find settings. Sent copies are
    always saved to the server's Sent (servers that save them themselves, like Gmail, will need an
    account setting); no Bcc field; a message is refused as a whole if any recipient is.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
@@ -95,3 +97,4 @@ Status: 2026-10-23 · Pick from the top.
 - 2026-10-23 — gap 13 added: meeting invitations (M2.6); gap 10 no longer lists them.
 - 2026-10-23 — gap 14 added: contacts and vCard (M2.7a).
 - 2026-10-23 — gap 14 narrowed: CardDAV sync (M2.7b).
+- 2026-10-23 — gap 1 narrowed: autoconfiguration and IDLE (M3.1).

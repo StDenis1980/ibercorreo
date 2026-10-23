@@ -17,7 +17,7 @@ pub mod wire;
 #[cfg(test)]
 mod tests;
 
-pub use client::{Client, Done, Items, Selected};
+pub use client::{Client, Done, Items, Selected, is_news};
 pub use command::{Command, uid_set};
 pub use response::{Code, Fetch, Mailbox, Response, Status, Untagged};
 
@@ -58,6 +58,10 @@ pub enum Error {
     /// The server lacks something this needs.
     #[error("not supported: {0}")]
     Unsupported(&'static str),
+    /// Nothing arrived before the connection's read timeout. Only [`Client::idle_wait`] reports
+    /// it; the session is still usable.
+    #[error("the server sent nothing in time")]
+    Timeout,
 }
 
 impl From<Error> for ibercorreo_core::Error {

@@ -238,3 +238,91 @@ fn hostile_servers_never_panic() {
         }
     }
 }
+
+/// A server that goes quiet between bursts: each burst is read out, then one read times out.
+struct Quiet {
+    bursts: std::collections::VecDeque<Vec<u8>>,
+    current: std::io::Cursor<Vec<u8>>,
+    sent: Vec<u8>,
+}
+
+impl Quiet {
+    fn new(bursts: &[&str]) -> Self {
+        let mut bursts: std::collections::VecDeque<Vec<u8>> = bursts.iter().map(|b| b.replace('\n', "\r\n").into_bytes()).collect();
+        let first = bursts.pop_front().unwrap_or_default();
+        Quiet { bursts, current: std::io::Cursor::new(first), sent: Vec::new() }
+    }
+}
+
+impl Read for Quiet {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self.current.read(buf)?;
+        if n > 0 {
+            return Ok(n);
+        }
+        match self.bursts.pop_front() {
+            Some(next) => {
+                self.current = std::io::Cursor::new(next);
+                Err(std::io::Error::new(std::io::ErrorKind::WouldBlock, "timed out"))
+            }
+            None => Ok(0),
+        }
+    }
+}
+
+impl Write for Quiet {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.sent.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn idle_reports_news_survives_quiet_spells_and_ends_cleanly() {
+    let server = Quiet::new(&[
+        "* OK [CAPABILITY IMAP4rev1 IDLE] ready\n+ idling\n",
+        // Quiet, then a keep-alive, then quiet, then a new message, half a line at first.
+        "* OK Still here\n",
+        "* 3 EXI",
+        "STS\n",
+        "a1 OK IDLE terminated\n",
+    ]);
+    let mut c = Client::new(server, true).unwrap();
+    assert!(c.idle_start().unwrap().is_empty());
+    assert!(c.is_idling());
+    assert!(matches!(c.run(&Command::new("NOOP")), Err(Error::Invalid(_))), "no other command while idling");
+    assert_eq!(c.idle_wait().unwrap(), [], "a quiet spell is not an error");
+    assert_eq!(c.idle_wait().unwrap(), [], "a keep-alive is not news");
+    assert_eq!(c.idle_wait().unwrap(), [], "quiet again");
+    assert_eq!(c.idle_wait().unwrap(), [], "half a line waits for the rest");
+    let news = c.idle_wait().unwrap();
+    assert_eq!(news, [Untagged::Exists(3)]);
+    assert!(news.iter().all(is_news));
+    assert_eq!(c.idle_wait().unwrap(), [], "the rest of the quiet spell");
+    c.idle_done().unwrap();
+    assert!(!c.is_idling());
+    let s = c.into_stream();
+    assert_eq!(String::from_utf8(s.sent).unwrap(), "a1 IDLE\r\nDONE\r\n");
+}
+
+#[test]
+fn idle_needs_the_capability_and_reports_refusals() {
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1] ready\n"), true).unwrap();
+    assert!(matches!(c.idle_start(), Err(Error::Unsupported(_))));
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 IDLE] ready\na1 NO no mailbox selected\n"), true).unwrap();
+    assert!(matches!(c.idle_start(), Err(Error::No(_))));
+    assert!(!c.is_idling());
+    // The server hangs up while idling.
+    let mut c = Client::new(Script::new("* OK [CAPABILITY IMAP4rev1 IDLE] ready\n+ idling\n* BYE shutting down\n"), true).unwrap();
+    c.idle_start().unwrap();
+    assert!(c.idle_wait().is_err());
+    assert!(c.idle_wait().is_err(), "closed for good");
+    // A timeout in the middle of a literal ends the session.
+    let mut c =
+        Client::new(Quiet::new(&["* OK [CAPABILITY IMAP4rev1 IDLE] ready\n+ idling\n* 1 FETCH (BODY[] {10}\nabc", "defghij)\n"]), true).unwrap();
+    c.idle_start().unwrap();
+    assert!(matches!(c.idle_wait(), Err(Error::Io(_))));
+}

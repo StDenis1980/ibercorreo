@@ -48,8 +48,11 @@ pub(crate) fn request(method: &str, path: &str, host: &str, auth: &str, headers:
     if !path.starts_with('/') || !path.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
         return Err(Error::Invalid(format!("{path:?} is not a request path")));
     }
-    let mut out =
-        format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: {auth}\r\nUser-Agent: IberCorreo\r\nAccept-Encoding: identity\r\n");
+    let mut out = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\n");
+    if !auth.is_empty() {
+        out.push_str(&format!("Authorization: {auth}\r\n"));
+    }
+    out.push_str("User-Agent: IberCorreo\r\nAccept-Encoding: identity\r\n");
     for (name, value) in headers {
         let name_ok = !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
         if !name_ok || value.bytes().any(|b| b == b'\r' || b == b'\n') {

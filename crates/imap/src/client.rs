@@ -60,13 +60,29 @@ pub struct Client<S> {
     secure: bool,
     authenticated: bool,
     closed: bool,
+    /// The tag of the `IDLE` command in progress.
+    idling: Option<String>,
+}
+
+/// What the server reports while idling that means the mailbox changed.
+pub fn is_news(u: &Untagged) -> bool {
+    matches!(u, Untagged::Exists(_) | Untagged::Expunge(_) | Untagged::Fetch(_) | Untagged::Recent(_))
 }
 
 impl<S: Read + Write> Client<S> {
     /// Read the server greeting. `secure` says whether `stream` is already TLS: without it,
     /// [`Client::login`] refuses to send a password.
     pub fn new(stream: S, secure: bool) -> Result<Self> {
-        let mut client = Client { stream, reader: Reader::new(), next_tag: 1, capabilities: Vec::new(), secure, authenticated: false, closed: false };
+        let mut client = Client {
+            stream,
+            reader: Reader::new(),
+            next_tag: 1,
+            capabilities: Vec::new(),
+            secure,
+            authenticated: false,
+            closed: false,
+            idling: None,
+        };
         match client.read()? {
             Response::Untagged(Untagged::Status { status, code, text }) => {
                 match status {
@@ -131,6 +147,9 @@ impl<S: Read + Write> Client<S> {
     pub fn run(&mut self, command: &Command) -> Result<Done> {
         if self.closed {
             return Err(Error::Closed);
+        }
+        if self.idling.is_some() {
+            return Err(Error::Invalid("the session is idling: end it with idle_done first".into()));
         }
         let tag = format!("a{}", self.next_tag);
         self.next_tag = self.next_tag.wrapping_add(1).max(1);
@@ -267,8 +286,16 @@ impl<S: Read + Write> Client<S> {
     /// Continue on an encrypted stream after [`Client::starttls`]. Capabilities are asked again:
     /// the ones from before TLS may have been tampered with.
     pub fn resume(stream: S) -> Result<Self> {
-        let mut client =
-            Client { stream, reader: Reader::new(), next_tag: 1, capabilities: Vec::new(), secure: true, authenticated: false, closed: false };
+        let mut client = Client {
+            stream,
+            reader: Reader::new(),
+            next_tag: 1,
+            capabilities: Vec::new(),
+            secure: true,
+            authenticated: false,
+            closed: false,
+            idling: None,
+        };
         client.capability()?;
         Ok(client)
     }
@@ -375,8 +402,84 @@ impl<S: Read + Write> Client<S> {
         self.run(&command.literal(message)).map(drop)
     }
 
+    /// Start `IDLE` (RFC 2177) on the selected mailbox: the server then reports changes as they
+    /// happen. Wait with [`Client::idle_wait`] and end it with [`Client::idle_done`] (servers
+    /// drop an idle session after 30 minutes, so end and start it again well before). Returns
+    /// what the server sent before it began idling.
+    pub fn idle_start(&mut self) -> Result<Vec<Untagged>> {
+        if !self.has("IDLE") {
+            return Err(Error::Unsupported("the server does not offer IDLE"));
+        }
+        if self.closed {
+            return Err(Error::Closed);
+        }
+        if self.idling.is_some() {
+            return Ok(Vec::new());
+        }
+        let tag = format!("a{}", self.next_tag);
+        self.next_tag = self.next_tag.wrapping_add(1).max(1);
+        self.send(format!("{tag} IDLE\r\n").as_bytes())?;
+        let mut news = Vec::new();
+        loop {
+            match self.read()? {
+                Response::Continue(_) => break,
+                Response::Untagged(u) => self.keep(u, &mut news)?,
+                Response::Tagged { tag: t, status, text, .. } if t == tag => return Err(Self::refusal(status, text)),
+                Response::Tagged { .. } => {}
+            }
+        }
+        self.idling = Some(tag);
+        Ok(news)
+    }
+
+    /// Wait for the next thing the server sends while idling, up to the connection's read
+    /// timeout: what arrived (empty when nothing did). Keep-alive `OK` lines count as nothing.
+    pub fn idle_wait(&mut self) -> Result<Vec<Untagged>> {
+        let Some(tag) = self.idling.clone() else { return Err(Error::Invalid("not idling".into())) };
+        let bytes = match self.reader.response(&mut self.stream) {
+            Ok(b) => b,
+            Err(Error::Timeout) => return Ok(Vec::new()),
+            Err(e) => {
+                self.closed = true;
+                return Err(e);
+            }
+        };
+        let mut news = Vec::new();
+        match response::parse(&bytes)? {
+            Response::Untagged(Untagged::Status { status: Status::Ok, .. }) => {}
+            Response::Untagged(u) => self.keep(u, &mut news)?,
+            // The server ended the idle itself (a refusal, or shutting down).
+            Response::Tagged { tag: t, status, text, .. } if t == tag => {
+                self.idling = None;
+                if status != Status::Ok {
+                    return Err(Self::refusal(status, text));
+                }
+            }
+            Response::Tagged { .. } | Response::Continue(_) => {}
+        }
+        if self.closed {
+            return Err(Error::Closed);
+        }
+        Ok(news)
+    }
+
+    /// End `IDLE` (`DONE`) and collect what arrived until the server confirms.
+    pub fn idle_done(&mut self) -> Result<Vec<Untagged>> {
+        let Some(tag) = self.idling.take() else { return Ok(Vec::new()) };
+        self.send(b"DONE\r\n")?;
+        self.finish(&tag, Vec::new()).map(|d| d.untagged)
+    }
+
+    /// Whether `IDLE` is in progress.
+    pub fn is_idling(&self) -> bool {
+        self.idling.is_some()
+    }
+
     /// `LOGOUT`. The connection is closed afterwards whatever the server says.
     pub fn logout(mut self) -> Result<()> {
+        if self.idling.is_some() {
+            let _ = self.idle_done();
+        }
         let r = self.run(&Command::new("LOGOUT"));
         match r {
             Ok(_) | Err(Error::Closed) => Ok(()),

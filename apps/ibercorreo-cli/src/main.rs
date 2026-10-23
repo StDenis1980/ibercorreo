@@ -9,6 +9,8 @@
 //!                                                 with `run --cmd account.set=...`): send the
 //!                                                 Outbox, then two-way IMAP sync; the password is
 //!                                                 read from IBERCORREO_PASSWORD, never an argument
+//! ibercorreo-cli autoconfig EMAIL [--ca CERT.der]  find the address's IMAP and SMTP servers; prints
+//!                                                 them with the `account.set` parameters to use
 //! ```
 //!
 //! `run` prints each command's result as one JSON line and stops at the first error (exit code 1).
@@ -48,7 +50,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der]"
+        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der]"
     );
     ExitCode::from(2)
 }
@@ -79,6 +81,7 @@ fn main() -> ExitCode {
         },
         Some("run") => run(args.get(1..).unwrap_or(&[])),
         Some("sync") => sync(args.get(1..).unwrap_or(&[])),
+        Some("autoconfig") => autoconfig(args.get(1..).unwrap_or(&[])),
         _ => return usage(),
     };
     match result {
@@ -147,6 +150,52 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+fn tls_for(ca: Option<String>) -> Result<ibercorreo_net::Tls, String> {
+    match ca {
+        Some(path) => {
+            let der = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
+            ibercorreo_net::Tls::with_roots(&[der])
+        }
+        None => ibercorreo_net::Tls::platform(),
+    }
+    .map_err(|e| e.to_string())
+}
+
+fn autoconfig(args: &[String]) -> Result<(), String> {
+    use ibercorreo_net::autoconfig::Source;
+    use ibercorreo_net::dav::autoconfig::{Server, Socket};
+    let mut email = None;
+    let mut ca = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--ca" => ca = Some(it.next().ok_or("--ca needs a value")?.clone()),
+            other if email.is_none() && !other.starts_with("--") => email = Some(other.to_string()),
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let email = email.ok_or("autoconfig needs an email address")?;
+    let found = ibercorreo_net::autoconfig::find(&email, &tls_for(ca)?).map_err(|tried| format!("no settings found: {}", tried.join("; ")))?;
+    let server = |s: &Server| json!({ "host": s.host, "port": s.port, "security": if s.socket == Socket::StartTls { "starttls" } else { "tls" }, "user": s.username, "oauthOnly": s.oauth_only });
+    let s = &found.settings;
+    let (Some(imap), Some(smtp)) = (s.imap.first(), s.smtp.first()) else { return Err("no servers".into()) };
+    let source = match &found.source {
+        Source::Published(url) => json!(url),
+        Source::Guessed => json!("guessed"),
+    };
+    let account_set = json!({
+        "email": email.trim(), "user": imap.username,
+        "imapHost": imap.host, "imapPort": imap.port, "imapSecurity": if imap.socket == Socket::StartTls { "starttls" } else { "tls" },
+        "smtpHost": smtp.host, "smtpPort": smtp.port, "smtpSecurity": if smtp.socket == Socket::StartTls { "starttls" } else { "tls" },
+    });
+    print(&json!({
+        "provider": s.provider, "source": source,
+        "imap": s.imap.iter().map(server).collect::<Vec<_>>(), "smtp": s.smtp.iter().map(server).collect::<Vec<_>>(),
+        "accountSet": account_set,
+    }));
     Ok(())
 }
 

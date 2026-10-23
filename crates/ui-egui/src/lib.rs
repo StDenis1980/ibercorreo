@@ -121,8 +121,28 @@ struct AccountForm {
     smtp_port: String,
     smtp_starttls: bool,
     caldav: String,
-    /// Why the dialog opened by itself (a missing or refused password).
+    /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
+}
+
+/// Server settings found for an address (by the shell, which can reach the network), to fill
+/// Account settings with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discovered {
+    /// The provider's name.
+    pub provider: String,
+    /// Where they came from: a configuration file's address, or `None` for the usual server names.
+    pub source: Option<String>,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_starttls: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_starttls: bool,
+    /// The sign-in name.
+    pub user: String,
+    /// The provider takes OAuth2 sign-in only: a plain password will be refused.
+    pub oauth_only: bool,
 }
 
 pub struct App {
@@ -131,6 +151,10 @@ pub struct App {
     last_calendar: Option<u32>,
     /// Set by the shell while a Send/Receive runs in the background.
     pub syncing: bool,
+    /// An address whose server settings the person asked to find; the shell takes it.
+    pub autoconfig_request: Option<String>,
+    /// Set by the shell while it looks for server settings.
+    pub autoconfig_running: bool,
     account_form: AccountForm,
     password: Option<String>,
     tokens: Tokens,
@@ -160,6 +184,8 @@ impl App {
         App {
             session,
             syncing: false,
+            autoconfig_request: None,
+            autoconfig_running: false,
             account_form: AccountForm::default(),
             password: None,
             tokens: Tokens::light(),
@@ -210,6 +236,32 @@ impl App {
         }
     }
 
+    /// Fill Account settings with what the shell found for the address (or say what failed).
+    pub fn apply_autoconfig(&mut self, found: Result<Discovered, String>) {
+        let f = &mut self.account_form;
+        match found {
+            Ok(d) => {
+                f.imap_host = d.imap_host;
+                f.imap_port = d.imap_port.to_string();
+                f.imap_starttls = d.imap_starttls;
+                f.smtp_host = d.smtp_host;
+                f.smtp_port = d.smtp_port.to_string();
+                f.smtp_starttls = d.smtp_starttls;
+                f.user = if d.user.eq_ignore_ascii_case(f.email.trim()) { String::new() } else { d.user };
+                let from = match d.source {
+                    Some(_) => format!("Settings for {} found. Check them, enter the password and save.", d.provider),
+                    None => "No published settings: these servers answered at the usual names. Check them and save.".to_string(),
+                };
+                f.note = if d.oauth_only {
+                    format!("{from} This provider signs in with its own web page (OAuth), which comes later; an app password may work meanwhile.")
+                } else {
+                    from
+                };
+            }
+            Err(e) => f.note = format!("No settings found: {e}. Enter the servers by hand."),
+        }
+    }
+
     fn account_window(&mut self, ui: &mut Ui) {
         if !self.account_form.open {
             return;
@@ -234,6 +286,17 @@ impl App {
                         ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(280.0));
                         ui.end_row();
                     }
+                    ui.label("");
+                    let label = if self.autoconfig_running { "🔍 Looking…" } else { "🔍 Find settings" };
+                    let can = !self.autoconfig_running && f.email.contains('@');
+                    if ui
+                        .add_enabled(can, egui::Button::new(label))
+                        .on_hover_text("Look up the servers for this address (the provider's published settings, then the usual names)")
+                        .clicked()
+                    {
+                        self.autoconfig_request = Some(f.email.trim().to_string());
+                    }
+                    ui.end_row();
                     ui.label("Password");
                     ui.add(
                         egui::TextEdit::singleline(&mut f.password)
