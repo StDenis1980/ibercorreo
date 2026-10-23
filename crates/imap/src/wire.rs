@@ -89,7 +89,10 @@ impl Reader {
     fn fill<S: Read>(&mut self, stream: &mut S) -> Result<()> {
         self.compact();
         let mut chunk = [0u8; 16 * 1024];
-        let n = stream.read(&mut chunk).map_err(|e| Error::Io(e.to_string()))?;
+        let n = stream.read(&mut chunk).map_err(|e| match e.kind() {
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => Error::Timeout,
+            _ => Error::Io(e.to_string()),
+        })?;
         if n == 0 {
             return Err(Error::Closed);
         }
@@ -137,7 +140,10 @@ impl Reader {
             if out.len().saturating_add(n) > MAX_RESPONSE {
                 return Err(Error::TooLarge("response"));
             }
-            out.extend_from_slice(&self.exact(stream, n)?);
+            // A timeout inside a literal would lose the line before it: the session is over.
+            let literal =
+                self.exact(stream, n).map_err(|e| if matches!(e, Error::Timeout) { Error::Io("timed out inside a response".into()) } else { e })?;
+            out.extend_from_slice(&literal);
         }
     }
 }

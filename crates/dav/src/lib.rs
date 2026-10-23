@@ -9,9 +9,11 @@
 //! - [`xml`]: the `multistatus` replies, read with bounded effort.
 //! - [`caldav`]: finding the calendars, listing what is in one, fetching events.
 //! - [`carddav`]: the same for address books and contact cards.
+//! - [`autoconfig`]: where a mail address's server settings are published, and reading them.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod autoconfig;
 pub mod caldav;
 pub mod carddav;
 mod http;
@@ -209,6 +211,11 @@ impl<S: Read + Write, C: FnMut() -> std::io::Result<S>> Client<S, C> {
     pub fn new(connect: C, url: &Url, user: &str, password: &str) -> Self {
         let token = ibercorreo_mime::base64(format!("{user}:{password}").as_bytes());
         Client { connect, conn: None, host: url.host_header(), auth: format!("Basic {token}") }
+    }
+
+    /// A client that sends no credentials (for public files such as a mail configuration).
+    pub fn anonymous(connect: C, url: &Url) -> Self {
+        Client { connect, conn: None, host: url.host_header(), auth: String::new() }
     }
 
     /// Send one request and read the reply, whatever its status. A connection the server had

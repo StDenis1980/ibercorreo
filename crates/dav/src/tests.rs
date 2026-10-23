@@ -85,6 +85,22 @@ fn requests_carry_auth_and_reject_header_injection() {
 }
 
 #[test]
+fn anonymous_requests_carry_no_credentials() {
+    let written: Written = Default::default();
+    let w = written.clone();
+    let mut reply = Some(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec());
+    let connect = move || {
+        let r = reply.take().ok_or_else(|| io::Error::new(io::ErrorKind::ConnectionRefused, "no more"))?;
+        Ok(Script { reply: io::Cursor::new(r), written: w.clone() })
+    };
+    let mut c = Client::anonymous(connect, &Url::parse("https://autoconfig.example.org/").unwrap());
+    assert_eq!(c.send("GET", "/mail/config-v1.1.xml", &[], b"").unwrap().status, 200);
+    let w = String::from_utf8(written.borrow().clone()).unwrap();
+    assert!(w.starts_with("GET /mail/config-v1.1.xml HTTP/1.1\r\nHost: autoconfig.example.org\r\nUser-Agent:"), "{w}");
+    assert!(!w.contains("Authorization"), "{w}");
+}
+
+#[test]
 fn replies_are_read_by_length_chunks_or_close_and_connections_reused() {
     let replies = "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 207 Multi-Status\r\nTransfer-Encoding: chunked\r\n\r\n3;x=1\r\nabc\r\n2\r\nde\r\n0\r\nX-T: 1\r\n\r\n\
 HTTP/1.1 204 No Content\r\nContent-Length: 99\r\n\r\n\

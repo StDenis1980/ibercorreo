@@ -1,7 +1,7 @@
 //! Iber Correo's connections to mail servers, L4: TCP with timeouts, TLS through rustls (ring
 //! provider, certificates checked by the operating system's verifier), and opening an IMAP
 //! or SMTP session with implicit TLS (IMAP 993, SMTP 465) or STARTTLS (IMAP 143, SMTP 587), and
-//! CalDAV clients over HTTPS.
+//! CalDAV and CardDAV clients over HTTPS, and finding an address's servers ([`autoconfig`]).
 //!
 //! Desktop only: the web build reaches servers through a proxy instead (planned), so this crate
 //! is not part of the wasm check.
@@ -17,6 +17,8 @@ use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use thiserror::Error;
 
+pub mod autoconfig;
+pub mod idle;
 pub mod job;
 
 pub use ibercorreo_dav as dav;
@@ -151,14 +153,19 @@ impl Write for Stream {
 
 /// A TCP connection to `host:port`, trying each address it resolves to.
 pub fn tcp(host: &str, port: u16) -> Result<TcpStream> {
+    tcp_with(host, port, CONNECT_TIMEOUT, IO_TIMEOUT)
+}
+
+/// [`tcp`] with other timeouts: for connecting, and for each read or write after that.
+pub fn tcp_with(host: &str, port: u16, connect: Duration, io: Duration) -> Result<TcpStream> {
     let failed = |detail: String| Error::Connect { host: format!("{host}:{port}"), detail };
     let addrs = (host, port).to_socket_addrs().map_err(|e| failed(e.to_string()))?;
     let mut last = String::from("no address");
     for addr in addrs.take(16) {
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+        match TcpStream::connect_timeout(&addr, connect) {
             Ok(s) => {
-                s.set_read_timeout(Some(IO_TIMEOUT)).map_err(|e| Error::Io(e.to_string()))?;
-                s.set_write_timeout(Some(IO_TIMEOUT)).map_err(|e| Error::Io(e.to_string()))?;
+                s.set_read_timeout(Some(io)).map_err(|e| Error::Io(e.to_string()))?;
+                s.set_write_timeout(Some(io)).map_err(|e| Error::Io(e.to_string()))?;
                 let _ = s.set_nodelay(true);
                 return Ok(s);
             }
@@ -190,7 +197,11 @@ fn tls_error(e: &std::io::Error) -> Error {
 
 /// Connect to an IMAP server and read its greeting. The session is not logged in yet.
 pub fn imap(endpoint: &Endpoint, tls: &Tls) -> Result<imap::Client<Stream>> {
-    let tcp = tcp(&endpoint.host, endpoint.port)?;
+    imap_over(tcp(&endpoint.host, endpoint.port)?, endpoint, tls)
+}
+
+/// [`imap`] on a connection already open to `endpoint`.
+pub fn imap_over(tcp: TcpStream, endpoint: &Endpoint, tls: &Tls) -> Result<imap::Client<Stream>> {
     match endpoint.security {
         Security::Tls => Ok(imap::Client::new(secure(tcp, &endpoint.host, tls)?, true)?),
         Security::Plain => Ok(imap::Client::new(Stream::Plain(tcp), false)?),
@@ -206,7 +217,11 @@ pub fn imap(endpoint: &Endpoint, tls: &Tls) -> Result<imap::Client<Stream>> {
 
 /// Connect to an SMTP submission server and introduce this machine as `helo`. Not logged in yet.
 pub fn smtp(endpoint: &Endpoint, tls: &Tls, helo: &str) -> Result<smtp::Client<Stream>> {
-    let tcp = tcp(&endpoint.host, endpoint.port)?;
+    smtp_over(tcp(&endpoint.host, endpoint.port)?, endpoint, tls, helo)
+}
+
+/// [`smtp`] on a connection already open to `endpoint`.
+pub fn smtp_over(tcp: TcpStream, endpoint: &Endpoint, tls: &Tls, helo: &str) -> Result<smtp::Client<Stream>> {
     match endpoint.security {
         Security::Tls => Ok(smtp::Client::new(secure(tcp, &endpoint.host, tls)?, true, helo)?),
         Security::Plain => Ok(smtp::Client::new(Stream::Plain(tcp), false, helo)?),
@@ -231,6 +246,17 @@ pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client
         secure(tcp, &host, &tls).map_err(|e| std::io::Error::other(e.to_string()))
     };
     dav::Client::new(connect, url, user, password)
+}
+
+/// An HTTPS client for `url`'s server that sends no credentials.
+pub fn dav_anonymous(url: &dav::Url, tls: &Tls) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
+    let host = url.host.trim_start_matches('[').trim_end_matches(']').to_string();
+    let (port, tls) = (url.port, tls.clone());
+    let connect = move || {
+        let tcp = tcp(&host, port).map_err(|e| std::io::Error::other(e.to_string()))?;
+        secure(tcp, &host, &tls).map_err(|e| std::io::Error::other(e.to_string()))
+    };
+    dav::Client::anonymous(connect, url)
 }
 
 #[cfg(test)]

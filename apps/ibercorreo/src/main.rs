@@ -10,7 +10,9 @@
 //!
 //! Send/Receive runs on a background thread (`ibercorreo_net::job`), at start, every five
 //! minutes and on request; its result is applied to the session on the interface thread. The
-//! password lives in the system's credential store, never in the store file. `IBERCORREO_CA`
+//! password lives in the system's credential store, never in the store file. Once a sync has
+//! signed in, another thread keeps an IMAP `IDLE` session on the Inbox, so new mail starts a
+//! Send/Receive at once. `IBERCORREO_CA`
 //! names a DER certificate to trust instead of the system's (a company CA, or a test server).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -62,6 +64,97 @@ struct Shell {
     next_sync: Instant,
     /// The password for this run, when the credential store could not keep it.
     password: Option<String>,
+    /// The running search for an address's server settings, if any.
+    finder: Option<Receiver<Result<ibercorreo_ui_egui::Discovered, String>>>,
+    /// The thread that keeps an `IDLE` session open on the Inbox, once a sync has signed in.
+    watcher: Option<Watcher>,
+    /// To wake the window from other threads.
+    ctx: Option<egui::Context>,
+}
+
+/// Push mail: a background thread idling on the Inbox ([`ibercorreo_net::idle`]).
+struct Watcher {
+    /// The account and server it watches; another one means starting again.
+    key: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// A message each time the Inbox changed.
+    changed: Receiver<()>,
+}
+
+impl Drop for Watcher {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Watch the Inbox until `stop`: each change is sent on `tx`. Lost connections are retried, less
+/// often each time (one minute up to fifteen); a server without IDLE ends the watch (the
+/// five-minute Send/Receive still runs).
+fn watch_inbox(
+    endpoint: ibercorreo_net::Endpoint,
+    tls: ibercorreo_net::Tls,
+    login: String,
+    password: String,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    tx: mpsc::Sender<()>,
+    ctx: Option<egui::Context>,
+) {
+    use std::sync::atomic::Ordering;
+    let stopped = || stop.load(Ordering::Relaxed);
+    let mut backoff = Duration::from_secs(60);
+    while !stopped() {
+        match ibercorreo_net::idle::watch(&endpoint, &tls, &login, &password, "INBOX", &stopped) {
+            Ok(ibercorreo_net::idle::Wake::Changed) => {
+                backoff = Duration::from_secs(60);
+                if tx.send(()).is_err() {
+                    return;
+                }
+                if let Some(ctx) = &ctx {
+                    ctx.request_repaint();
+                }
+            }
+            Ok(ibercorreo_net::idle::Wake::Stopped) => return,
+            Err(ibercorreo_net::Error::Imap(ibercorreo_net::imap::Error::Unsupported(_) | ibercorreo_net::imap::Error::No(_))) => return,
+            Err(_) => {
+                let until = Instant::now() + backoff;
+                while Instant::now() < until && !stopped() {
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                backoff = (backoff * 2).min(Duration::from_secs(15 * 60));
+            }
+        }
+    }
+}
+
+/// Why nothing was found, in one sentence: the places tried are many and their errors long.
+fn short_reason(tried: &[String]) -> String {
+    match tried.last() {
+        Some(last) if tried.len() > 1 => format!("the provider publishes none, and {last}"),
+        Some(last) => last.clone(),
+        None => "nothing answered".into(),
+    }
+}
+
+/// The servers found for an address, as Account settings shows them.
+fn discovered(found: ibercorreo_net::autoconfig::Found) -> Result<ibercorreo_ui_egui::Discovered, String> {
+    use ibercorreo_net::dav::autoconfig::Socket;
+    let s = found.settings;
+    let (Some(imap), Some(smtp)) = (s.imap.first(), s.smtp.first()) else { return Err("no servers".into()) };
+    Ok(ibercorreo_ui_egui::Discovered {
+        provider: s.provider.clone(),
+        source: match found.source {
+            ibercorreo_net::autoconfig::Source::Published(url) => Some(url),
+            ibercorreo_net::autoconfig::Source::Guessed => None,
+        },
+        imap_host: imap.host.clone(),
+        imap_port: imap.port,
+        imap_starttls: imap.socket == Socket::StartTls,
+        smtp_host: smtp.host.clone(),
+        smtp_port: smtp.port,
+        smtp_starttls: smtp.socket == Socket::StartTls,
+        user: imap.username.clone(),
+        oauth_only: imap.oauth_only || smtp.oauth_only,
+    })
 }
 
 fn keyring_entry(login: &str) -> Option<keyring::Entry> {
@@ -91,11 +184,12 @@ impl Shell {
     }
 
     fn start_sync(&mut self) {
-        self.app.session.sync_requested = false;
-        self.next_sync = Instant::now() + AUTO_SYNC;
+        // A request made while a Send/Receive runs waits for it to finish.
         if self.worker.is_some() {
             return;
         }
+        self.app.session.sync_requested = false;
+        self.next_sync = Instant::now() + AUTO_SYNC;
         let Some(account) = self.app.session.store.accounts.first().cloned() else { return };
         let Some(login) = account.login().map(str::to_owned) else { return };
         let password = self.password.clone().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok()));
@@ -151,11 +245,13 @@ impl Shell {
         match finished.batch {
             Ok(batch) => {
                 self.app.session.apply_sync(batch);
+                self.keep_watching();
             }
             Err(e) => {
                 if e.starts_with("sign-in") {
-                    // A refused password is not kept for the next try.
+                    // A refused password is not kept for the next try, nor watched with.
                     self.password = None;
+                    self.watcher = None;
                     self.app.open_account_settings(&format!("The server refused the sign-in: {e}"));
                 }
                 self.app.session.status = format!("Send/Receive failed: {e}");
@@ -182,6 +278,83 @@ impl Shell {
             None => {}
         }
     }
+    /// After a sync that signed in: make sure the Inbox is watched with this account's settings.
+    fn keep_watching(&mut self) {
+        let Some(account) = self.app.session.store.accounts.first().cloned() else {
+            self.watcher = None;
+            return;
+        };
+        let ibercorreo_core::mail::AccountKind::Imap { imap_host, imap_port, imap_security, .. } = &account.kind else { return };
+        let Some(login) = account.login().map(str::to_owned) else { return };
+        let key = format!("{login}@{imap_host}:{imap_port}");
+        if self.watcher.as_ref().is_some_and(|w| w.key == key) {
+            return;
+        }
+        let Some(password) = self.password.clone().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok())) else { return };
+        let Ok(tls) = tls() else { return };
+        let security = match imap_security {
+            ibercorreo_core::Security::Tls => ibercorreo_net::Security::Tls,
+            ibercorreo_core::Security::StartTls => ibercorreo_net::Security::StartTls,
+        };
+        let endpoint = ibercorreo_net::Endpoint { host: imap_host.clone(), port: *imap_port, security };
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (tx, rx) = mpsc::channel();
+        let (thread_stop, ctx) = (stop.clone(), self.ctx.clone());
+        let spawned =
+            std::thread::Builder::new().name("idle".into()).spawn(move || watch_inbox(endpoint, tls, login, password, thread_stop, tx, ctx));
+        self.watcher = spawned.ok().map(|_| Watcher { key, stop, changed: rx });
+    }
+
+    /// A change the watcher saw asks for a Send/Receive.
+    fn watched(&mut self) {
+        let Some(w) = &self.watcher else { return };
+        match w.changed.try_recv() {
+            Ok(()) => {
+                while w.changed.try_recv().is_ok() {}
+                self.app.session.sync_requested = true;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => self.watcher = None,
+        }
+    }
+
+    /// Start looking for the servers of the address Account settings asked about, or take the
+    /// answer when it has come.
+    fn autoconfig(&mut self) {
+        if let Some(email) = self.app.autoconfig_request.take()
+            && self.finder.is_none()
+        {
+            match tls() {
+                Ok(tls) => {
+                    let (tx, rx) = mpsc::channel();
+                    let spawned = std::thread::Builder::new().name("autoconfig".into()).spawn(move || {
+                        let found = ibercorreo_net::autoconfig::find(&email, &tls).map_err(|tried| short_reason(&tried)).and_then(discovered);
+                        let _ = tx.send(found);
+                    });
+                    match spawned {
+                        Ok(_) => self.finder = Some(rx),
+                        Err(e) => self.app.apply_autoconfig(Err(e.to_string())),
+                    }
+                }
+                Err(e) => self.app.apply_autoconfig(Err(e)),
+            }
+        }
+        if let Some(rx) = &self.finder {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.finder = None;
+                    self.app.apply_autoconfig(found);
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.finder = None;
+                    self.app.apply_autoconfig(Err("the search stopped unexpectedly".into()));
+                }
+            }
+        }
+        self.app.autoconfig_running = self.finder.is_some();
+    }
+
     fn save_if_dirty(&mut self) {
         if self.persist && self.app.session.dirty {
             // A failed save stays dirty and is shown in the status bar; the next attempt retries.
@@ -194,8 +367,13 @@ impl Shell {
 impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.session.set_now(now());
+        if self.ctx.is_none() {
+            self.ctx = Some(ui.ctx().clone());
+        }
         self.finish_sync();
+        self.watched();
         self.app.syncing = self.worker.is_some();
+        self.autoconfig();
         self.app.ui(ui);
         self.keep_password();
         if self.persist && (self.app.session.sync_requested || Instant::now() >= self.next_sync) {
@@ -205,10 +383,12 @@ impl eframe::App for Shell {
             self.save_if_dirty();
         }
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
-        ui.ctx().request_repaint_after(if self.worker.is_some() { Duration::from_millis(200) } else { AUTOSAVE });
+        let busy = self.worker.is_some() || self.finder.is_some();
+        ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.watcher = None;
         self.save_if_dirty();
     }
 }
@@ -322,6 +502,9 @@ fn main() -> eframe::Result {
                 last_save: Instant::now(),
                 persist,
                 worker: None,
+                finder: None,
+                watcher: None,
+                ctx: None,
                 // A first Send/Receive right after start.
                 next_sync: Instant::now(),
                 password: None,

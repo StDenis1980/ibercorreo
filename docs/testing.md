@@ -81,8 +81,18 @@ default_login_user = dovenull
 
 ```sh
 sudo dovecot -c $D/dovecot.conf
-IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_server
+IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_
 ```
+
+`real_idle_when_configured` (in the same run) leaves an `IDLE` session on the Inbox, appends a
+message from a second connection and expects the watch to wake within 15 seconds, then checks
+that stopping ends it.
+
+Autoconfiguration has its own checks: `crates/dav/src/autoconfig.rs` reads invented files and,
+with `IBERCORREO_TEST_ISPDB_DIR=dir` (files named `<domain>.xml`, for example downloaded from
+the public `thunderbird/autoconfig` repository's `ispdb/` folder, never committed), real ones;
+`crates/net/src/autoconfig.rs` tests the search order, redirects and fallbacks with a fake
+network, and `autoconfig_probes_and_fetches_over_real_tls` probes servers over local TLS.
 
 ## Postfix for the submission test (Linux)
 Postfix also runs only as an external test server. It takes mail on 10587 (STARTTLS) and 10465
@@ -201,3 +211,4 @@ declining, editing the answer and cancelling one day of a series.
 - 2026-10-23 — M2.5b: push tests (in memory and against Radicale).
 - 2026-10-23 — M2.6: invitations end to end.
 - 2026-10-23 — M2.7b: contact sync tests and the CardDAV check.
+- 2026-10-23 — M3.1: IDLE and autoconfiguration tests.

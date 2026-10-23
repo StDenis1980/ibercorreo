@@ -1,6 +1,6 @@
 # Iber Correo — roadmap summary
 
-Status: 2026-10-23 · M2 (calendar and contacts) done; next M3
+Status: 2026-10-23 · M3 (accounts) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -8,7 +8,7 @@ Status: 2026-10-23 · M2 (calendar and contacts) done; next M3
 |---|---|
 | Commands in the registry | 59 |
 | Tests | see `cargo test --workspace` |
-| Protocols working | IMAP4rev1/rev2 two-way sync and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
+| Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS; CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
 Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gaps.md) (ranked work list).
 
@@ -87,6 +87,15 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Send/Receive; the contact card has an Address book choice. `Url::join` now resolves `.` and `..`
   segments, so a server's href cannot step outside its collection. Checked against Radicale 3.8,
   from the CLI and the window. 59 commands. M2 done.
+- 2026-10-23 — M3.1: autoconfiguration and push mail. `dav::autoconfig` reads Mozilla's
+  `clientConfig` format (secure IMAP and SMTP only, address templates filled in, OAuth-only
+  providers marked); `net::autoconfig` looks at the provider, the domain's `.well-known`, then
+  the public Thunderbird database (domain only), following HTTPS-only redirects, and falls back
+  to probing `imap.`/`mail.`/`smtp.` names. Find settings in Account settings,
+  `ibercorreo-cli autoconfig`. IMAP `IDLE` (`idle_start`/`idle_wait`/`idle_done`, read timeouts
+  survive mid-line), `net::idle::watch` on its own read-only connection, and a watcher thread in
+  the app that starts a Send/Receive within seconds of new mail, reconnecting with backoff.
+  Checked against Dovecot in the window and on six real database files.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -101,6 +110,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.6.
 - 2026-10-23 — M2.7a.
 - 2026-10-23 — M2.7b; M2 done.
+- 2026-10-23 — M3.1.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

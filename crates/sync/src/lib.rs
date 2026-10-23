@@ -173,7 +173,7 @@ pub fn run<S: Read + Write>(client: &mut Client<S>, state: &State, limits: &Limi
     for mailbox in mailboxes.iter().filter(|m| m.selectable()) {
         match folder(client, mailbox, state, limits) {
             Ok(f) => batch.folders.push(f),
-            Err(e @ (Error::Io(_) | Error::Closed | Error::Bye(_))) => return Err(e),
+            Err(e @ (Error::Io(_) | Error::Timeout | Error::Closed | Error::Bye(_))) => return Err(e),
             Err(e) => batch.errors.push(format!("{}: {e}", mailbox.name)),
         }
     }
@@ -188,7 +188,7 @@ fn push<S: Read + Write>(client: &mut Client<S>, state: &State, batch: &mut Batc
     }
     for (path, pushes) in by_path {
         if let Err(e) = client.select(path, false) {
-            if matches!(e, Error::Io(_) | Error::Closed | Error::Bye(_)) {
+            if matches!(e, Error::Io(_) | Error::Timeout | Error::Closed | Error::Bye(_)) {
                 return Err(e);
             }
             for p in pushes {
@@ -214,7 +214,7 @@ fn push<S: Read + Write>(client: &mut Client<S>, state: &State, batch: &mut Batc
                     client.uid_store(&set, true, &["\\Deleted"]).and_then(|()| client.uid_expunge(&set))
                 }
             };
-            if let Err(e @ (Error::Io(_) | Error::Closed | Error::Bye(_))) = &r {
+            if let Err(e @ (Error::Io(_) | Error::Timeout | Error::Closed | Error::Bye(_))) = &r {
                 return Err(e.clone());
             }
             batch.pushed.push((p.clone(), r.map_err(|e| e.to_string())));
