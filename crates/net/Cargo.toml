@@ -13,6 +13,9 @@ ibercorreo-smtp.workspace = true
 ibercorreo-sync.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 rustls-platform-verifier = "0.6"
+# PKCE: SHA-256 and the system random source (already rustls's crypto provider).
+ring = "0.17"
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

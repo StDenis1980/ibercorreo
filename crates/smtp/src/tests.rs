@@ -161,3 +161,32 @@ fn hostile_servers_never_panic() {
         }
     }
 }
+
+#[test]
+fn xoauth2_sign_in_and_a_refused_token() {
+    let offers = "220 smtp.gmail.com ESMTP\n250-smtp.gmail.com at your service\n250 AUTH LOGIN PLAIN XOAUTH2 OAUTHBEARER\n";
+    let token = ibercorreo_mime::base64(b"user=ana@gmail.com\x01auth=Bearer ya29.tok\x01\x01");
+    let mut c = Client::new(script(&format!("{offers}334 \n235 2.7.0 Accepted\n")), true, "h").unwrap();
+    c.login_xoauth2("ana@gmail.com", "ya29.tok").unwrap();
+    assert_eq!(sent(c), format!("EHLO h\nAUTH XOAUTH2\n{token}\n"));
+
+    let mut c =
+        Client::new(script(&format!("{offers}334 \n334 eyJzdGF0dXMiOiI0MDAifQ==\n535 5.7.8 Username and Password not accepted\n")), true, "h")
+            .unwrap();
+    let err = c.login_xoauth2("ana@gmail.com", "ya29.tok").unwrap_err();
+    assert!(matches!(&err, Error::Rejected { code: 535, .. }), "{err:?}");
+    assert_eq!(sent(c), format!("EHLO h\nAUTH XOAUTH2\n{token}\n\n"), "the error challenge is answered with an empty line");
+}
+
+#[test]
+fn xoauth2_is_refused_where_it_cannot_work() {
+    let offers = "220 hi\n250-hi\n250 AUTH XOAUTH2\n";
+    let mut c = Client::new(script(offers), false, "h").unwrap();
+    assert_eq!(c.login_xoauth2("a", "t"), Err(Error::Insecure));
+    let mut c = Client::new(script("220 hi\n250-hi\n250 AUTH PLAIN\n"), true, "h").unwrap();
+    assert!(matches!(c.login_xoauth2("a", "t"), Err(Error::Unsupported(_))));
+    let mut c = Client::new(script(offers), true, "h").unwrap();
+    assert!(matches!(c.login_xoauth2("a\u{1}auth=x", "t"), Err(Error::Invalid(_))));
+    assert!(matches!(c.login_xoauth2("a", "t\r\nQUIT"), Err(Error::Invalid(_))));
+    assert_eq!(sent(c), "EHLO h\n");
+}

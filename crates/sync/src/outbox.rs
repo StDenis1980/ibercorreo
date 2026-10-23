@@ -57,9 +57,19 @@ pub fn send<S: Read + Write>(client: &mut ibercorreo_smtp::Client<S>, mail: &[Ou
     out
 }
 
+/// Mark each sent message as filed by the server itself (Gmail does): its Sent copy comes with
+/// the next sync, so the local one goes.
+pub fn server_saved(results: &mut [Sent]) {
+    for r in results.iter_mut() {
+        if let Outcome::Sent { saved } = &mut r.outcome {
+            *saved = true;
+        }
+    }
+}
+
 /// Store a copy of each sent message in the server mailbox `sent_path`, marked read. Servers that
-/// save sent mail themselves (Gmail, Microsoft 365) would then hold two copies: an account setting
-/// will turn this off (`docs/gaps.md`).
+/// save sent mail themselves would then hold two copies: Gmail is known ([`server_saved`]);
+/// others will need an account setting (`docs/gaps.md`).
 pub fn save_sent<S: Read + Write>(client: &mut ibercorreo_imap::Client<S>, sent_path: &str, mail: &[Outgoing], results: &mut [Sent]) {
     for r in results.iter_mut() {
         let Outcome::Sent { saved } = &mut r.outcome else { continue };

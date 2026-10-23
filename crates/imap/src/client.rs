@@ -69,6 +69,15 @@ pub fn is_news(u: &Untagged) -> bool {
     matches!(u, Untagged::Exists(_) | Untagged::Expunge(_) | Untagged::Fetch(_) | Untagged::Recent(_))
 }
 
+/// The XOAUTH2 initial response: `user=…^Aauth=Bearer …^A^A`. Control characters in either
+/// part would let one end the other early, so they are refused.
+pub fn xoauth2(user: &str, token: &str) -> Result<String> {
+    if user.is_empty() || token.is_empty() || user.chars().chain(token.chars()).any(|c| c.is_control()) {
+        return Err(Error::Invalid("an empty or malformed user name or access token".into()));
+    }
+    Ok(format!("user={user}\u{1}auth=Bearer {token}\u{1}\u{1}"))
+}
+
 impl<S: Read + Write> Client<S> {
     /// Read the server greeting. `secure` says whether `stream` is already TLS: without it,
     /// [`Client::login`] refuses to send a password.
@@ -267,6 +276,65 @@ impl<S: Read + Write> Client<S> {
             self.capability()?;
         }
         Ok(())
+    }
+
+    /// `AUTHENTICATE XOAUTH2`: sign in with an OAuth 2.0 access token (Gmail, Microsoft 365).
+    /// Refused on a connection that is not encrypted, and when the server does not offer it. A
+    /// refused token is answered the way the mechanism asks (an empty line after the server's
+    /// error challenge) and reported as [`Error::No`].
+    pub fn authenticate_xoauth2(&mut self, user: &str, token: &str) -> Result<()> {
+        if !self.secure {
+            return Err(Error::Insecure);
+        }
+        if !self.has("AUTH=XOAUTH2") {
+            return Err(Error::Unsupported("the server does not offer OAuth sign-in (XOAUTH2)"));
+        }
+        if self.closed {
+            return Err(Error::Closed);
+        }
+        if self.idling.is_some() {
+            return Err(Error::Invalid("the session is idling: end it with idle_done first".into()));
+        }
+        let initial = ibercorreo_mime::base64(xoauth2(user, token)?.as_bytes());
+        let tag = format!("a{}", self.next_tag);
+        self.next_tag = self.next_tag.wrapping_add(1).max(1);
+        let mut untagged = Vec::new();
+        if self.has("SASL-IR") {
+            self.send(format!("{tag} AUTHENTICATE XOAUTH2 {initial}\r\n").as_bytes())?;
+        } else {
+            self.send(format!("{tag} AUTHENTICATE XOAUTH2\r\n").as_bytes())?;
+            self.continuation(&tag, &mut untagged)?;
+            self.send(format!("{initial}\r\n").as_bytes())?;
+        }
+        let mut challenged = false;
+        loop {
+            match self.read()? {
+                // The token was refused: the details come as a challenge, answered with nothing.
+                Response::Continue(_) if !challenged => {
+                    challenged = true;
+                    self.send(b"\r\n")?;
+                }
+                Response::Continue(_) => {
+                    self.closed = true;
+                    return Err(Error::Protocol("a second challenge during XOAUTH2".into()));
+                }
+                Response::Untagged(u) => self.keep(u, &mut untagged)?,
+                Response::Tagged { tag: t, status, code, text } if t == tag => {
+                    if status != Status::Ok {
+                        return Err(Self::refusal(status, text));
+                    }
+                    self.authenticated = true;
+                    match code {
+                        Some(Code::Capability(caps)) => self.capabilities = caps,
+                        _ => {
+                            self.capability()?;
+                        }
+                    }
+                    return Ok(());
+                }
+                Response::Tagged { .. } => {}
+            }
+        }
     }
 
     /// Send `STARTTLS` and hand the stream back for a TLS handshake (then [`Client::resume`]).

@@ -536,7 +536,7 @@ fn real_idle_when_configured() {
     let at = endpoint(host, tls_port.parse().unwrap(), Security::Tls);
     let (w_at, w_tls, w_user, w_password) = (at.clone(), tls.clone(), user.to_string(), password.to_string());
     let started = std::time::Instant::now();
-    let watcher = thread::spawn(move || idle::watch(&w_at, &w_tls, &w_user, &w_password, "INBOX", &|| false));
+    let watcher = thread::spawn(move || idle::watch(&w_at, &w_tls, &w_user, &oauth::Secret::Password(w_password), "INBOX", &|| false));
     thread::sleep(std::time::Duration::from_secs(2));
     let mut c = imap(&at, &tls).unwrap();
     c.login(user, password).unwrap();
@@ -547,10 +547,45 @@ fn real_idle_when_configured() {
 
     let stop = std::sync::Arc::new(AtomicBool::new(false));
     let (w_stop, w_user, w_password) = (stop.clone(), user.to_string(), password.to_string());
-    let watcher = thread::spawn(move || idle::watch(&at, &tls, &w_user, &w_password, "INBOX", &|| w_stop.load(Ordering::Relaxed)));
+    let watcher =
+        thread::spawn(move || idle::watch(&at, &tls, &w_user, &oauth::Secret::Password(w_password), "INBOX", &|| w_stop.load(Ordering::Relaxed)));
     thread::sleep(std::time::Duration::from_secs(1));
     stop.store(true, Ordering::Relaxed);
     let stopping = std::time::Instant::now();
     assert_eq!(watcher.join().unwrap().unwrap(), idle::Wake::Stopped);
     assert!(stopping.elapsed() <= idle::SLICE + std::time::Duration::from_secs(2));
+}
+
+/// The token request over real TLS: a form `POST`, no credentials header, the JSON answer read.
+#[test]
+fn oauth_token_requests_over_real_tls() {
+    use crate::oauth::{Net, Post};
+    let c = cert(&["localhost"]);
+    let tls = Tls::with_roots(std::slice::from_ref(&c.der)).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let config = Arc::clone(&c.server);
+    let seen = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut tls = StreamOwned::new(ServerConnection::new(config).unwrap(), tcp);
+        let mut reader = BufReader::new(&mut tls);
+        let mut head = String::new();
+        while reader.read_line(&mut head).unwrap() > 2 && !head.ends_with("\r\n\r\n") {}
+        let length: usize = head.lines().find_map(|l| l.strip_prefix("Content-Length: ")).unwrap().trim().parse().unwrap();
+        let mut body = vec![0; length];
+        std::io::Read::read_exact(&mut reader, &mut body).unwrap();
+        let answer = r#"{"access_token":"A1","expires_in":3600,"token_type":"Bearer"}"#;
+        let reply =
+            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{answer}", answer.len());
+        tls.write_all(reply.as_bytes()).unwrap();
+        tls.flush().unwrap();
+        (head, String::from_utf8(body).unwrap())
+    });
+    let (status, body) = Net { tls: &tls }.post(&format!("https://localhost:{port}/token"), "grant_type=refresh_token&refresh_token=R").unwrap();
+    assert_eq!(status, 200);
+    assert!(String::from_utf8(body).unwrap().contains("A1"));
+    let (head, form) = seen.join().unwrap();
+    assert!(head.starts_with("POST /token HTTP/1.1\r\n") && head.contains("Content-Type: application/x-www-form-urlencoded"), "{head}");
+    assert!(!head.contains("Authorization"), "{head}");
+    assert_eq!(form, "grant_type=refresh_token&refresh_token=R");
 }

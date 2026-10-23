@@ -11,5 +11,8 @@ ibercorreo-engine.workspace = true
 egui.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+ibercorreo-store.workspace = true
+
 [lints]
 workspace = true

@@ -26,10 +26,10 @@ pub enum Wake {
 /// Idle on `mailbox` (as the server names it, usually `INBOX`) until it changes or `stop()` is
 /// true. An error means the session ended: a refused sign-in, a server without `IDLE`
 /// (`Error::Imap(Unsupported)`), or a lost connection.
-pub fn watch(endpoint: &Endpoint, tls: &Tls, user: &str, password: &str, mailbox: &str, stop: &dyn Fn() -> bool) -> Result<Wake> {
+pub fn watch(endpoint: &Endpoint, tls: &Tls, user: &str, secret: &crate::oauth::Secret, mailbox: &str, stop: &dyn Fn() -> bool) -> Result<Wake> {
     let tcp = crate::tcp_with(&endpoint.host, endpoint.port, crate::CONNECT_TIMEOUT, SLICE)?;
     let mut client = crate::imap_over(tcp, endpoint, tls)?;
-    client.login(user, password)?;
+    crate::imap_sign_in(&mut client, user, secret)?;
     let wake = idle_on(&mut client, mailbox, stop);
     let _ = client.logout();
     wake

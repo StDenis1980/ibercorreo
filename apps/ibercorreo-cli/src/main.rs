@@ -9,8 +9,14 @@
 //!                                                 with `run --cmd account.set=...`): send the
 //!                                                 Outbox, then two-way IMAP sync; the password is
 //!                                                 read from IBERCORREO_PASSWORD, never an argument
+//!                                                 (an OAuth account's refresh token from
+//!                                                 IBERCORREO_REFRESH_TOKEN)
 //! ibercorreo-cli autoconfig EMAIL [--ca CERT.der]  find the address's IMAP and SMTP servers; prints
 //!                                                 them with the `account.set` parameters to use
+//! ibercorreo-cli oauth google|microsoft [EMAIL] [--ca CERT.der]
+//!                                                 sign in in the browser; prints the refresh token
+//!                                                 for IBERCORREO_REFRESH_TOKEN (keep it like a
+//!                                                 password)
 //! ```
 //!
 //! `run` prints each command's result as one JSON line and stops at the first error (exit code 1).
@@ -50,7 +56,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der]"
+        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
     );
     ExitCode::from(2)
 }
@@ -82,6 +88,7 @@ fn main() -> ExitCode {
         Some("run") => run(args.get(1..).unwrap_or(&[])),
         Some("sync") => sync(args.get(1..).unwrap_or(&[])),
         Some("autoconfig") => autoconfig(args.get(1..).unwrap_or(&[])),
+        Some("oauth") => oauth(args.get(1..).unwrap_or(&[])),
         _ => return usage(),
     };
     match result {
@@ -186,11 +193,14 @@ fn autoconfig(args: &[String]) -> Result<(), String> {
         Source::Published(url) => json!(url),
         Source::Guessed => json!("guessed"),
     };
-    let account_set = json!({
+    let mut account_set = json!({
         "email": email.trim(), "user": imap.username,
         "imapHost": imap.host, "imapPort": imap.port, "imapSecurity": if imap.socket == Socket::StartTls { "starttls" } else { "tls" },
         "smtpHost": smtp.host, "smtpPort": smtp.port, "smtpSecurity": if smtp.socket == Socket::StartTls { "starttls" } else { "tls" },
     });
+    if let (Some(p), Some(obj)) = (ibercorreo_core::mail::OAuthProvider::for_host(&imap.host), account_set.as_object_mut()) {
+        obj.insert("oauth".into(), json!(p.id));
+    }
     print(&json!({
         "provider": s.provider, "source": source,
         "imap": s.imap.iter().map(server).collect::<Vec<_>>(), "smtp": s.smtp.iter().map(server).collect::<Vec<_>>(),
@@ -213,7 +223,6 @@ fn sync(args: &[String]) -> Result<(), String> {
         }
     }
     let store_path = store_path.ok_or("sync needs --store FILE")?;
-    let password = std::env::var("IBERCORREO_PASSWORD").map_err(|_| "set IBERCORREO_PASSWORD to the account password")?;
     let tls = match ca {
         Some(path) => {
             let der = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
@@ -227,9 +236,20 @@ fn sync(args: &[String]) -> Result<(), String> {
     s.set_now(now());
     s.path = Some(store_path);
     let account = s.store.accounts.first().cloned().ok_or("no account: run --cmd 'account.set={...}' first")?;
+    let credential = match account.oauth() {
+        Some(p) => {
+            let app = ibercorreo_net::oauth::app(p.id).map_err(|e| e.to_string())?;
+            let refresh = std::env::var("IBERCORREO_REFRESH_TOKEN")
+                .map_err(|_| format!("set IBERCORREO_REFRESH_TOKEN (from `ibercorreo-cli oauth {}`)", p.id))?;
+            ibercorreo_net::oauth::Credential::oauth(app, refresh)
+        }
+        None => ibercorreo_net::oauth::Credential::Password(
+            std::env::var("IBERCORREO_PASSWORD").map_err(|_| "set IBERCORREO_PASSWORD to the account password")?,
+        ),
+    };
     let job = ibercorreo_net::job::Job {
         account,
-        password,
+        credential: credential.clone(),
         tls,
         state: s.sync_state(),
         outbox: s.outbox(),
@@ -257,6 +277,37 @@ fn sync(args: &[String]) -> Result<(), String> {
         Some(Err(e)) => json!({ "error": e }),
         None => Value::Null,
     };
-    print(&json!({ "sent": finished.sent, "sync": report, "calendar": calendar, "contacts": contacts }));
+    let mut out = json!({ "sent": finished.sent, "sync": report, "calendar": calendar, "contacts": contacts });
+    // Microsoft replaces the refresh token as it renews; the old one stops working in time.
+    if let (Some(token), Some(obj)) = (credential.take_rotated(), out.as_object_mut()) {
+        obj.insert("newRefreshToken".into(), json!(token));
+    }
+    print(&out);
+    Ok(())
+}
+
+fn oauth(args: &[String]) -> Result<(), String> {
+    let (mut provider, mut email, mut ca) = (None, String::new(), None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--ca" => ca = Some(it.next().ok_or("--ca needs a value")?.clone()),
+            other if provider.is_none() && !other.starts_with("--") => provider = Some(other.to_string()),
+            other if email.is_empty() && !other.starts_with("--") => email = other.to_string(),
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let provider = provider.ok_or("oauth needs a provider: google or microsoft")?;
+    let app = ibercorreo_net::oauth::app(&provider).map_err(|e| e.to_string())?;
+    let tls = tls_for(ca)?;
+    let mut open = |url: &str| {
+        eprintln!("Sign in in the browser. If none opens, open this address:\n{url}");
+        // No browser is fine: the address is printed.
+        let _ = ibercorreo_net::oauth::open_browser(url);
+        Ok(())
+    };
+    let tokens = ibercorreo_net::oauth::sign_in_with(&mut ibercorreo_net::oauth::Net { tls: &tls }, &app, &email, &mut open, &|| false)
+        .map_err(|e| e.to_string())?;
+    print(&json!({ "provider": app.provider.id, "refreshToken": tokens.refresh, "expiresIn": tokens.expires_in }));
     Ok(())
 }
