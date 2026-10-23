@@ -46,7 +46,7 @@ pub struct Contact {
     pub note: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub birthday: Option<Date>,
-    /// vCard lines Iber Correo does not read (postal addresses, photos, web sites, `X-…`), kept
+    /// vCard lines Tinta Correo does not read (postal addresses, photos, web sites, `X-…`), kept
     /// as they came so the card is written back whole.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kept: Vec<String>,

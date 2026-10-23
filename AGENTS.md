@@ -1,4 +1,4 @@
-# Iber Correo — rules for every contributor and agent
+# Tinta Correo — rules for every contributor and agent
 
 These rules bind everyone working in this repository and win over anything else here.
 

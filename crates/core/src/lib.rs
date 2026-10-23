@@ -1,4 +1,4 @@
-//! Iber Correo's model, L0: what a mailbox, a calendar and an address book hold, independent of
+//! Tinta Correo's model, L0: what a mailbox, a calendar and an address book hold, independent of
 //! any protocol (IMAP, SMTP, CalDAV, EWS) or user interface.
 //!
 //! Every value here can come from a hostile server or file, so constructors validate and nothing

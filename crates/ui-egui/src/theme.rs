@@ -1,5 +1,5 @@
-//! Colours, all in one place. The palette follows the IberOffice azulejo tile: ivory ground,
-//! the Iber Correo teal as accent.
+//! Colours, all in one place. The palette follows the Tinta Office azulejo tile: ivory ground,
+//! the Tinta Correo teal as accent.
 
 use egui::Color32;
 

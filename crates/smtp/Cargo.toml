@@ -3,7 +3,7 @@ name = "ibercorreo-smtp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L2: an SMTP submission client (RFC 5321, RFC 6409) over any byte stream, written from the RFCs"
+description = "Tinta Correo L2: an SMTP submission client (RFC 5321, RFC 6409) over any byte stream, written from the RFCs"
 
 [dependencies]
 ibercorreo-mime.workspace = true

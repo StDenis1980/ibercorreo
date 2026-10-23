@@ -3,7 +3,7 @@ name = "ibercorreo-ui-egui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L6: the Outlook-style egui front end (swappable: nothing below depends on it)"
+description = "Tinta Correo L6: the Outlook-style egui front end (swappable: nothing below depends on it)"
 
 [dependencies]
 ibercorreo-core.workspace = true

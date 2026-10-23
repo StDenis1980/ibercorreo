@@ -3,7 +3,7 @@ name = "ibercorreo-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L4: the session, undo and the command registry every front end dispatches through"
+description = "Tinta Correo L4: the session, undo and the command registry every front end dispatches through"
 
 [dependencies]
 ibercorreo-core.workspace = true

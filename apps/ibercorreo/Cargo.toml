@@ -3,7 +3,7 @@ name = "ibercorreo"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo desktop app: mail, calendar and people"
+description = "Tinta Correo desktop app: mail, calendar and people"
 
 [[bin]]
 name = "ibercorreo"

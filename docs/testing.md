@@ -1,4 +1,4 @@
-# Iber Correo — testing
+# Tinta Correo — testing
 
 Status: 2026-10-23 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; real
 IMAP, SMTP, CalDAV and CardDAV servers are tested when configured.
@@ -119,7 +119,7 @@ passdb {                                                   # username_attribute 
 }
 ```
 
-Point Iber Correo at it with `IBERCORREO_GOOGLE_CLIENT_ID`, `IBERCORREO_GOOGLE_AUTH_URL`,
+Point Tinta Correo at it with `IBERCORREO_GOOGLE_CLIENT_ID`, `IBERCORREO_GOOGLE_AUTH_URL`,
 `IBERCORREO_GOOGLE_TOKEN_URL` (and `IBERCORREO_CA`), and set `BROWSER` to a script that follows
 the sign-in address with `curl -L` (it stands in for the person consenting). Then
 `ibercorreo-cli oauth google ana@example.org` prints a refresh token, `ibercorreo-cli sync` with

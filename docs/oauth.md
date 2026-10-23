@@ -1,22 +1,22 @@
-# Iber Correo — OAuth 2.0 sign-in (Gmail, Microsoft 365)
+# Tinta Correo — OAuth 2.0 sign-in (Gmail, Microsoft 365)
 
 Status: 2026-10-23 · M3.2 · the flow works; a build needs client IDs registered by the project
 
 Gmail, Outlook.com and Microsoft 365 do not take a mail program's password: the person signs in
-on the provider's own page and the program gets a token. Iber Correo does this the way RFC 8252
+on the provider's own page and the program gets a token. Tinta Correo does this the way RFC 8252
 describes for native apps:
 
 1. Account settings → **Sign in with: Google / Microsoft** → **Save and sign in**.
-2. Iber Correo opens a one-time listener on `127.0.0.1` (a free port) and opens the provider's
+2. Tinta Correo opens a one-time listener on `127.0.0.1` (a free port) and opens the provider's
    sign-in page in the browser, with a PKCE challenge (S256) and a random `state`.
 3. The person signs in there and allows access to their mail. The browser comes back to the
-   listener with a code; Iber Correo exchanges the code and the PKCE verifier for an access
+   listener with a code; Tinta Correo exchanges the code and the PKCE verifier for an access
    token (about an hour) and a refresh token.
-4. The refresh token goes into the system credential store (service `Iber Correo OAuth`, account
+4. The refresh token goes into the system credential store (service `Iber Correo OAuth`, the app's first name, account
    `google:<login>` or `microsoft:<login>`). Access tokens stay in memory and are renewed before
    they run out. IMAP and SMTP sign in with `XOAUTH2`.
 
-The password never reaches Iber Correo. A refresh token the provider replaces (Microsoft does on
+The password never reaches Tinta Correo. A refresh token the provider replaces (Microsoft does on
 renewals) is stored again. A revoked grant (the person removed the app's access, or changed their
 password) is deleted and Account settings asks to sign in again. Access can be removed at any
 time at <https://myaccount.google.com/permissions> or <https://account.live.com/consent/Manage>
@@ -25,15 +25,15 @@ time at <https://myaccount.google.com/permissions> or <https://account.live.com/
 Code: `crates/net/src/oauth.rs` (the flow), `AUTHENTICATE XOAUTH2` in `crates/imap`, `AUTH
 XOAUTH2` in `crates/smtp`, the window part in `apps/ibercorreo/src/main.rs`.
 
-## Client IDs: registering Iber Correo with the providers
+## Client IDs: registering Tinta Correo with the providers
 Each provider wants the program registered with it once. The registration belongs to whoever
-publishes the builds (for IberOffice: the project owner), not to each user. A build without a
+publishes the builds (for Tinta Office: the project owner), not to each user. A build without a
 client ID shows the provider's choice greyed out.
 
 ### Google (Gmail)
-1. Open <https://console.cloud.google.com/>, create a project (for example `IberOffice`).
+1. Open <https://console.cloud.google.com/>, create a project (for example `Tinta Office`).
 2. **APIs & Services → Library**: enable **Gmail API**.
-3. **Google Auth Platform → Branding**: the app name (`Iber Correo`), a support email, the logo if
+3. **Google Auth Platform → Branding**: the app name (`Tinta Correo`), a support email, the logo if
    wanted. **Audience**: *External*, publishing status *Testing*; under **Test users** add the
    Gmail addresses that will use it (up to 100).
 4. **Data access → Add or remove scopes**: add `https://mail.google.com/` (full IMAP and SMTP
@@ -51,7 +51,7 @@ Security → 2-Step Verification → App passwords) and **Sign in with: Password
 ### Microsoft (Outlook.com, Microsoft 365)
 1. Open <https://entra.microsoft.com/> (or the Azure portal) → **App registrations → New
    registration**.
-2. Name `Iber Correo`; **Supported account types**: *Accounts in any organizational directory and
+2. Name `Tinta Correo`; **Supported account types**: *Accounts in any organizational directory and
    personal Microsoft accounts*; **Redirect URI**: platform *Public client/native (mobile &
    desktop)*, `http://localhost` (any port is accepted for it).
 3. **API permissions → Add a permission → Microsoft Graph → Delegated**: `IMAP.AccessAsUser.All`,
@@ -88,7 +88,7 @@ IBERCORREO_GOOGLE_CLIENT_ID=… IBERCORREO_GOOGLE_CLIENT_SECRET=… IBERCORREO_M
   cargo build --release -p ibercorreo -p ibercorreo-cli
 ```
 
-Keep them out of the repository (forks would otherwise sign in as IberOffice): in CI, use GitHub
+Keep them out of the repository (forks would otherwise sign in as Tinta Office): in CI, use GitHub
 Actions variables or secrets passed as these environment variables.
 
 ## Testing against a test provider

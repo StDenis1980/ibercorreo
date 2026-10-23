@@ -1,5 +1,5 @@
 //! A sample mailbox and calendar for screenshots, demos and tests. All names, addresses
-//! (`example.*`, RFC 2606) and text are invented for Iber Correo.
+//! (`example.*`, RFC 2606) and text are invented for Tinta Correo.
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind, Attachment};
@@ -30,7 +30,7 @@ const INBOX: &[Mail] = &[
     },
     Mail {
         from: "Rui Carvalho <rui@example.pt>",
-        subject: "Formação Iber Texto: datas",
+        subject: "Formação Tinta Texto: datas",
         days_ago: 0,
         hour: 8,
         body: "Bom dia!\n\nConfirmo a formação para quinta e sexta, das 10h às 13h.\nPrecisamos de projetor na sala 2.\n\nAbraço,\nRui",
@@ -43,7 +43,7 @@ const INBOX: &[Mail] = &[
         subject: "Звіт за жовтень",
         days_ago: 1,
         hour: 17,
-        body: "Добрий день!\n\nНадсилаю звіт за жовтень у PDF. Відкриється в Iber PDF.\n\nЗ повагою,\nОлена",
+        body: "Добрий день!\n\nНадсилаю звіт за жовтень у PDF. Відкриється в Tinta PDF.\n\nЗ повагою,\nОлена",
         seen: true,
         flagged: false,
         attachment: Some("zvit-zhovten.pdf"),
@@ -127,7 +127,7 @@ pub fn store(today: Date) -> Result<Store> {
     let day = today.add_days(1)?;
     let ymd = format!("{:04}{:02}{:02}", day.year(), day.month(), day.day());
     m.invite = Some(format!(
-        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//IberOffice//Iber Correo sample//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+        "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Tinta Office//Tinta Correo sample//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
 UID:sample-budget-review@example.es\r\nSEQUENCE:0\r\nDTSTAMP:{ymd}T065000Z\r\n\
 DTSTART;TZID=Europe/Madrid:{ymd}T160000\r\nDTEND;TZID=Europe/Madrid:{ymd}T170000\r\n\
 SUMMARY:Revisión del presupuesto\r\nLOCATION:Sala 1\r\nDESCRIPTION:Repasamos las cifras del segundo trimestre.\r\n\
@@ -166,7 +166,7 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
     s.add_event(event("Chamada com a Lusodata", "Teams", When::timed(at(today, 10, 30)?, at(today, 11, 30)?, false)?))?;
     s.add_event(event("Almoço com Rui", "Café Azul", When::timed(at(today, 13, 0)?, at(today, 14, 0)?, false)?))?;
     let d2 = today.add_days(2)?;
-    s.add_event(event("Formação Iber Texto", "Sala 2", When::timed(at(d2, 10, 0)?, at(d2, 13, 0)?, false)?))?;
+    s.add_event(event("Formação Tinta Texto", "Sala 2", When::timed(at(d2, 10, 0)?, at(d2, 13, 0)?, false)?))?;
     let d5 = today.add_days(5)?;
     let mut holiday = event("Відпустка", "", When::all_day(d5, d5.add_days(3)?)?);
     holiday.reminders.clear();

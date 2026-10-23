@@ -3,7 +3,7 @@ name = "ibercorreo-ical"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Iber Correo L1: iCalendar (RFC 5545) reading and writing, written from the RFC"
+description = "Tinta Correo L1: iCalendar (RFC 5545) reading and writing, written from the RFC"
 
 [dependencies]
 ibercorreo-core.workspace = true

@@ -274,7 +274,7 @@ pub fn clean_reminders(mut minutes: Vec<i64>) -> Vec<i32> {
 pub const MAX_OCCURRENCES: usize = 5_000;
 
 impl Event {
-    /// The repeat rule, when there is one Iber Correo can follow.
+    /// The repeat rule, when there is one Tinta Correo can follow.
     pub fn rule(&self) -> Option<Rule> {
         self.rrule.as_deref().and_then(|r| Rule::parse(r).ok())
     }

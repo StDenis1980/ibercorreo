@@ -1,5 +1,5 @@
 ## What
-<!-- One paragraph: what changes for people using Iber Correo. -->
+<!-- One paragraph: what changes for people using Tinta Correo. -->
 
 ## Tests
 <!-- New tests and how you saw them fail without the change. -->
