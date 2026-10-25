@@ -125,7 +125,7 @@ fn assets() -> Result<(), String> {
     let mut files = Vec::new();
     walk(&root().join("assets"), &mut files);
     walk(&root().join("packaging"), &mut files);
-    let code = ["py", "sh", "rs", "toml", "md"];
+    let code = ["py", "sh", "rs", "toml", "md", "ps1", "wxs"];
     let mut missing = Vec::new();
     for f in files {
         if f.extension().and_then(|e| e.to_str()).is_some_and(|e| code.contains(&e)) {

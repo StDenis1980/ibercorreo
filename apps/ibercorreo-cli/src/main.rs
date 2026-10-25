@@ -56,7 +56,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
     );
     ExitCode::from(2)
 }
@@ -64,6 +64,11 @@ fn usage() -> ExitCode {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
+        Some("--version" | "version") => {
+            use std::io::Write;
+            let _ = writeln!(std::io::stdout().lock(), "Tinta Correo {}", env!("CARGO_PKG_VERSION"));
+            Ok(())
+        }
         Some("commands") => {
             for c in commands::REGISTRY {
                 print(&json!({ "id": c.id, "label": c.label, "group": c.group, "shortcut": c.shortcut, "params": c.params }));

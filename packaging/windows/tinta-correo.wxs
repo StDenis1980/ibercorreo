@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tinta Correo MSI (WiX Toolset v5: `dotnet tool install -g wix`). Built by package.ps1:
+
+    wix build tinta-correo.wxs installer-ui.wxs -arch x64 -d Version=1.2.3 -d BinDir=... -d IconPath=... -o out.msi
+
+  Per-machine install into Program Files\Tinta Office\Tinta Correo, a Start Menu shortcut, a
+  desktop shortcut (on by default, optional, and an update keeps it only if it is still there), an
+  App Paths entry, and Tinta Correo offered under "Open with" for .eml, .ics and .vcf files (never
+  made the default; the app imports files given on its command line).
+
+  The mailbox, settings and saved passwords live outside the install folder (the user's data
+  folder and the system credential store), so uninstalling or upgrading keeps them.
+
+  The UpgradeCode never changes: every later Tinta Correo MSI upgrades this one in place.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Tinta Correo"
+      Manufacturer="Tinta Office"
+      Version="$(var.Version)"
+      UpgradeCode="B5039284-5BB3-4171-9650-EE63C22A4960"
+      Scope="perMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="Tinta Correo, open-source mail, calendar and contacts" Manufacturer="Tinta Office" />
+    <!-- HKLM registrations must never point into a per-user installation. -->
+    <Launch Condition="ALLUSERS = 1 OR (Installed AND REMOVE = &quot;ALL&quot;)"
+        Message="Tinta Correo must be installed for all users. Run setup with administrator privileges and ALLUSERS=1; per-user installation is not supported." />
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
+         (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of Tinta Correo is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Windows Installer requires an Icon id ending in .ico or .exe. -->
+    <Icon Id="TintaCorreoIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="TintaCorreoIcon.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://tintaoffice.com" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/StDenis1980/ibercorreo/releases" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/StDenis1980/ibercorreo/issues" />
+    <!-- Desktop shortcut: on by default for a first install, a checkbox in the welcome dialog, and
+         INSTALLDESKTOPSHORTCUT=0 on the msiexec command line for unattended installs. An update
+         keeps it only if it is still on the desktop. A value given on the command line wins. -->
+    <Property Id="INSTALLDESKTOPSHORTCUT" Secure="yes" />
+    <Property Id="EXISTINGDESKTOPSHORTCUT">
+      <DirectorySearch Id="DesktopSearch" Path="[DesktopFolder]" Depth="0">
+        <FileSearch Name="Tinta Correo.lnk" />
+      </DirectorySearch>
+    </Property>
+    <SetProperty Id="INSTALLDESKTOPSHORTCUT" Value="1" After="AppSearch" Sequence="first"
+        Condition="NOT INSTALLDESKTOPSHORTCUT AND (NOT WIX_UPGRADE_DETECTED OR EXISTINGDESKTOPSHORTCUT)" />
+    <UIRef Id="TintaCorreoInstallerUI" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="ManufacturerFolder" Name="Tinta Office">
+        <Directory Id="INSTALLFOLDER" Name="Tinta Correo" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="Tinta Correo" Level="1">
+      <ComponentGroupRef Id="TintaCorreoFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="TintaCorreoFiles" Directory="INSTALLFOLDER">
+      <Component Id="TintaCorreoApp" Guid="BAB6684E-3FA0-469B-8E61-9E0DE374DCAB">
+        <File Id="TintaCorreoExe" Source="$(var.BinDir)\ibercorreo.exe" KeyPath="yes" />
+
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\ibercorreo.exe" Value="[#TintaCorreoExe]" Type="string" />
+
+        <!-- "Open with" for mail, calendar and contact files: a ProgID, OpenWithProgids and the
+             Default Programs registration. The extensions' own defaults are left alone. -->
+        <RegistryValue Root="HKLM" Key="Software\Classes\TintaCorreo.File" Value="Tinta Correo file" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\TintaCorreo.File\DefaultIcon" Value="[#TintaCorreoExe],0" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\TintaCorreo.File\shell\open\command" Value="&quot;[#TintaCorreoExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.eml\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.ics\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.vcf\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe" Name="FriendlyAppName" Value="Tinta Correo" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\shell\open\command" Value="&quot;[#TintaCorreoExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".eml" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".ics" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".vcf" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities" Name="ApplicationName" Value="Tinta Correo" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities" Name="ApplicationDescription" Value="Open-source mail, calendar and contacts" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".eml" Value="TintaCorreo.File" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".ics" Value="TintaCorreo.File" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".vcf" Value="TintaCorreo.File" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Tinta Correo" Value="Software\Tinta Office\Tinta Correo\Capabilities" Type="string" />
+      </Component>
+
+      <!-- Plain (not advertised) shortcuts, each with an HKLM key path so uninstall removes it. -->
+      <Component Id="TintaCorreoStartMenuShortcut" Directory="ProgramMenuFolder" Guid="DBD098F2-C0E9-42D7-9E97-0CD29C349CFE">
+        <Shortcut Id="StartMenuShortcut" Name="Tinta Correo" Description="Mail, calendar and contacts"
+            Target="[#TintaCorreoExe]" WorkingDirectory="INSTALLFOLDER" Icon="TintaCorreoIcon.ico" IconIndex="0" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Shortcuts" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="TintaCorreoDesktopShortcut" Directory="DesktopFolder" Guid="E4AA1E55-DD1D-4AD1-85A7-DE035BADBA89"
+          Condition="INSTALLDESKTOPSHORTCUT = 1">
+        <Shortcut Id="DesktopShortcut" Name="Tinta Correo" Description="Mail, calendar and contacts"
+            Target="[#TintaCorreoExe]" WorkingDirectory="INSTALLFOLDER" Icon="TintaCorreoIcon.ico" IconIndex="0" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Shortcuts" Name="Desktop" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="TintaCorreoCli">
+        <File Id="TintaCorreoCliExe" Source="$(var.BinDir)\ibercorreo-cli.exe" KeyPath="yes" />
+      </Component>
+      <!-- The project licences travel with the binaries. -->
+      <Component Id="TintaCorreoMitLicense">
+        <File Id="TintaCorreoMitLicenseFile" Source="$(var.BinDir)\LICENSE-MIT" KeyPath="yes" />
+      </Component>
+      <Component Id="TintaCorreoApacheLicense">
+        <File Id="TintaCorreoApacheLicenseFile" Source="$(var.BinDir)\LICENSE-APACHE" KeyPath="yes" />
+      </Component>
+      <Component Id="TintaCorreoNotice">
+        <File Id="TintaCorreoNoticeFile" Source="$(var.BinDir)\NOTICE" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
