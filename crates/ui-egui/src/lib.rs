@@ -13,7 +13,7 @@ use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, S
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
-use ibercorreo_core::{AccountId, Date, FolderRole, MessageId};
+use ibercorreo_core::{AccountId, Date, FolderId, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, Session, View};
 use serde_json::{Value, json};
 
@@ -234,7 +234,12 @@ pub struct App {
     invite: Option<(ibercorreo_core::MessageId, Option<ibercorreo_engine::commands::InviteInfo>)>,
     /// How an answer to an invitation goes: 0 sent now, 1 edited first, 2 not at all.
     invite_reply: usize,
+    /// Folder pane headings folded shut: an account's id, or [`FOLD_FAVORITES`].
+    folded: std::collections::HashSet<u32>,
 }
+
+/// The Favorites heading's key among [`App::folded`] (account ids are far below it).
+const FOLD_FAVORITES: u32 = u32::MAX;
 
 impl App {
     pub fn new(session: Session) -> App {
@@ -264,6 +269,7 @@ impl App {
             last_calendar: None,
             invite: None,
             invite_reply: 0,
+            folded: std::collections::HashSet::new(),
         }
     }
 
@@ -907,30 +913,48 @@ impl App {
         });
     }
 
+    /// The folder pane, as Outlook lays it out: Favorites first, then each account's folders
+    /// under its address. Each heading folds; a right click puts a folder in Favorites or takes
+    /// it out.
     fn folders(&mut self, ui: &mut Ui) {
-        let t = self.tokens;
-        // Each account's folders under its address; with none set up, the local folders.
         let store = &self.session.store;
         let groups: Vec<(Option<AccountId>, String)> = if store.accounts.is_empty() {
             vec![(None, "Local".into())]
         } else {
             store.accounts.iter().map(|a| (Some(a.id), a.address.email.clone())).collect()
         };
+        let several = store.accounts.len() > 1;
+        let favorites: Vec<FolderId> = store.favorites().to_vec();
         let mut settings: Option<Option<AccountId>> = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for (i, (account, email)) in groups.into_iter().enumerate() {
-                if i > 0 {
-                    ui.add_space(8.0);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            if self.folder_heading(ui, FOLD_FAVORITES, "Favorites", None).0 {
+                for id in &favorites {
+                    self.folder_row(ui, *id, several);
                 }
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&email).small().strong().color(t.text_weak));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if account.is_some() && ui.small_button("⚙").on_hover_text(format!("Settings of {email}")).clicked() {
-                            settings = Some(account);
-                        }
+                if favorites.is_empty() {
+                    ui.add_space(2.0);
+                    ui.horizontal(|ui| {
+                        ui.add_space(30.0);
+                        ui.label(RichText::new("Right-click a folder → Add to Favorites").small().color(self.tokens.text_weak));
                     });
-                });
-                self.account_folders(ui, account.unwrap_or_else(|| self.session.store.first_account()));
+                    ui.add_space(4.0);
+                }
+            }
+            for (account, email) in groups {
+                ui.add_space(6.0);
+                let key = account.map_or(u32::MAX - 1, |a| a.0);
+                let (open, gear) = self.folder_heading(ui, key, &email, account);
+                if gear {
+                    settings = Some(account);
+                }
+                if open {
+                    let account = account.unwrap_or_else(|| self.session.store.first_account());
+                    let ids: Vec<FolderId> = self.session.store.folders_of(account).iter().map(|f| f.id).collect();
+                    for id in ids {
+                        self.folder_row(ui, id, false);
+                    }
+                }
             }
             ui.add_space(10.0);
             if ui.small_button("+ Add account").on_hover_text("Another mailbox, with folders of its own").clicked() {
@@ -942,22 +966,125 @@ impl App {
         }
     }
 
-    fn account_folders(&mut self, ui: &mut Ui, account: AccountId) {
+    /// A heading of the folder pane that folds what is under it: `(open, settings clicked)`.
+    /// Accounts have a ⚙ for their settings.
+    fn folder_heading(&mut self, ui: &mut Ui, key: u32, title: &str, account: Option<AccountId>) -> (bool, bool) {
         let t = self.tokens;
-        let folders: Vec<_> = self.session.store.folders_of(account).into_iter().map(|f| (f.id, f.name.clone(), f.role)).collect();
-        ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
-            for (id, name, role) in folders {
-                let unread = self.session.store.unread_count(id);
-                let selected = self.session.folder == id && self.search.is_empty();
-                let text = if unread > 0 && matches!(role, FolderRole::Inbox | FolderRole::Junk) {
-                    RichText::new(format!("{name}   {unread}")).strong().color(t.unread)
-                } else {
-                    RichText::new(name).color(t.text)
-                };
-                if ui.add(egui::Button::selectable(selected, text).min_size(vec2(0.0, 26.0))).clicked() {
-                    self.search.clear();
-                    self.run("folder.select", json!({ "folder": id.0 }));
-                }
+        let open = !self.folded.contains(&key);
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+        let painter = ui.painter_at(rect);
+        if resp.hovered() {
+            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+        }
+        let chevron = if open { "⏷" } else { "⏵" };
+        painter.text(
+            egui::pos2(rect.left() + 4.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            chevron,
+            egui::FontId::proportional(10.0),
+            t.text_weak,
+        );
+        let mut x = rect.left() + 18.0;
+        if key == FOLD_FAVORITES {
+            icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(x + 7.0, rect.center().y), vec2(15.0, 15.0)), Icon::Star, t.text);
+            x += 20.0;
+        }
+        let font = egui::FontId::proportional(13.0);
+        painter.text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, title, font, t.text);
+        let mut gear = false;
+        if account.is_some() {
+            let g = egui::Rect::from_center_size(egui::pos2(rect.right() - 12.0, rect.center().y), vec2(20.0, 20.0));
+            let r = ui.interact(g, ui.id().with(("account-settings", key)), Sense::click());
+            if resp.hovered() || r.hovered() {
+                painter.text(
+                    g.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "⚙",
+                    egui::FontId::proportional(13.0),
+                    if r.hovered() { t.accent } else { t.text_weak },
+                );
+            }
+            gear = r.on_hover_text(format!("Settings of {title}")).clicked();
+        }
+        if resp.clicked() && !gear {
+            if open {
+                self.folded.insert(key);
+            } else {
+                self.folded.remove(&key);
+            }
+        }
+        (open, gear)
+    }
+
+    /// One folder in the pane: its icon, name and unread count. `with_account` adds the
+    /// account's address (in Favorites, when there are several).
+    fn folder_row(&mut self, ui: &mut Ui, id: FolderId, with_account: bool) {
+        let t = self.tokens;
+        let store = &self.session.store;
+        let Ok(folder) = store.folder(id) else { return };
+        let (name, role) = (folder.name.clone(), folder.role);
+        let email = if with_account { store.account(folder.account).map(|a| a.address.email.clone()).ok() } else { None };
+        let unread = store.unread_count(id);
+        let favorite = store.is_favorite(id);
+        let selected = self.session.folder == id && self.search.is_empty();
+        let height = if email.is_some() { 38.0 } else { 28.0 };
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+        let painter = ui.painter_at(rect);
+        if selected {
+            painter.rect_filled(rect, 4.0, t.accent_soft);
+            painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 6.0), vec2(3.0, height - 12.0)), 1.5, t.accent);
+        } else if resp.hovered() {
+            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+        }
+        let icon = match role {
+            FolderRole::Inbox => Icon::Inbox,
+            FolderRole::Drafts => Icon::Drafts,
+            FolderRole::Sent => Icon::Sent,
+            FolderRole::Outbox => Icon::Outbox,
+            FolderRole::Archive => Icon::Archive,
+            FolderRole::Junk => Icon::Junk,
+            FolderRole::Trash => Icon::Trash,
+            FolderRole::Other => Icon::Folder,
+        };
+        let strong = unread > 0;
+        let color = if strong { t.unread } else { t.text };
+        let line = if email.is_some() { rect.top() + 14.0 } else { rect.center().y };
+        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + 30.0, line), vec2(16.0, 16.0)), icon, color);
+        let count = if unread > 0 { unread.to_string() } else { String::new() };
+        let count_w = if count.is_empty() {
+            0.0
+        } else {
+            let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(12.0), t.unread);
+            let w = g.size().x;
+            painter.galley(egui::pos2(rect.right() - 8.0 - w, line - g.size().y / 2.0), g, t.unread);
+            w + 12.0
+        };
+        let text_left = rect.left() + 46.0;
+        let room = (rect.right() - count_w - 8.0 - text_left).max(0.0);
+        let font = egui::FontId::proportional(14.0);
+        let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), font, color);
+        job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+        let g = painter.layout_job(job);
+        painter.galley(egui::pos2(text_left, line - g.size().y / 2.0), g, color);
+        if let Some(email) = &email {
+            let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(11.0), t.text_weak);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(room);
+            let g = painter.layout_job(job);
+            painter.galley(egui::pos2(text_left, rect.top() + 25.0 - g.size().y / 2.0), g, t.text_weak);
+        }
+        let resp = match &email {
+            Some(e) => resp.on_hover_text(format!("{name} — {e}")),
+            None => resp,
+        };
+        if resp.clicked() {
+            self.search.clear();
+            self.run("folder.select", json!({ "folder": id.0 }));
+        }
+        resp.context_menu(|ui| {
+            let label = if favorite { "Remove from Favorites" } else { "Add to Favorites" };
+            if ui.button(label).clicked() {
+                self.run("folder.favorite", json!({ "folder": id.0, "favorite": !favorite }));
+                ui.close();
             }
         });
     }

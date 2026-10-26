@@ -11,8 +11,9 @@ Status: 2026-10-26 · Pick from the top.
    Several accounts sit side by side, each with its own folders, Send/Receive and IDLE watch
    (M3.3); choosing Google or Microsoft (or typing their address) fills in the servers; a folder
    with more than 500 new messages keeps downloading until it is complete. Calendars and contacts
-   sync with one account's server at a time. Missing: a progress bar, a unified Inbox, moving
-   mail between accounts, DNS SRV (RFC 6186) and MX lookups (no DNS
+   sync with one account's server at a time. The folder pane has Favorites and folding
+   accounts, as Outlook's does. Missing: a progress bar, a unified Inbox, moving mail between
+   accounts, reordering Favorites by dragging, folding remembered after a restart, DNS SRV (RFC 6186) and MX lookups (no DNS
    resolver yet), a separate CardDAV/CalDAV address in Find settings, OAuth for Google's
    calendars and contacts, other OAuth providers. Sent copies are saved to the server's Sent
    except on Gmail, which files them itself (Microsoft 365 may too: unchecked, an account setting
@@ -107,3 +108,4 @@ Status: 2026-10-26 · Pick from the top.
 - 2026-10-23 — gap 1 narrowed: autoconfiguration and IDLE (M3.1).
 - 2026-10-23 — gap 1 narrowed: OAuth sign-in for Gmail and Microsoft 365 (M3.2).
 - 2026-10-26 — gap 1 narrowed: several accounts, servers filled in for Google and Microsoft, downloads past 500 (M3.3).
+- 2026-10-26 — gap 1 narrowed: Favorites and folding accounts in the folder pane (M3.3b).

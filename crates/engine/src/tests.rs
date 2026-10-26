@@ -672,6 +672,25 @@ fn several_accounts_each_send_from_their_own_folders() {
 }
 
 #[test]
+fn folders_go_in_and_out_of_favorites_with_undo() {
+    let mut s = session();
+    let work = s.store.first_account();
+    let (inbox, sent) = (s.store.folder_by_role(work, FolderRole::Inbox).unwrap(), s.store.folder_by_role(work, FolderRole::Sent).unwrap());
+    assert_eq!(s.store.favorites(), [inbox, sent], "the sample starts as Outlook does");
+    let personal = s.store.accounts.get(1).unwrap().id;
+    let theirs = s.store.folder_by_role(personal, FolderRole::Inbox).unwrap();
+    s.run("folder.favorite", &json!({ "folder": theirs.0 })).unwrap();
+    s.run("folder.favorite", &json!({ "folder": "sent", "favorite": false })).unwrap();
+    assert_eq!(s.store.favorites(), [inbox, theirs]);
+    let list = s.run("folder.list", &Value::Null).unwrap();
+    assert!(list.as_array().unwrap().iter().any(|f| f["id"] == theirs.0 && f["favorite"] == true));
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.store.favorites(), [inbox, sent, theirs], "undo brings Sent back");
+    assert!(s.run("folder.favorite", &json!({ "folder": 9999 })).is_err());
+    assert!(s.run("folder.favorite", &json!({ "favorite": "yes" })).is_err());
+}
+
+#[test]
 fn another_mailbox_for_an_account_forgets_the_old_mail() {
     let mut s = session();
     let base = json!({"email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});
