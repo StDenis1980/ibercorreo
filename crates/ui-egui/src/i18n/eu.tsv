@@ -1,0 +1,232 @@
+# Euskara (eu) interface catalog for Tinta Correo. Machine-assisted; needs native review.
+# craft-i18n catalog format. Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(hartzailerik gabe)
+	(no subject)	(gairik gabe)
+	(no title)	(izenbururik gabe)
+	(unknown sender)	(igorle ezezaguna)
+	+ Add account	+ Gehitu kontua
+	+ New Appointment	+ Hitzordu berria
+	1 day	Egun 1
+	1 hour	Ordu 1
+	1 minute	Minutu 1
+	10 minutes	10 minutu
+	15 minutes	15 minutu
+	2 hours	2 ordu
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 edo 2026-10-22
+	30 minutes	30 minutu
+	5 minutes	5 minutu
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	CalDAV eta CardDAV zerbitzari bat, adibidez Nextcloud, Radicale edo Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	{provider} helbide bat: zerbitzariak beteta daude. Idatzi aplikazio-pasahitz bat eta gorde.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	{provider} helbide bat: zerbitzariak beteta daude. Gorde, eta gero hasi saioa {provider}-ren orrian nabigatzailean.
+	Account settings	Kontuaren ezarpenak
+	Account…	Kontua…
+	Add	Gehitu
+	Add account	Gehitu kontua
+	Add to Favorites	Gehitu gogokoetara
+	Added under new messages, replies and forwards from this account	Kontu honetako mezu berrien, erantzunen eta birbidalketen azpian gehitzen da
+	Address	Helbidea
+	Address book	Helbide-liburua
+	All	Guztiak
+	All day	Egun osoa
+	An attendee	Parte-hartzaile bat
+	An attendee proposes a new time	Parte-hartzaile batek beste ordu bat proposatzen du
+	Another mailbox, with folders of its own	Beste postontzi bat, bere karpetekin
+	Archive	Artxiboa
+	At start time	Hasiera-orduan
+	Automatic (system language)	Automatikoa (sistemaren hizkuntza)
+	B	B
+	Bcc	Ezk.
+	Birthday	Urtebetetzea
+	Blind copies: they get the message, the others don't see them	Kopia ezkutuak: mezua jasotzen dute, baina beste hartzaileek ez dituzte ikusten
+	Calendar	Egutegia
+	Calendar (Ctrl+2)	Egutegia (Ctrl+2)
+	Calendars	Egutegiak
+	Calendars and contacts	Egutegiak eta kontaktuak
+	Cancel	Utzi
+	Careful: the text names one site, but the link goes to\n{url}	Kontuz: testuak gune bat aipatzen du, baina estekak hona darama:\n{url}
+	Cc	Cc
+	Contact	Kontaktua
+	Copy the sign-in address	Kopiatu saioa hasteko helbidea
+	Day	Eguna
+	Delete	Ezabatu
+	Delete appointment	Ezabatu hitzordua
+	Delete every occurrence	Ezabatu errepikapen guztiak
+	Delete this occurrence only	Ezabatu errepikapen hau soilik
+	Discard	Baztertu
+	Dismiss	Baztertu
+	Dismiss All	Baztertu guztiak
+	Do not send a response	Ez bidali erantzunik
+	Drafts	Zirriborroak
+	Edit the response first	Editatu erantzuna lehenik
+	Email	Posta elektronikoa
+	Email address	Helbide elektronikoa
+	End	Amaiera
+	Event	Gertaera
+	Every day	Egunero
+	Every month	Hilero
+	Every week	Astero
+	Every weekday	Lanegun guztietan
+	Every year	Urtero
+	Favorites	Gogokoak
+	Fax	Faxa
+	Flag	Marka
+	Forward	Birbidali
+	Fri	or.
+	Home	Etxekoa
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Beste zerbitzarietako irudiek igorleari jakinaraz diezaiokete mezua ireki duzula; horregatik, Tinta Correo-k ez ditu inoiz deskargatzen.
+	Inbox	Sarrera-ontzia
+	Incoming (IMAP)	Sarrerakoa (IMAP)
+	Interface language	Interfazearen hizkuntza
+	Job title	Kargua
+	Junk	Zabor-posta
+	KB	KB
+	Keep	Mantendu
+	Local	Lokala
+	Location	Kokalekua
+	Look up the servers for this address (the provider's published settings, then the usual names)	Bilatu helbide honen zerbitzariak (lehenik hornitzaileak argitaratutako ezarpenak, gero ohiko izenak)
+	MB	MB
+	Mail (Ctrl+1)	Posta (Ctrl+1)
+	Mark as unread	Markatu irakurri gabe gisa
+	Meeting invitation	Bilera-gonbidapena
+	Meeting invitation from {organizer}	{organizer}-ren bilera-gonbidapena
+	Mobile	Mugikorra
+	Mon	al.
+	Month	Hilabetea
+	Name	Izena
+	Never	Inoiz ez
+	New Appointment	Hitzordu berria
+	New contact	Kontaktu berria
+	No appointments	Ez dago hitzordurik
+	No browser opened?	Ez da nabigatzailea ireki?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Oraindik ez dago kontakturik. Gehitu bat edo ireki .vcf fitxategi bat Tinta Correo-rekin.
+	No published settings: these servers answered at the usual names. Check them and save.	Ez dago argitaratutako ezarpenik: zerbitzari hauek ohiko izenekin erantzun dute. Egiaztatu eta gorde.
+	No settings found: {error}. Enter the servers by hand.	Ez da ezarpenik aurkitu: {error}. Idatzi zerbitzariak eskuz.
+	Nobody matches.	Inor ez dator bat.
+	None	Bat ere ez
+	Notes	Oharrak
+	Nothing here	Ez dago ezer hemen
+	Organization	Erakundea
+	Other	Bestelakoa
+	Outbox	Irteera-ontzia
+	Outgoing (SMTP)	Irteerakoa (SMTP)
+	Password	Pasahitza
+	People	Jendea
+	People (Ctrl+3)	Jendea (Ctrl+3)
+	Phone	Telefonoa
+	Port	Ataka
+	Redo	Berregin
+	Reminder	Abisua
+	Remove	Kendu
+	Remove account…	Kendu kontua…
+	Remove from Calendar	Kendu egutegitik
+	Remove from Favorites	Kendu gogokoetatik
+	Remove this phone	Kendu telefono hau
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	{address} eta hemen gordetako posta kendu nahi dituzu? Zerbitzarian ez da ezer ezabatzen.
+	Repeat	Errepikapena
+	Repeats ({rule}), shown once	Errepikatzen da ({rule}), behin erakusten da
+	Reply	Erantzun
+	Reply All	Erantzun denei
+	Results for “{query}”	«{query}» bilaketaren emaitzak
+	Right-click a folder: Add to Favorites	Egin klik eskuineko botoiarekin karpeta batean: Gehitu gogokoetara
+	Same as this computer ({zone})	Ordenagailu honetan bezala ({zone})
+	Sat	lr.
+	Save	Gorde
+	Save and Send/Receive	Gorde eta Bidali/jaso
+	Save and sign in	Gorde eta hasi saioa
+	Search mail	Bilatu postan
+	Search people	Bilatu jendea
+	Search: Lisbon, Kyiv, New York…	Bilatu: Lisboa, Kyiv, New York…
+	Select a message to read it	Hautatu mezu bat irakurtzeko
+	Send	Bidali
+	Send the Outbox and get new mail (F9)	Bidali irteera-ontzia eta jaso posta berria (F9)
+	Send the response now	Bidali erantzuna orain
+	Sent	Bidalitakoak
+	Server	Zerbitzaria
+	Set up your account to sync calendars.	Konfiguratu zure kontua egutegiak sinkronizatzeko.
+	Set up your account to sync contacts.	Konfiguratu zure kontua kontaktuak sinkronizatzeko.
+	Set up your mail server to send and receive.	Konfiguratu zure posta-zerbitzaria bidaltzeko eta jasotzeko.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	{found}-ren ezarpenak aurkitu dira, baina {provider}-k bere orrian soilik onartzen du saio-hasiera (OAuth), eta konpilazio honek ez du {provider}-ren bezero-IDrik.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	{found}-ren ezarpenak aurkitu dira. Egiaztatu eta gorde; gero hasi saioa {provider}-ren orrian nabigatzailean.
+	Settings for {found} found. Check them, enter the password and save.	{found}-ren ezarpenak aurkitu dira. Egiaztatu, idatzi pasahitza eta gorde.
+	Settings of {account}	{account} kontuaren ezarpenak
+	Show as plain text	Erakutsi testu arrunt gisa
+	Show formatted	Erakutsi formatuarekin
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Hasi saioa {provider}-ren orrian nabigatzailean (OAuth 2.0): hemen ez da pasahitzik gordetzen
+	Sign in with	Hasi saioa honekin
+	Sign-in name	Saioa hasteko izena
+	Signature	Sinadura
+	Signed in with {name}	Saioa hasita honekin: {name}
+	Snooze all 5 minutes	Atzeratu guztiak 5 minutu
+	Snooze…	Atzeratu…
+	Start	Hasiera
+	Subject	Gaia
+	Sun	ig.
+	Sync mail, calendars and contacts (F9)	Sinkronizatu posta, egutegiak eta kontaktuak (F9)
+	Synced with the CalDAV server at Send/Receive	CalDAV zerbitzariarekin sinkronizatzen da Bidali/jaso egitean
+	Synced with the CardDAV server at Send/Receive	CardDAV zerbitzariarekin sinkronizatzen da Bidali/jaso egitean
+	The settings of the account whose folder is open	Irekita dagoen karpetaren kontuaren ezarpenak
+	The sign-in did not finish: {error}.	Saio-hasiera ez da amaitu: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Konpilazio honek ez du {provider}-ren bezero-IDrik OAuth bidez saioa hasteko
+	This link does not go where its text says	Esteka honek ez darama testuak dioen lekura
+	This meeting has been cancelled	Bilera hau bertan behera utzi da
+	Thu	og.
+	Title	Izenburua
+	To	Nori
+	To: {names}	Nori: {names}
+	Today	Gaur
+	Trash	Zakarrontzia
+	Tue	ar.
+	Undo	Desegin
+	Unread	Irakurri gabea
+	Unread in Inbox: {n}	Irakurri gabeak sarrera-ontzian: {n}
+	Waiting for you to sign in in your browser…	Nabigatzailean saioa hastearen zain…
+	Wed	az.
+	Week	Astea
+	Work	Lana
+	Work Week	Lan-astea
+	You have {status} it	Zure erantzuna: {status}
+	Your name	Zure izena
+	Your name\nCompany · phone	Zure izena\nEnpresa · telefonoa
+	accepted	onartuta
+	answered	erantzunda
+	declined	ukatuta
+	delegated	eskuordetuta
+	if not the email address	helbide elektronikoa ez bada
+	in {span}	{span} barru
+	kept in the system's credential store	sistemaren kredentzial-biltegian gordeta
+	now	orain
+	one or more, comma-separated	bat edo gehiago, komaz bereizita
+	optional	aukerakoa
+	repeats	errepikatzen da
+	shown to recipients	hartzaileek ikusten dute
+	tentatively accepted	behin-behinean onartuta
+	{date}, all day	{date}, egun osoa
+	{n} Reminders	{n} abisu
+	{n} days	{n} egun
+	{n} hours	{n} ordu
+	{n} minutes	{n} minutu
+	{n} remote image not loaded	Urruneko {n} irudi deskargatu gabe
+	{n} remote images not loaded	Urruneko {n} irudi deskargatu gabe
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	{provider}-ren zerbitzariak beteta daude. Gorde, eta gero hasi saioa {provider}-ren orrian nabigatzailean.
+	{span} after the start	hasi eta {span} geroago
+	{span} before	{span} lehenago
+	{span} overdue	duela {span} iraungita
+	{who} has {status} this meeting	{who}: {status}
+	✉ New Email	✉ Mezu berria
+	✔ Accept	✔ Onartu
+	✔ In your calendar	✔ Zure egutegian
+	✖ Decline	✖ Ukatu
+	➕ Add phone	➕ Gehitu telefonoa
+	➕ New Contact	➕ Kontaktu berria
+	⟳ Send/Receive	⟳ Bidali/jaso
+	⟳ Sending and receiving…	⟳ Bidaltzen eta jasotzen…
+	⟳ Syncing…	⟳ Sinkronizatzen…
+	？ Tentative	？ Behin-behinekoa
+	🔍 Find settings	🔍 Bilatu ezarpenak
+	🔍 Looking…	🔍 Bilatzen…
+	🔔 1 Reminder	🔔 Abisu 1
+	🗑 Delete	🗑 Ezabatu
+	🗑 Series	🗑 Seriea
