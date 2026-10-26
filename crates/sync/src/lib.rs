@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 
-use ibercorreo_core::{FolderId, FolderRole, MessageId, RemoteFolder, RemoteRef};
+use ibercorreo_core::{AccountId, FolderId, FolderRole, MessageId, RemoteFolder, RemoteRef};
 use ibercorreo_imap::{Client, Items, Mailbox, uid_set};
 use ibercorreo_store::Store;
 use serde::Serialize;
@@ -85,10 +85,10 @@ pub struct State {
     pub pushes: Vec<Push>,
 }
 
-/// Read what the store knows and which local changes the server has not seen.
-pub fn state(store: &Store) -> State {
+/// Read what the store knows of `account`'s server and which local changes it has not seen.
+pub fn state(store: &Store, account: AccountId) -> State {
     let mut known: BTreeMap<FolderId, Known> = BTreeMap::new();
-    for f in store.folders() {
+    for f in store.folders_of(account) {
         if let Some(r) = &f.remote {
             known.insert(f.id, Known { path: r.path.clone(), uid_validity: r.uid_validity, uids: BTreeSet::new() });
         }
@@ -275,13 +275,13 @@ pub struct Report {
 
 /// The local folder for a server mailbox: the one that already mirrors it, else a standard folder
 /// of the same role not yet linked, else a new folder.
-fn local_folder(store: &mut Store, mailbox: &Mailbox, report: &mut Report) -> FolderId {
-    if let Some(id) = store.folder_by_path(&mailbox.raw) {
+fn local_folder(store: &mut Store, account: AccountId, mailbox: &Mailbox, report: &mut Report) -> FolderId {
+    if let Some(id) = store.folder_by_path(account, &mailbox.raw) {
         return id;
     }
     let role = mailbox.role();
     if role != FolderRole::Other
-        && let Some(id) = store.folders().iter().find(|f| f.role == role && f.remote.is_none()).map(|f| f.id)
+        && let Some(id) = store.folders_of(account).iter().find(|f| f.role == role && f.remote.is_none()).map(|f| f.id)
     {
         return id;
     }
@@ -291,11 +291,11 @@ fn local_folder(store: &mut Store, mailbox: &Mailbox, report: &mut Report) -> Fo
         None => mailbox.name.clone(),
     };
     // A role already taken (two `\Sent` mailboxes, say) is kept as an ordinary folder.
-    store.add_folder(&name, FolderRole::Other)
+    store.add_folder(account, &name, FolderRole::Other)
 }
 
-/// Fold a [`run`] result into the store.
-pub fn apply(store: &mut Store, batch: Batch) -> Report {
+/// Fold a [`run`] result for `account` into the store.
+pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
     let mut report = Report { errors: batch.errors, ..Report::default() };
 
     for (p, outcome) in &batch.pushed {
@@ -304,12 +304,12 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
             Err(e) => report.errors.push(format!("{p:?}: {e}")),
         }
         if let (Push::Expunge { path, uid }, Ok(())) = (p, outcome)
-            && let Some(folder) = store.folder_by_path(path)
+            && let Some(folder) = store.folder_by_path(account, path)
         {
             store.forget_tombstone(folder, *uid);
         }
         if let (Push::Flags { path, uid, seen, flagged }, Ok(())) = (p, outcome)
-            && let Some(id) = store.folder_by_path(path).and_then(|f| store.find_remote(f, *uid))
+            && let Some(id) = store.folder_by_path(account, path).and_then(|f| store.find_remote(f, *uid))
             && let Ok(m) = store.message_mut(id)
             && let Some(r) = m.remote.as_mut()
         {
@@ -320,7 +320,7 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
 
     let mut folder_ids: BTreeMap<String, FolderId> = BTreeMap::new();
     for mailbox in batch.mailboxes.iter().filter(|m| m.selectable()) {
-        let id = local_folder(store, mailbox, &mut report);
+        let id = local_folder(store, account, mailbox, &mut report);
         folder_ids.insert(mailbox.raw.clone(), id);
     }
 

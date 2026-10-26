@@ -4,6 +4,8 @@ use ibercorreo_core::{Message, RemoteFolder};
 
 use super::*;
 
+const A: AccountId = AccountId(0);
+
 struct Script {
     replies: std::io::Cursor<Vec<u8>>,
     sent: Vec<u8>,
@@ -76,27 +78,27 @@ fn by_subject(store: &Store, subject: &str) -> Message {
 fn first_sync_links_standard_folders_and_adds_mail() {
     let mut store = Store::new();
     let folders_before = store.folders().len();
-    let report = apply(&mut store, first_sync());
+    let report = apply(&mut store, A, first_sync());
     assert_eq!((report.added, report.folders_added, report.remaining), (3, 1, 3), "{report:?}");
     assert_eq!(store.folders().len(), folders_before + 1, "INBOX and Sent Items reuse Inbox and Sent; Work is not selectable");
-    let inbox = store.folder_by_role(FolderRole::Inbox).unwrap();
+    let inbox = store.folder_by_role(A, FolderRole::Inbox).unwrap();
     assert_eq!(store.folder(inbox).unwrap().remote, Some(RemoteFolder { path: "INBOX".into(), uid_validity: 7 }));
-    assert_eq!(store.folder_by_path("Work/2026").map(|f| store.folder(f).unwrap().name.clone()).as_deref(), Some("Work/2026"));
+    assert_eq!(store.folder_by_path(A, "Work/2026").map(|f| store.folder(f).unwrap().name.clone()).as_deref(), Some("Work/2026"));
     let one = by_subject(&store, "one");
     assert!(one.seen && one.folder == inbox);
     assert_eq!(one.remote, Some(RemoteRef { folder: inbox, uid: 1, seen: true, flagged: false }));
     // Applying the same batch again changes nothing.
-    let again = apply(&mut store, first_sync());
+    let again = apply(&mut store, A, first_sync());
     assert_eq!((again.added, again.folders_added), (0, 0));
 }
 
 #[test]
 fn local_changes_become_pushes_and_known_uids() {
     let mut store = Store::new();
-    apply(&mut store, first_sync());
-    let inbox = store.folder_by_role(FolderRole::Inbox).unwrap();
-    let sent_folder = store.folder_by_role(FolderRole::Sent).unwrap();
-    let archive = store.folder_by_role(FolderRole::Archive).unwrap();
+    apply(&mut store, A, first_sync());
+    let inbox = store.folder_by_role(A, FolderRole::Inbox).unwrap();
+    let sent_folder = store.folder_by_role(A, FolderRole::Sent).unwrap();
+    let archive = store.folder_by_role(A, FolderRole::Archive).unwrap();
     let two = by_subject(&store, "two").id;
     store.message_mut(two).unwrap().seen = true;
     store.message_mut(two).unwrap().flagged = true;
@@ -105,7 +107,7 @@ fn local_changes_become_pushes_and_known_uids() {
     let sent_msg = by_subject(&store, "sent").id;
     store.remove_message(sent_msg).unwrap();
 
-    let s = state(&store);
+    let s = state(&store, A);
     assert_eq!(
         s.pushes,
         [Push::Flags { path: "INBOX".into(), uid: 2, seen: true, flagged: true }, Push::Expunge { path: "Sent Items".into(), uid: 5 },]
@@ -117,14 +119,14 @@ fn local_changes_become_pushes_and_known_uids() {
 
     // Moving to a synced folder is a push.
     store.move_message(one, sent_folder).unwrap();
-    assert!(state(&store).pushes.contains(&Push::Move { path: "INBOX".into(), uid: 1, to: "Sent Items".into() }));
+    assert!(state(&store, A).pushes.contains(&Push::Move { path: "INBOX".into(), uid: 1, to: "Sent Items".into() }));
     let _ = inbox;
 }
 
 #[test]
 fn second_sync_updates_flags_removes_vanished_and_keeps_unsent_changes() {
     let mut store = Store::new();
-    apply(&mut store, first_sync());
+    apply(&mut store, A, first_sync());
     let one = by_subject(&store, "one").id;
     let two = by_subject(&store, "two").id;
     // Read here but not yet sent: the server's older "unread" must not undo it.
@@ -140,7 +142,7 @@ fn second_sync_updates_flags_removes_vanished_and_keeps_unsent_changes() {
         }],
         ..Batch::default()
     };
-    let report = apply(&mut store, batch);
+    let report = apply(&mut store, A, batch);
     assert_eq!((report.removed, report.updated), (1, 1));
     assert!(store.message(one).is_err());
     let m = store.message(two).unwrap();
@@ -151,8 +153,8 @@ fn second_sync_updates_flags_removes_vanished_and_keeps_unsent_changes() {
 #[test]
 fn uidvalidity_change_voids_held_messages() {
     let mut store = Store::new();
-    apply(&mut store, first_sync());
-    let inbox = store.folder_by_role(FolderRole::Inbox).unwrap();
+    apply(&mut store, A, first_sync());
+    let inbox = store.folder_by_role(A, FolderRole::Inbox).unwrap();
     let mut local = Message::new(MessageId(0), inbox);
     local.set_subject("local only");
     store.add_message(local).unwrap();
@@ -167,7 +169,7 @@ fn uidvalidity_change_voids_held_messages() {
         }],
         ..Batch::default()
     };
-    let report = apply(&mut store, batch);
+    let report = apply(&mut store, A, batch);
     assert_eq!((report.removed, report.added), (2, 1));
     let subjects: Vec<_> = store.messages_in(inbox).iter().map(|m| m.subject.clone()).collect();
     assert_eq!(subjects.len(), 2);
@@ -178,26 +180,26 @@ fn uidvalidity_change_voids_held_messages() {
 #[test]
 fn successful_pushes_are_recorded() {
     let mut store = Store::new();
-    apply(&mut store, first_sync());
+    apply(&mut store, A, first_sync());
     let two = by_subject(&store, "two").id;
     store.message_mut(two).unwrap().seen = true;
     let sent_msg = by_subject(&store, "sent").id;
     store.remove_message(sent_msg).unwrap();
-    let pushes = state(&store).pushes;
+    let pushes = state(&store, A).pushes;
     let batch = Batch { pushed: pushes.into_iter().map(|p| (p, Ok(()))).collect(), ..Batch::default() };
-    let report = apply(&mut store, batch);
+    let report = apply(&mut store, A, batch);
     assert_eq!(report.pushed, 2);
-    assert!(state(&store).pushes.is_empty());
+    assert!(state(&store, A).pushes.is_empty());
     assert!(store.tombstones().is_empty());
 }
 
 #[test]
 fn run_pushes_then_fetches() {
     let mut store = Store::new();
-    apply(&mut store, first_sync());
+    apply(&mut store, A, first_sync());
     let two = by_subject(&store, "two").id;
     store.message_mut(two).unwrap().flagged = true;
-    let s = state(&store);
+    let s = state(&store, A);
     let mut c = client(
         "* OK [CAPABILITY IMAP4rev1 UIDPLUS] hi
 a1 OK [READ-WRITE] selected
@@ -322,4 +324,40 @@ mod sending {
         let gmail = ibercorreo_core::mail::OAuthProvider::for_host("smtp.gmail.com");
         assert!(gmail.is_some_and(|p| p.saves_sent));
     }
+}
+
+#[test]
+fn two_accounts_sync_into_their_own_folders() {
+    let mut store = Store::new();
+    let account = |email: &str| ibercorreo_core::Account {
+        id: AccountId(0),
+        name: email.into(),
+        address: ibercorreo_core::Address::parse(email).unwrap(),
+        kind: ibercorreo_core::mail::AccountKind::Local,
+        caldav: String::new(),
+    };
+    let a = store.add_account(account("ana@example.org")).unwrap();
+    let b = store.add_account(account("bo@example.net")).unwrap();
+    apply(&mut store, a, first_sync());
+    let report = apply(&mut store, b, first_sync());
+    assert_eq!((report.added, report.folders_added), (3, 1), "the same mailboxes on the second server are new: {report:?}");
+    let (ia, ib) = (store.folder_by_role(a, FolderRole::Inbox).unwrap(), store.folder_by_role(b, FolderRole::Inbox).unwrap());
+    assert_eq!(store.messages_in(ia).len(), 2);
+    assert_eq!(store.messages_in(ib).len(), 2);
+    assert!(store.folder_by_path(a, "Work/2026") != store.folder_by_path(b, "Work/2026"));
+    // A change in one account is pushed only to its own server.
+    let mine = store.messages_in(ib).first().map(|m| m.id).unwrap();
+    store.message_mut(mine).unwrap().flagged = true;
+    assert!(state(&store, a).pushes.is_empty());
+    assert_eq!(state(&store, b).pushes.len(), 1);
+    assert!(state(&store, b).known.iter().all(|k| store.folder_by_path(b, &k.path).is_some()));
+    // A reset of one account's Inbox leaves the other's mail alone.
+    let batch = Batch {
+        mailboxes: first_sync().mailboxes,
+        folders: vec![FolderSync { path: "INBOX".into(), uid_validity: 8, reset: true, ..FolderSync::default() }],
+        ..Batch::default()
+    };
+    apply(&mut store, a, batch);
+    assert!(store.messages_in(ia).is_empty());
+    assert_eq!(store.messages_in(ib).len(), 2);
 }

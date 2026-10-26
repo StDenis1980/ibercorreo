@@ -13,7 +13,7 @@ use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, S
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
-use ibercorreo_core::{Date, FolderRole, MessageId};
+use ibercorreo_core::{AccountId, Date, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, Session, View};
 use serde_json::{Value, json};
 
@@ -111,6 +111,10 @@ fn phone_kind_label(kind: &str) -> &'static str {
 #[derive(Default)]
 struct AccountForm {
     open: bool,
+    /// The account being changed, or `None` for a new one.
+    id: Option<AccountId>,
+    /// Ask before removing the account (the second click removes it).
+    confirm_remove: bool,
     name: String,
     email: String,
     user: String,
@@ -126,6 +130,48 @@ struct AccountForm {
     oauth: String,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
+}
+
+impl AccountForm {
+    /// Fill in a provider's own servers: choosing Google or Microsoft needs nothing looked up.
+    fn fill_provider(&mut self, p: &OAuthProvider) {
+        self.imap_host = p.imap_host.into();
+        self.imap_port = "993".into();
+        self.imap_starttls = false;
+        self.smtp_host = p.smtp_host.into();
+        self.smtp_port = if p.smtp_starttls { "587" } else { "465" }.into();
+        self.smtp_starttls = p.smtp_starttls;
+        self.user.clear();
+    }
+
+    /// After the person chose a way to sign in or typed an address: fill in the servers of the
+    /// provider it names. `ready` are the providers this build can sign in with.
+    fn follow_provider(&mut self, oauth_was: &str, email_was: &str, ready: &[String]) {
+        if self.oauth != oauth_was {
+            if let Some(p) = OAuthProvider::get(&self.oauth) {
+                self.fill_provider(p);
+                self.note = format!("{}'s servers are filled in. Save: you then sign in on {}'s own page in your browser.", p.name, p.name);
+            }
+            return;
+        }
+        if self.email == email_was {
+            return;
+        }
+        let Some(p) = OAuthProvider::for_address(&self.email) else { return };
+        // Servers typed by hand stay; another provider's (or none) give way.
+        let host = self.imap_host.trim();
+        let theirs = OAuthProvider::for_host(host);
+        if !host.is_empty() && (theirs.is_none() || theirs.is_some_and(|t| t.id == p.id)) {
+            return;
+        }
+        self.fill_provider(p);
+        if ready.iter().any(|r| r == p.id) {
+            self.oauth = p.id.to_string();
+            self.note = format!("A {} address: its servers are filled in. Save: you then sign in on {}'s own page in your browser.", p.name, p.name);
+        } else {
+            self.note = format!("A {} address: its servers are filled in. Enter an app password and save.", p.name);
+        }
+    }
 }
 
 /// Server settings found for an address (by the shell, which can reach the network), to fill
@@ -160,14 +206,14 @@ pub struct App {
     pub autoconfig_running: bool,
     /// The OAuth providers this build can sign in with (ids), set by the shell.
     pub oauth_ready: Vec<String>,
-    /// Account settings asks the shell to sign in in the browser (the saved account's provider).
-    pub oauth_request: bool,
+    /// Account settings asks the shell to sign in in the browser to this account (its provider).
+    pub oauth_request: Option<AccountId>,
     /// Account settings asks the shell to stop waiting for the browser.
     pub oauth_cancel: bool,
     /// Set by the shell while the browser sign-in runs: the address it opened.
     pub oauth_running: Option<String>,
     account_form: AccountForm,
-    password: Option<String>,
+    password: Option<(AccountId, String)>,
     tokens: Tokens,
     draft: Option<Draft>,
     event_form: EventForm,
@@ -198,7 +244,7 @@ impl App {
             autoconfig_request: None,
             autoconfig_running: false,
             oauth_ready: Vec::new(),
-            oauth_request: false,
+            oauth_request: None,
             oauth_cancel: false,
             oauth_running: None,
             account_form: AccountForm::default(),
@@ -221,18 +267,26 @@ impl App {
         }
     }
 
-    /// A password typed in Account settings, for the shell to store. Taken once.
-    pub fn take_password(&mut self) -> Option<String> {
+    /// A password typed in Account settings and the account it is for, for the shell to store.
+    /// Taken once.
+    pub fn take_password(&mut self) -> Option<(AccountId, String)> {
         self.password.take()
     }
 
-    /// Open Account settings, with a note saying why (`""` when the person asked for it).
-    pub fn open_account_settings(&mut self, note: &str) {
-        let v = self.session.run("account.get", &Value::Null).unwrap_or(Value::Null);
+    /// Open Account settings for `account` (`None`: a new one), with a note saying why (`""`
+    /// when the person asked for it).
+    pub fn open_account_settings(&mut self, account: Option<AccountId>, note: &str) {
+        let v = match account {
+            Some(id) => self.session.run("account.get", &json!({ "id": id.0 })).unwrap_or(Value::Null),
+            None => Value::Null,
+        };
         let text = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         let port = |k: &str| v.get(k).and_then(Value::as_u64).map(|n| n.to_string()).unwrap_or_default();
+        let id = v.get("id").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).map(AccountId);
         self.account_form = AccountForm {
             open: true,
+            id,
+            confirm_remove: false,
             name: text("displayName"),
             email: text("email"),
             user: text("user"),
@@ -283,6 +337,11 @@ impl App {
         }
     }
 
+    /// Whether Account settings is open (the shell does not open it over itself).
+    pub fn account_settings_open(&self) -> bool {
+        self.account_form.open
+    }
+
     /// What the shell's browser sign-in came to: the provider's name, or why it failed.
     pub fn apply_oauth(&mut self, result: Result<String, String>) {
         self.oauth_running = None;
@@ -303,13 +362,17 @@ impl App {
         }
         let mut open = true;
         let mut save = false;
-        egui::Window::new("Account settings")
+        let mut remove = false;
+        let title = if self.account_form.id.is_some() { "Account settings" } else { "Add account" };
+        egui::Window::new(title)
+            .id(egui::Id::new("account-settings"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .open(&mut open)
             .show(ui.ctx(), |ui| {
                 let f = &mut self.account_form;
+                let (oauth_was, email_was) = (f.oauth.clone(), f.email.clone());
                 if !f.note.is_empty() {
                     ui.label(RichText::new(&f.note).color(self.tokens.unread));
                     ui.add_space(4.0);
@@ -386,6 +449,7 @@ impl App {
                     ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://dav.example.org (optional)").desired_width(280.0));
                     ui.end_row();
                 });
+                f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
                 ui.add_space(6.0);
                 match &self.oauth_running {
                     Some(url) => {
@@ -407,39 +471,33 @@ impl App {
                     }
                     None => {
                         let label = if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" };
-                        save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
+                        ui.horizontal(|ui| {
+                            save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
+                            if f.id.is_some() && !f.confirm_remove && ui.button("Remove account…").clicked() {
+                                f.confirm_remove = true;
+                            }
+                        });
+                        if f.confirm_remove {
+                            ui.add_space(4.0);
+                            ui.label(format!("Remove {} and the mail kept here? Nothing is deleted on the server.", f.email.trim()));
+                            ui.horizontal(|ui| {
+                                remove = ui.button("Remove").clicked();
+                                if ui.button("Keep").clicked() {
+                                    f.confirm_remove = false;
+                                }
+                            });
+                        }
                     }
                 }
             });
-        if save {
-            let f = &self.account_form;
-            let mut p = json!({
-                "name": f.name, "email": f.email, "user": f.user,
-                "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
-                "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
-                "caldav": f.caldav, "oauth": f.oauth,
-            });
-            if let Some(o) = p.as_object_mut() {
-                for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
-                    if !v.trim().is_empty() {
-                        o.insert(k.into(), Value::String(v.trim().to_string()));
-                    }
-                }
-            }
-            if self.run("account.set", p).is_some() {
-                if !self.account_form.oauth.is_empty() {
-                    // Stays open while the browser sign-in runs; Send/Receive follows it.
-                    self.account_form.password.clear();
-                    self.account_form.note.clear();
-                    self.oauth_request = true;
-                } else {
-                    if !self.account_form.password.is_empty() {
-                        self.password = Some(std::mem::take(&mut self.account_form.password));
-                    }
-                    self.run("account.sync", json!({}));
-                    open = false;
-                }
-            }
+        if remove
+            && let Some(id) = self.account_form.id
+            && self.run("account.remove", json!({ "id": id.0 })).is_some()
+        {
+            open = false;
+        }
+        if save && self.save_account() {
+            open = false;
         }
         if !open {
             self.account_form.password.clear();
@@ -449,6 +507,50 @@ impl App {
             }
         }
         self.account_form.open = open;
+    }
+
+    /// Save Account settings (a new account is added); `true` when the dialog may close (a
+    /// browser sign-in keeps it open).
+    fn save_account(&mut self) -> bool {
+        let f = &self.account_form;
+        let mut p = json!({
+            "name": f.name, "email": f.email, "user": f.user,
+            "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
+            "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
+            "caldav": f.caldav, "oauth": f.oauth,
+        });
+        if let Some(o) = p.as_object_mut() {
+            for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
+                if !v.trim().is_empty() {
+                    o.insert(k.into(), Value::String(v.trim().to_string()));
+                }
+            }
+        }
+        let saved = match (f.id, p.as_object_mut()) {
+            (Some(id), Some(o)) => {
+                o.insert("id".into(), json!(id.0));
+                self.run("account.set", p)
+            }
+            _ => self.run("account.add", p),
+        };
+        let saved = saved.and_then(|v| v.get("id").and_then(Value::as_u64)).and_then(|n| u32::try_from(n).ok()).map(AccountId);
+        if let Some(id) = saved {
+            // A new account is this one from now on: saving again changes it.
+            self.account_form.id = Some(id);
+            if !self.account_form.oauth.is_empty() {
+                // Stays open while the browser sign-in runs; Send/Receive follows it.
+                self.account_form.password.clear();
+                self.account_form.note.clear();
+                self.oauth_request = Some(id);
+            } else {
+                if !self.account_form.password.is_empty() {
+                    self.password = Some((id, std::mem::take(&mut self.account_form.password)));
+                }
+                self.run("account.sync", json!({}));
+                return true;
+            }
+        }
+        false
     }
 
     /// Run a command; a failure is shown in the status bar (the session records it).
@@ -599,8 +701,9 @@ impl App {
 
     /// Keep the editable draft buffer in step with the open message.
     fn sync_draft(&mut self) {
-        let drafts = self.session.store.folder_by_role(FolderRole::Drafts).ok();
-        let open = self.session.message.and_then(|id| self.session.store.message(id).ok()).filter(|m| Some(m.folder) == drafts);
+        let store = &self.session.store;
+        let open =
+            self.session.message.and_then(|id| store.message(id).ok()).filter(|m| store.folder(m.folder).is_ok_and(|f| f.role == FolderRole::Drafts));
         match (open, &self.draft) {
             (Some(m), Some(d)) if d.id == m.id.0 => {}
             (Some(m), _) => {
@@ -663,14 +766,14 @@ impl App {
                     ui.separator();
                     let label = if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" };
                     if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Send the Outbox and get new mail (F9)").clicked() {
-                        if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
-                            self.run("account.sync", json!({}));
-                        } else {
-                            self.open_account_settings("Set up your mail server to send and receive.");
-                        }
+                        self.sync_or_set_up("Set up your mail server to send and receive.");
                     }
-                    if ui.button("Account…").clicked() {
-                        self.open_account_settings("");
+                    if ui.button("Account…").on_hover_text("The settings of the account whose folder is open").clicked() {
+                        let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
+                        self.open_account_settings(current, "");
+                    }
+                    if ui.button("+ Add account").clicked() {
+                        self.open_account_settings(None, "");
                     }
                 }
                 View::Calendar => {
@@ -726,11 +829,17 @@ impl App {
     fn sync_button(&mut self, ui: &mut Ui, setup: &str) {
         let label = if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" };
         if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Sync mail, calendars and contacts (F9)").clicked() {
-            if self.session.store.accounts.first().and_then(|a| a.login()).is_some() {
-                self.run("account.sync", json!({}));
-            } else {
-                self.open_account_settings(setup);
-            }
+            self.sync_or_set_up(setup);
+        }
+    }
+
+    /// Send/Receive when an account has a mail server; else Account settings, saying `setup`.
+    fn sync_or_set_up(&mut self, setup: &str) {
+        if self.session.store.accounts.iter().any(|a| a.login().is_some()) {
+            self.run("account.sync", json!({}));
+        } else {
+            let first = self.session.store.accounts.first().map(|a| a.id);
+            self.open_account_settings(first, setup);
         }
     }
 
@@ -771,7 +880,7 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            let inbox = self.session.store.folder_by_role(FolderRole::Inbox).ok();
+            let inbox = self.session.store.folder_by_role(self.session.current_account(), FolderRole::Inbox).ok();
             let unread = inbox.map(|f| self.session.store.unread_count(f)).unwrap_or(0);
             ui.label(RichText::new(format!("Unread in Inbox: {unread}")).small().color(self.tokens.text_weak));
             ui.separator();
@@ -800,10 +909,42 @@ impl App {
 
     fn folders(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        let account = self.session.store.accounts.first().map(|a| a.address.email.clone()).unwrap_or_else(|| "Local".into());
-        ui.label(RichText::new(account).small().color(t.text_weak));
-        ui.add_space(4.0);
-        let folders: Vec<_> = self.session.store.folders().into_iter().map(|f| (f.id, f.name.clone(), f.role)).collect();
+        // Each account's folders under its address; with none set up, the local folders.
+        let store = &self.session.store;
+        let groups: Vec<(Option<AccountId>, String)> = if store.accounts.is_empty() {
+            vec![(None, "Local".into())]
+        } else {
+            store.accounts.iter().map(|a| (Some(a.id), a.address.email.clone())).collect()
+        };
+        let mut settings: Option<Option<AccountId>> = None;
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+            for (i, (account, email)) in groups.into_iter().enumerate() {
+                if i > 0 {
+                    ui.add_space(8.0);
+                }
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(&email).small().strong().color(t.text_weak));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if account.is_some() && ui.small_button("⚙").on_hover_text(format!("Settings of {email}")).clicked() {
+                            settings = Some(account);
+                        }
+                    });
+                });
+                self.account_folders(ui, account.unwrap_or_else(|| self.session.store.first_account()));
+            }
+            ui.add_space(10.0);
+            if ui.small_button("+ Add account").on_hover_text("Another mailbox, with folders of its own").clicked() {
+                settings = Some(None);
+            }
+        });
+        if let Some(account) = settings {
+            self.open_account_settings(account, "");
+        }
+    }
+
+    fn account_folders(&mut self, ui: &mut Ui, account: AccountId) {
+        let t = self.tokens;
+        let folders: Vec<_> = self.session.store.folders_of(account).into_iter().map(|f| (f.id, f.name.clone(), f.role)).collect();
         ui.with_layout(Layout::top_down_justified(Align::Min), |ui| {
             for (id, name, role) in folders {
                 let unread = self.session.store.unread_count(id);
@@ -845,9 +986,8 @@ impl App {
             for id in ids {
                 let Ok(m) = self.session.store.message(id) else { continue };
                 let selected = self.session.message == Some(id);
-                let who = if m.folder == self.session.store.folder_by_role(FolderRole::Sent).unwrap_or(m.folder)
-                    || m.folder == self.session.store.folder_by_role(FolderRole::Drafts).unwrap_or(m.folder)
-                {
+                let role = self.session.store.folder(m.folder).map(|f| f.role).ok();
+                let who = if matches!(role, Some(FolderRole::Sent | FolderRole::Drafts)) {
                     m.to.first().map(|a| format!("To: {}", a.display())).unwrap_or_else(|| "(no recipients)".into())
                 } else {
                     m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "(unknown sender)".into())
@@ -1981,7 +2121,7 @@ mod tests {
     #[test]
     fn found_settings_pick_oauth_when_this_build_can_sign_in() {
         let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
-        app.open_account_settings("");
+        app.open_account_settings(None, "");
         app.account_form.email = "ana@gmail.com".into();
         app.apply_autoconfig(Ok(gmail()));
         assert_eq!(app.account_form.oauth, "", "no client ID: a password it stays");
@@ -2002,14 +2142,94 @@ mod tests {
     fn a_finished_browser_sign_in_closes_settings_and_syncs() {
         let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
         let gmail = json!({"email": "ana@gmail.com", "imapHost": "imap.gmail.com", "smtpHost": "smtp.gmail.com", "oauth": "google"});
-        app.session.run("account.set", &gmail).unwrap();
-        app.open_account_settings("Sign in");
+        let id = app.session.run("account.set", &gmail).unwrap()["id"].as_u64().unwrap();
+        app.open_account_settings(Some(AccountId(id as u32)), "Sign in");
         assert_eq!(app.account_form.oauth, "google", "the dialog shows how the account signs in");
         app.oauth_running = Some(String::new());
         app.apply_oauth(Err("cancelled".into()));
         assert!(app.account_form.open && app.oauth_running.is_none() && !app.session.sync_requested);
         app.apply_oauth(Ok("Google".into()));
         assert!(!app.account_form.open && app.session.sync_requested);
+    }
+
+    #[test]
+    fn choosing_google_or_microsoft_fills_in_their_servers() {
+        let mut f = AccountForm { email: "ana@example.org".into(), ..AccountForm::default() };
+        f.oauth = "google".into();
+        f.follow_provider("", "ana@example.org", &[]);
+        assert_eq!((f.imap_host.as_str(), f.imap_port.as_str(), f.imap_starttls), ("imap.gmail.com", "993", false));
+        assert_eq!((f.smtp_host.as_str(), f.smtp_port.as_str(), f.smtp_starttls), ("smtp.gmail.com", "465", false));
+        f.oauth = "microsoft".into();
+        f.follow_provider("google", "ana@example.org", &[]);
+        assert_eq!((f.imap_host.as_str(), f.smtp_host.as_str()), ("outlook.office365.com", "smtp.office365.com"));
+        assert_eq!((f.smtp_port.as_str(), f.smtp_starttls), ("587", true));
+        // Back to a password: the servers stay (an app password signs in to the same ones).
+        f.oauth.clear();
+        f.follow_provider("microsoft", "ana@example.org", &[]);
+        assert_eq!(f.imap_host, "outlook.office365.com");
+    }
+
+    #[test]
+    fn typing_a_gmail_or_outlook_address_fills_in_the_servers() {
+        let ready = ["google".to_string(), "microsoft".to_string()];
+        let mut f = AccountForm { email: "ana@gmail.com".into(), ..AccountForm::default() };
+        f.follow_provider("", "ana@gmail.co", &ready);
+        assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("imap.gmail.com", "google"));
+        f.email = "ana@hotmail.com".into();
+        f.follow_provider("google", "ana@gmail.com", &ready);
+        assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("outlook.office365.com", "microsoft"), "another provider's servers give way");
+
+        // Without a client ID it is a password (an app password), with the same servers.
+        let mut f = AccountForm { email: "ana@outlook.com".into(), ..AccountForm::default() };
+        f.follow_provider("", "", &[]);
+        assert_eq!((f.smtp_host.as_str(), f.oauth.as_str()), ("smtp.office365.com", ""));
+
+        // Servers typed by hand stay.
+        let mut f = AccountForm { email: "ana@gmail.com".into(), imap_host: "mail.example.org".into(), ..AccountForm::default() };
+        f.follow_provider("", "", &ready);
+        assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("mail.example.org", ""));
+    }
+
+    #[test]
+    fn saving_a_new_account_adds_it_beside_the_first() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let fill = |app: &mut App, email: &str, host: &str| {
+            app.account_form.email = email.into();
+            app.account_form.imap_host = format!("imap.{host}");
+            app.account_form.smtp_host = format!("smtp.{host}");
+            app.account_form.password = "secret".into();
+        };
+        app.open_account_settings(None, "");
+        fill(&mut app, "ana@example.org", "example.org");
+        assert!(app.save_account());
+        let first = app.take_password().unwrap().0;
+
+        app.open_account_settings(None, "");
+        assert!(app.account_form.email.is_empty(), "a new account starts blank");
+        fill(&mut app, "ana@example.net", "example.net");
+        assert!(app.save_account());
+        let (second, password) = app.take_password().unwrap();
+        assert_ne!(first, second);
+        assert_eq!(password, "secret");
+        assert_eq!(app.session.store.accounts.len(), 2);
+        assert_eq!(app.session.current_account(), second, "the new account's Inbox opens");
+
+        // Its settings change it, not the first.
+        app.open_account_settings(Some(second), "");
+        app.account_form.name = "Ana".into();
+        assert!(app.save_account());
+        assert_eq!(app.session.store.account(second).unwrap().address.name.as_deref(), Some("Ana"));
+        assert_eq!(app.session.store.account(first).unwrap().address.email, "ana@example.org");
+
+        // An OAuth account asks the shell to sign in to that account.
+        app.open_account_settings(None, "");
+        app.account_form.email = "ana@gmail.com".into();
+        app.oauth_ready = vec!["google".into()];
+        app.account_form.oauth = "google".into();
+        app.account_form.follow_provider("", "ana@gmail.com", &app.oauth_ready.clone());
+        assert!(!app.save_account(), "stays open for the browser");
+        let third = app.oauth_request.unwrap();
+        assert!(third != first && third != second);
     }
 
     #[test]

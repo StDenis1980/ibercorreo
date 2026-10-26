@@ -11,7 +11,7 @@ pub mod sample;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 
-use ibercorreo_core::{Date, DateTime, Error, EventId, FolderId, FolderRole, MessageId, Result, Zone};
+use ibercorreo_core::{AccountId, Date, DateTime, Error, EventId, FolderId, FolderRole, MessageId, Result, Zone};
 use ibercorreo_store::Store;
 use serde_json::Value;
 
@@ -83,7 +83,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(store: Store, today: Date) -> Session {
-        let folder = store.folder_by_role(FolderRole::Inbox).unwrap_or(FolderId(0));
+        let folder = store.folder_by_role(store.first_account(), FolderRole::Inbox).unwrap_or(FolderId(0));
         let mut s = Session {
             store,
             path: None,
@@ -243,21 +243,41 @@ impl Session {
         Ok(())
     }
 
-    /// What a mail sync needs from the store: run [`ibercorreo_sync::run`] with it on a connection
-    /// (off the interface thread), then give the result to [`Session::apply_sync`].
-    pub fn sync_state(&self) -> ibercorreo_sync::State {
-        ibercorreo_sync::state(&self.store)
+    /// The account the open folder belongs to: where new mail is written from, and what
+    /// Account settings shows.
+    pub fn current_account(&self) -> AccountId {
+        self.store.account_of(self.folder).unwrap_or_else(|_| self.store.first_account())
     }
 
-    /// Fold a sync result into the store. Undo history is cleared: stepping back past a sync would
-    /// bring back mail the server has since changed. (Operation-level undo will lift this; `docs/gaps.md`.)
-    pub fn apply_sync(&mut self, batch: ibercorreo_sync::Batch) -> ibercorreo_sync::Report {
-        let report = ibercorreo_sync::apply(&mut self.store, batch);
+    /// `account`'s folder with `role`, else the current account's.
+    pub fn role_folder(&self, account: Option<AccountId>, role: FolderRole) -> Result<FolderId> {
+        self.store.folder_by_role(account.unwrap_or_else(|| self.current_account()), role)
+    }
+
+    /// What a mail sync of `account` needs from the store: run [`ibercorreo_sync::run`] with it on
+    /// a connection (off the interface thread), then give the result to [`Session::apply_sync`].
+    pub fn sync_state(&self, account: AccountId) -> ibercorreo_sync::State {
+        ibercorreo_sync::state(&self.store, account)
+    }
+
+    /// Fold `account`'s sync result into the store. Undo history is cleared: stepping back past a
+    /// sync would bring back mail the server has since changed. (Operation-level undo will lift
+    /// this; `docs/gaps.md`.)
+    pub fn apply_sync(&mut self, account: AccountId, batch: ibercorreo_sync::Batch) -> ibercorreo_sync::Report {
+        let report = ibercorreo_sync::apply(&mut self.store, account, batch);
         self.undo.clear();
         self.redo.clear();
         self.dirty = true;
         self.fix_selection();
-        self.status = format!("Synced: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        let who = if self.store.accounts.len() > 1 {
+            self.store.account(account).map(|a| format!(" {}", a.address.email)).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        self.status = format!("Synced{who}: {} new, {} updated, {} removed", report.added, report.updated, report.removed);
+        if report.remaining > 0 {
+            self.status.push_str(&format!(", {} more on the server still to download", report.remaining));
+        }
         if !report.errors.is_empty() {
             self.status.push_str(&format!(" ({} problems)", report.errors.len()));
         }
@@ -322,20 +342,20 @@ impl Session {
         report
     }
 
-    /// The server mailbox that holds sent copies, once the Sent folder is linked to one.
-    pub fn sent_path(&self) -> Option<String> {
-        let sent = self.store.folder_by_role(FolderRole::Sent).ok()?;
+    /// The server mailbox that holds `account`'s sent copies, once its Sent folder is linked to one.
+    pub fn sent_path(&self, account: AccountId) -> Option<String> {
+        let sent = self.store.folder_by_role(account, FolderRole::Sent).ok()?;
         self.store.folder(sent).ok()?.remote.as_ref().map(|r| r.path.clone())
     }
 
-    /// The Outbox, rendered for sending ([`ibercorreo_sync::outbox::send`]). Messages that cannot be
-    /// written (no recipients) are left out; `message.send` already refuses those.
-    pub fn outbox(&self) -> Vec<ibercorreo_sync::outbox::Outgoing> {
-        let Ok(outbox) = self.store.folder_by_role(FolderRole::Outbox) else { return Vec::new() };
+    /// `account`'s Outbox, rendered for sending ([`ibercorreo_sync::outbox::send`]). Messages that
+    /// cannot be written (no recipients) are left out; `message.send` already refuses those.
+    pub fn outbox(&self, account: AccountId) -> Vec<ibercorreo_sync::outbox::Outgoing> {
+        let Ok(outbox) = self.store.folder_by_role(account, FolderRole::Outbox) else { return Vec::new() };
         let mut out = Vec::new();
         for m in self.store.messages_in(outbox) {
             let Ok(raw) = commands::render(self, m.id) else { continue };
-            let from = m.from.clone().unwrap_or_else(|| commands::the_user(self)).email;
+            let from = m.from.clone().unwrap_or_else(|| commands::the_user(self, account)).email;
             let to = m.to.iter().chain(&m.cc).map(|a| a.email.clone()).collect();
             out.push(ibercorreo_sync::outbox::Outgoing { id: m.id, from, to, raw: raw.into_bytes() });
         }
@@ -350,15 +370,19 @@ impl Session {
         use ibercorreo_sync::outbox::Outcome;
         let (mut sent, mut later, mut failed) = (0usize, 0usize, Vec::new());
         for r in results {
+            // Into the Sent or Drafts of the account it was sent from.
+            let account = self.store.message(r.id).and_then(|m| self.store.account_of(m.folder));
+            let (sent_to, drafts) = match account {
+                Ok(a) => (self.store.folder_by_role(a, FolderRole::Sent), self.store.folder_by_role(a, FolderRole::Drafts)),
+                Err(e) => (Err(e.clone()), Err(e)),
+            };
             let outcome = match &r.outcome {
                 Outcome::Sent { saved: true } => self.store.drop_message(r.id).map(drop),
-                Outcome::Sent { saved: false } => {
-                    self.store.folder_by_role(FolderRole::Sent).and_then(|to| self.store.move_message(r.id, to)).map(drop)
-                }
+                Outcome::Sent { saved: false } => sent_to.and_then(|to| self.store.move_message(r.id, to)).map(drop),
                 Outcome::Later(_) => Ok(()),
                 Outcome::Failed(why) => {
                     failed.push(why.clone());
-                    self.store.folder_by_role(FolderRole::Drafts).and_then(|to| self.store.move_message(r.id, to)).map(drop)
+                    drafts.and_then(|to| self.store.move_message(r.id, to)).map(drop)
                 }
             };
             match (&r.outcome, outcome) {
@@ -388,7 +412,7 @@ impl Session {
     /// Drop a selection that no longer exists (after undo, delete or a move).
     fn fix_selection(&mut self) {
         if self.store.folder(self.folder).is_err() {
-            self.folder = self.store.folder_by_role(FolderRole::Inbox).unwrap_or(FolderId(0));
+            self.folder = self.store.folder_by_role(self.store.first_account(), FolderRole::Inbox).unwrap_or(FolderId(0));
         }
         if let Some(m) = self.message
             && self.store.message(m).map(|m| m.folder != self.folder).unwrap_or(true)

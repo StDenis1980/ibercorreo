@@ -1,6 +1,6 @@
 # Tinta Correo — testing
 
-Status: 2026-10-23 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; real
+Status: 2026-10-26 · Unit, scripted-server and local-TLS tests run in `cargo xtask ci`; real
 IMAP, SMTP, CalDAV and CardDAV servers are tested when configured.
 
 ## Layers of tests
@@ -83,6 +83,24 @@ default_login_user = dovenull
 sudo dovecot -c $D/dovecot.conf
 IBERCORREO_TEST_IMAP="localhost 10993 10143 denys secret $D/cert.der" cargo test -p ibercorreo-net real_
 ```
+
+Several accounts: with Dovecot taking any user name, two accounts on the same server are two
+mailboxes. Deliver 3 messages to `ana` and 520 to `bob` (`first_valid_uid = 1` in the config lets
+`doveadm save -u bob` write as the `dovecot` user), then:
+
+```sh
+C=ibercorreo-cli; S=/tmp/two.json
+$C run --store $S --save --cmd 'account.set={"email":"ana@example.org","user":"ana","imapHost":"localhost","imapPort":10993,"smtpHost":"localhost"}' \
+  --cmd 'account.add={"email":"bob@example.org","user":"bob","imapHost":"localhost","imapPort":10993,"smtpHost":"localhost"}'
+IBERCORREO_PASSWORD=secret $C sync --store $S --ca $D/cert.der --account 0   # added 3
+IBERCORREO_PASSWORD=secret $C sync --store $S --ca $D/cert.der --account 1   # added 500, remaining 20
+IBERCORREO_PASSWORD=secret $C sync --store $S --ca $D/cert.der --account 1   # added 20, remaining 0
+$C run --store $S --cmd folder.list   # each Inbox in its own account
+```
+
+Changing account 1's sign-in name (`account.set` with `"id":1`) empties its folders. In memory,
+`crates/store`, `crates/sync`, `crates/engine` and `crates/ui-egui` test the same (folders per
+account, old stores, forgetting, sending from each account's own folders, the servers filled in).
 
 `real_idle_when_configured` (in the same run) leaves an `IDLE` session on the Inbox, appends a
 message from a second connection and expects the watch to wake within 15 seconds, then checks
@@ -245,3 +263,4 @@ declining, editing the answer and cancelling one day of a series.
 - 2026-10-23 — M2.7b: contact sync tests and the CardDAV check.
 - 2026-10-23 — M3.1: IDLE and autoconfiguration tests.
 - 2026-10-23 — M3.2: OAuth tests and the XOAUTH2 check against Dovecot and Postfix.
+- 2026-10-26 — M3.3: the two-account check against Dovecot.
