@@ -37,6 +37,8 @@ mail-parser = "0.11"
 
 # ui
 egui = "0.36"
+# the computer's interface language (MIT OR Apache-2.0)
+sys-locale = "0.3"
 eframe = { version = "0.36", default-features = false }
 
 [workspace.lints.rust]

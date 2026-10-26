@@ -161,6 +161,20 @@ fn day_week_and_month_views_step_and_list_their_range() {
 }
 
 #[test]
+fn interface_language_is_chosen_normalised_and_follows_the_computer_by_default() {
+    let mut s = session();
+    assert_eq!(s.run("app.language", &Value::Null).unwrap()["language"], "auto");
+    assert_eq!(s.run("app.language", &json!({"language": "uk_UA.UTF-8"})).unwrap()["language"], "uk");
+    assert_eq!(s.store.language.as_deref(), Some("uk"));
+    for bad in [json!({"language": "klingon"}), json!({"language": "u1"}), json!({"language": 7})] {
+        assert!(s.run("app.language", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.language.as_deref(), Some("uk"), "a refused language changes nothing");
+    assert_eq!(s.run("app.language", &json!({"language": "auto"})).unwrap()["followsSystem"], true);
+    assert_eq!(s.store.language, None);
+}
+
+#[test]
 fn time_zones_choose_convert_and_follow_the_computer() {
     let mut s = session();
     // Late evening UTC on the 22nd: already the 23rd in Kyiv.

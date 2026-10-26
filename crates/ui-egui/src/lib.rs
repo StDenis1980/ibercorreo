@@ -6,9 +6,11 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod i18n;
 pub mod icons;
 pub mod theme;
 
+use crate::i18n::{tf, tl};
 use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
@@ -99,14 +101,20 @@ impl ContactForm {
     }
 }
 
+/// A folder's name as shown: folders with a role (Inbox, Sent…) in the interface language,
+/// others as the server names them.
+fn folder_label(folder: &ibercorreo_core::Folder) -> String {
+    if folder.role == FolderRole::Other { folder.name.clone() } else { tl(&folder.name).to_string() }
+}
+
 fn phone_kind_label(kind: &str) -> &'static str {
-    match kind {
+    tl(match kind {
         "mobile" => "Mobile",
         "work" => "Work",
         "home" => "Home",
         "fax" => "Fax",
         _ => "Other",
-    }
+    })
 }
 
 /// The Account settings dialog. The password is held only while the dialog is open and then
@@ -155,7 +163,10 @@ impl AccountForm {
         if self.oauth != oauth_was {
             if let Some(p) = OAuthProvider::get(&self.oauth) {
                 self.fill_provider(p);
-                self.note = format!("{}'s servers are filled in. Save: you then sign in on {}'s own page in your browser.", p.name, p.name);
+                self.note = tf(
+                    "{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.",
+                    &[("provider", p.name)],
+                );
             }
             return;
         }
@@ -172,9 +183,12 @@ impl AccountForm {
         self.fill_provider(p);
         if ready.iter().any(|r| r == p.id) {
             self.oauth = p.id.to_string();
-            self.note = format!("A {} address: its servers are filled in. Save: you then sign in on {}'s own page in your browser.", p.name, p.name);
+            self.note = tf(
+                "A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.",
+                &[("provider", p.name)],
+            );
         } else {
-            self.note = format!("A {} address: its servers are filled in. Enter an app password and save.", p.name);
+            self.note = tf("A {provider} address: its servers are filled in. Enter an app password and save.", &[("provider", p.name)]);
         }
     }
 }
@@ -337,18 +351,19 @@ impl App {
                 let ready = provider.filter(|p| self.oauth_ready.iter().any(|r| r == p.id));
                 f.oauth = ready.map(|p| p.id.to_string()).unwrap_or_default();
                 f.note = match (ready, provider, d.source) {
-                    (Some(p), _, _) => {
-                        format!("Settings for {} found. Check them and save: you then sign in on {}'s own page in your browser.", d.provider, p.name)
-                    }
-                    (None, Some(p), _) if d.oauth_only => format!(
-                        "Settings for {} found, but {} only takes sign-in on its own page (OAuth), and this build has no {} client ID for it.",
-                        d.provider, p.name, p.name
+                    (Some(p), _, _) => tf(
+                        "Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.",
+                        &[("found", &d.provider), ("provider", p.name)],
                     ),
-                    (None, _, Some(_)) => format!("Settings for {} found. Check them, enter the password and save.", d.provider),
-                    (None, _, None) => "No published settings: these servers answered at the usual names. Check them and save.".to_string(),
+                    (None, Some(p), _) if d.oauth_only => tf(
+                        "Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.",
+                        &[("found", &d.provider), ("provider", p.name)],
+                    ),
+                    (None, _, Some(_)) => tf("Settings for {found} found. Check them, enter the password and save.", &[("found", &d.provider)]),
+                    (None, _, None) => tl("No published settings: these servers answered at the usual names. Check them and save.").to_string(),
                 };
             }
-            Err(e) => f.note = format!("No settings found: {e}. Enter the servers by hand."),
+            Err(e) => f.note = tf("No settings found: {error}. Enter the servers by hand.", &[("error", &e.to_string())]),
         }
     }
 
@@ -364,10 +379,10 @@ impl App {
             Ok(name) => {
                 self.account_form.open = false;
                 self.account_form.note.clear();
-                self.session.status = format!("Signed in with {name}");
+                self.session.status = tf("Signed in with {name}", &[("name", &name)]);
                 self.run("account.sync", json!({}));
             }
-            Err(e) => self.account_form.note = format!("The sign-in did not finish: {e}."),
+            Err(e) => self.account_form.note = tf("The sign-in did not finish: {error}.", &[("error", &e)]),
         }
     }
 
@@ -378,7 +393,7 @@ impl App {
         let mut open = true;
         let mut save = false;
         let mut remove = false;
-        let title = if self.account_form.id.is_some() { "Account settings" } else { "Add account" };
+        let title = tl(if self.account_form.id.is_some() { "Account settings" } else { "Add account" });
         egui::Window::new(title)
             .id(egui::Id::new("account-settings"))
             .collapsible(false)
@@ -395,30 +410,30 @@ impl App {
                 egui::Grid::new("account-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
                     for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")]
                     {
-                        ui.label(label);
-                        ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(280.0));
+                        ui.label(tl(label));
+                        ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
                         ui.end_row();
                     }
                     ui.label("");
-                    let label = if self.autoconfig_running { "🔍 Looking…" } else { "🔍 Find settings" };
+                    let label = tl(if self.autoconfig_running { "🔍 Looking…" } else { "🔍 Find settings" });
                     let can = !self.autoconfig_running && f.email.contains('@');
                     if ui
                         .add_enabled(can, egui::Button::new(label))
-                        .on_hover_text("Look up the servers for this address (the provider's published settings, then the usual names)")
+                        .on_hover_text(tl("Look up the servers for this address (the provider's published settings, then the usual names)"))
                         .clicked()
                     {
                         self.autoconfig_request = Some(f.email.trim().to_string());
                     }
                     ui.end_row();
-                    ui.label("Sign in with");
+                    ui.label(tl("Sign in with"));
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut f.oauth, String::new(), "Password");
+                        ui.radio_value(&mut f.oauth, String::new(), tl("Password"));
                         for p in OAUTH_PROVIDERS {
                             let ready = self.oauth_ready.iter().any(|r| r == p.id);
                             let hover = if ready {
-                                format!("Sign in on {}'s own page in your browser (OAuth 2.0): no password is kept here", p.name)
+                                tf("Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here", &[("provider", p.name)])
                             } else {
-                                format!("This build has no {} client ID for OAuth sign-in", p.name)
+                                tf("This build has no {provider} client ID for OAuth sign-in", &[("provider", p.name)])
                             };
                             ui.add_enabled_ui(ready, |ui| ui.radio_value(&mut f.oauth, p.id.to_string(), p.name))
                                 .inner
@@ -428,45 +443,48 @@ impl App {
                     });
                     ui.end_row();
                     if f.oauth.is_empty() {
-                        ui.label("Password");
+                        ui.label(tl("Password"));
                         ui.add(
                             egui::TextEdit::singleline(&mut f.password)
                                 .password(true)
-                                .hint_text("kept in the system's credential store")
+                                .hint_text(tl("kept in the system's credential store"))
                                 .desired_width(280.0),
                         );
                         ui.end_row();
                     }
-                    ui.label("Sign-in name");
-                    ui.add(egui::TextEdit::singleline(&mut f.user).hint_text("if not the email address").desired_width(280.0));
+                    ui.label(tl("Sign-in name"));
+                    ui.add(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
                     ui.end_row();
                     for (title, host, port, starttls, tls_port, starttls_port) in [
                         ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
                         ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
                     ] {
-                        ui.label(RichText::new(title).strong());
+                        ui.label(RichText::new(tl(title)).strong());
                         ui.end_row();
-                        ui.label("Server");
-                        ui.add(egui::TextEdit::singleline(host).hint_text("mail.example.org").desired_width(280.0));
+                        ui.label(tl("Server"));
+                        ui.add(egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
                         ui.end_row();
-                        ui.label("Port");
+                        ui.label(tl("Port"));
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
-                            ui.radio_value(starttls, false, "TLS");
-                            ui.radio_value(starttls, true, "STARTTLS");
+                            ui.radio_value(starttls, false, tl("TLS"));
+                            ui.radio_value(starttls, true, tl("STARTTLS"));
                         });
                         ui.end_row();
                     }
-                    ui.label(RichText::new("Calendars and contacts").strong())
-                        .on_hover_text("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail");
+                    ui.label(RichText::new(tl("Calendars and contacts")).strong())
+                        .on_hover_text(tl("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"));
                     ui.end_row();
-                    ui.label("Address");
-                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://dav.example.org (optional)").desired_width(280.0));
+                    ui.label(tl("Address"));
+                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
                     ui.end_row();
-                    ui.label(RichText::new("Signature").strong()).on_hover_text("Added under new messages, replies and forwards from this account");
+                    ui.label(RichText::new(tl("Signature")).strong())
+                        .on_hover_text(tl("Added under new messages, replies and forwards from this account"));
                     ui.end_row();
                     ui.label("");
-                    ui.add(egui::TextEdit::multiline(&mut f.signature).hint_text("Your name\nCompany · phone").desired_width(280.0).desired_rows(3));
+                    ui.add(
+                        egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_width(280.0).desired_rows(3),
+                    );
                     ui.end_row();
                 });
                 f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
@@ -475,34 +493,37 @@ impl App {
                     Some(url) => {
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label("Waiting for you to sign in in your browser…");
-                            if ui.button("Cancel").clicked() {
+                            ui.label(tl("Waiting for you to sign in in your browser…"));
+                            if ui.button(tl("Cancel")).clicked() {
                                 self.oauth_cancel = true;
                             }
                         });
                         if !url.is_empty() {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("No browser opened?").small());
-                                if ui.small_button("Copy the sign-in address").clicked() {
+                                ui.label(RichText::new(tl("No browser opened?")).small());
+                                if ui.small_button(tl("Copy the sign-in address")).clicked() {
                                     ui.ctx().copy_text(url.clone());
                                 }
                             });
                         }
                     }
                     None => {
-                        let label = if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" };
+                        let label = tl(if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" });
                         ui.horizontal(|ui| {
                             save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
-                            if f.id.is_some() && !f.confirm_remove && ui.button("Remove account…").clicked() {
+                            if f.id.is_some() && !f.confirm_remove && ui.button(tl("Remove account…")).clicked() {
                                 f.confirm_remove = true;
                             }
                         });
                         if f.confirm_remove {
                             ui.add_space(4.0);
-                            ui.label(format!("Remove {} and the mail kept here? Nothing is deleted on the server.", f.email.trim()));
+                            ui.label(tf(
+                                "Remove {address} and the mail kept here? Nothing is deleted on the server.",
+                                &[("address", f.email.trim())],
+                            ));
                             ui.horizontal(|ui| {
-                                remove = ui.button("Remove").clicked();
-                                if ui.button("Keep").clicked() {
+                                remove = ui.button(tl("Remove")).clicked();
+                                if ui.button(tl("Keep")).clicked() {
                                     f.confirm_remove = false;
                                 }
                             });
@@ -583,6 +604,7 @@ impl App {
     }
 
     pub fn ui(&mut self, ui: &mut Ui) {
+        i18n::set_current(i18n::resolve(self.session.store.language.as_deref()));
         self.tokens = if ui.visuals().dark_mode { Tokens::dark() } else { Tokens::light() };
         self.shortcuts(ui);
         self.sync_draft();
@@ -616,7 +638,11 @@ impl App {
         }
         let t = self.tokens;
         let mut action: Option<(&'static str, Value)> = None;
-        let title = if self.due.len() == 1 { "🔔 1 Reminder".to_string() } else { format!("🔔 {} Reminders", self.due.len()) };
+        let title = if self.due.len() == 1 {
+            tl("🔔 1 Reminder").to_string()
+        } else {
+            format!("🔔 {}", tf("{n} Reminders", &[("n", &self.due.len().to_string())]))
+        };
         egui::Window::new(title)
             .id(egui::Id::new("reminders"))
             .collapsible(false)
@@ -639,12 +665,12 @@ impl App {
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui.small_button("Dismiss").clicked() {
+                                        if ui.small_button(tl("Dismiss")).clicked() {
                                             action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
                                         }
-                                        ui.menu_button("Snooze…", |ui| {
+                                        ui.menu_button(tl("Snooze…"), |ui| {
                                             for (minutes, label) in SNOOZES {
-                                                if ui.button(label).clicked() {
+                                                if ui.button(tl(label)).clicked() {
                                                     action = Some(("reminder.snooze", json!({ "id": id, "start": start, "minutes": minutes })));
                                                     ui.close();
                                                 }
@@ -659,10 +685,10 @@ impl App {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("Dismiss All").clicked() {
+                    if ui.button(tl("Dismiss All")).clicked() {
                         action = Some(("reminder.dismiss", json!({})));
                     }
-                    if ui.button("Snooze all 5 minutes").clicked() {
+                    if ui.button(tl("Snooze all 5 minutes")).clicked() {
                         action = Some(("reminder.snooze", json!({ "minutes": 5 })));
                     }
                 });
@@ -757,7 +783,7 @@ impl App {
                     ui.painter().rect_filled(rect, 8.0, if active { t.accent } else { t.accent.gamma_multiply(0.35) });
                 }
                 icons::paint(ui.painter(), rect.shrink(9.0), icon, t.rail_icon);
-                if resp.on_hover_text(tip).clicked() {
+                if resp.on_hover_text(tl(tip)).clicked() {
                     self.run(id, json!({}));
                 }
                 ui.add_space(6.0);
@@ -766,7 +792,7 @@ impl App {
     }
 
     fn button(&mut self, ui: &mut Ui, label: &str, id: &str, enabled: bool) {
-        if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+        if ui.add_enabled(enabled, egui::Button::new(tl(label))).clicked() {
             self.run(id, json!({}));
         }
     }
@@ -776,7 +802,7 @@ impl App {
         ui.horizontal(|ui| {
             match self.session.view {
                 View::Mail => {
-                    if ui.add(egui::Button::new(RichText::new("✉ New Email").strong()).fill(self.tokens.accent_soft)).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(tl("✉ New Email")).strong()).fill(self.tokens.accent_soft)).clicked() {
                         self.run("message.compose", json!({}));
                     }
                     ui.separator();
@@ -788,28 +814,28 @@ impl App {
                     self.button(ui, "Archive", "message.archive", has_message);
                     self.button(ui, "Flag", "message.flag", has_message);
                     self.button(ui, "Unread", "message.markRead", has_message);
-                    if has_message && ui.small_button("↺").on_hover_text("Mark as unread").clicked() {
+                    if has_message && ui.small_button("↺").on_hover_text(tl("Mark as unread")).clicked() {
                         self.run("message.markRead", json!({ "read": false }));
                     }
                     ui.separator();
-                    let label = if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" };
-                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Send the Outbox and get new mail (F9)").clicked() {
+                    let label = tl(if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" });
+                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
                         self.sync_or_set_up("Set up your mail server to send and receive.");
                     }
-                    if ui.button("Account…").on_hover_text("The settings of the account whose folder is open").clicked() {
+                    if ui.button(tl("Account…")).on_hover_text(tl("The settings of the account whose folder is open")).clicked() {
                         let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
                         self.open_account_settings(current, "");
                     }
-                    if ui.button("+ Add account").clicked() {
+                    if ui.button(tl("+ Add account")).clicked() {
                         self.open_account_settings(None, "");
                     }
                 }
                 View::Calendar => {
-                    if ui.add(egui::Button::new(RichText::new("+ New Appointment").strong()).fill(self.tokens.accent_soft)).clicked() {
+                    if ui.add(egui::Button::new(RichText::new(tl("+ New Appointment")).strong()).fill(self.tokens.accent_soft)).clicked() {
                         self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.day), ..EventForm::default() };
                     }
                     ui.separator();
-                    if ui.button("Today").clicked() {
+                    if ui.button(tl("Today")).clicked() {
                         self.run("calendar.goto", json!({ "date": "today" }));
                     }
                     self.button(ui, "◀", "calendar.prev", true);
@@ -822,7 +848,7 @@ impl App {
                         (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
                         (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
                     ] {
-                        if ui.selectable_label(self.session.calendar_mode == mode, label).on_hover_text(tip).clicked() {
+                        if ui.selectable_label(self.session.calendar_mode == mode, tl(label)).on_hover_text(tip).clicked() {
                             self.run(id, json!({}));
                             self.scroll_to_morning = true;
                         }
@@ -833,7 +859,7 @@ impl App {
                     self.sync_button(ui, "Set up your account to sync calendars.");
                 }
                 View::Contacts => {
-                    ui.label(RichText::new("People").heading());
+                    ui.label(RichText::new(tl("People")).heading());
                     ui.separator();
                     self.sync_button(ui, "Set up your account to sync contacts.");
                 }
@@ -842,7 +868,7 @@ impl App {
                 self.button(ui, "Redo", "edit.redo", self.session.can_redo());
                 self.button(ui, "Undo", "edit.undo", self.session.can_undo());
                 if self.session.view == View::Mail {
-                    let r = ui.add(egui::TextEdit::singleline(&mut self.search).hint_text("Search mail").desired_width(220.0));
+                    let r = ui.add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(220.0));
                     if r.changed() {
                         let q = self.search.clone();
                         self.run("search.messages", json!({ "query": q }));
@@ -855,8 +881,8 @@ impl App {
     /// Send/Receive, which also syncs the calendars and address books; without an account it
     /// opens the account settings with `setup` as the reason.
     fn sync_button(&mut self, ui: &mut Ui, setup: &str) {
-        let label = if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" };
-        if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text("Sync mail, calendars and contacts (F9)").clicked() {
+        let label = tl(if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" });
+        if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
             self.sync_or_set_up(setup);
         }
     }
@@ -867,7 +893,7 @@ impl App {
             self.run("account.sync", json!({}));
         } else {
             let first = self.session.store.accounts.first().map(|a| a.id);
-            self.open_account_settings(first, setup);
+            self.open_account_settings(first, tl(setup));
         }
     }
 
@@ -884,11 +910,11 @@ impl App {
             }
             let system = self.session.system_zone().name().to_string();
             let follows = self.session.store.time_zone.is_none();
-            if ui.selectable_label(follows, format!("Same as this computer ({})", system.replace('_', " "))).clicked() {
+            if ui.selectable_label(follows, tf("Same as this computer ({zone})", &[("zone", &system.replace('_', " "))])).clicked() {
                 chosen = Some("system".into());
             }
             ui.separator();
-            ui.add(egui::TextEdit::singleline(&mut self.zone_filter).hint_text("Search: Lisbon, Kyiv, New York…").desired_width(240.0));
+            ui.add(egui::TextEdit::singleline(&mut self.zone_filter).hint_text(tl("Search: Lisbon, Kyiv, New York…")).desired_width(240.0));
             let needle = self.zone_filter.to_lowercase().replace(' ', "_");
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for name in self.zone_names.iter().filter(|n| needle.is_empty() || n.to_lowercase().contains(&needle)).take(400) {
@@ -910,7 +936,7 @@ impl App {
         ui.horizontal(|ui| {
             let inbox = self.session.store.folder_by_role(self.session.current_account(), FolderRole::Inbox).ok();
             let unread = inbox.map(|f| self.session.store.unread_count(f)).unwrap_or(0);
-            ui.label(RichText::new(format!("Unread in Inbox: {unread}")).small().color(self.tokens.text_weak));
+            ui.label(RichText::new(tf("Unread in Inbox: {n}", &[("n", &unread.to_string())])).small().color(self.tokens.text_weak));
             ui.separator();
             if self.syncing
                 && let Some((what, done)) = &self.sync_progress
@@ -920,8 +946,31 @@ impl App {
                 ui.label(RichText::new(what).small().color(self.tokens.text_weak));
                 ui.separator();
             }
-            ui.label(RichText::new(&self.session.status).small().color(self.tokens.text_weak));
+            ui.label(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.language_menu(ui));
         });
+    }
+
+    /// The status bar's interface language menu: Automatic (the computer's) or one by hand.
+    fn language_menu(&mut self, ui: &mut Ui) {
+        let chosen = self.session.store.language.clone();
+        let current = i18n::current();
+        let mut pick: Option<&str> = None;
+        ui.menu_button(RichText::new(format!("🌐 {}", current.name())).small(), |ui| {
+            if ui.selectable_label(chosen.is_none(), tl("Automatic (system language)")).clicked() {
+                pick = Some(i18n::AUTO);
+            }
+            for l in i18n::Language::ALL {
+                if ui.selectable_label(chosen.as_deref() == Some(l.code()), l.name()).clicked() {
+                    pick = Some(l.code());
+                }
+            }
+        })
+        .response
+        .on_hover_text(tl("Interface language"));
+        if let Some(code) = pick {
+            self.run("app.language", json!({ "language": code }));
+        }
     }
 
     // ---- mail ----
@@ -949,7 +998,7 @@ impl App {
     fn folders(&mut self, ui: &mut Ui) {
         let store = &self.session.store;
         let groups: Vec<(Option<AccountId>, String)> = if store.accounts.is_empty() {
-            vec![(None, "Local".into())]
+            vec![(None, tl("Local").into())]
         } else {
             store.accounts.iter().map(|a| (Some(a.id), a.address.email.clone())).collect()
         };
@@ -958,7 +1007,7 @@ impl App {
         let mut settings: Option<Option<AccountId>> = None;
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            if self.folder_heading(ui, FOLD_FAVORITES, "Favorites", None).0 {
+            if self.folder_heading(ui, FOLD_FAVORITES, tl("Favorites"), None).0 {
                 for id in &favorites {
                     self.folder_row(ui, *id, several);
                 }
@@ -966,7 +1015,7 @@ impl App {
                     ui.add_space(2.0);
                     ui.horizontal(|ui| {
                         ui.add_space(30.0);
-                        ui.label(RichText::new("Right-click a folder: Add to Favorites").small().color(self.tokens.text_weak));
+                        ui.label(RichText::new(tl("Right-click a folder: Add to Favorites")).small().color(self.tokens.text_weak));
                     });
                     ui.add_space(4.0);
                 }
@@ -987,7 +1036,7 @@ impl App {
                 }
             }
             ui.add_space(10.0);
-            if ui.small_button("+ Add account").on_hover_text("Another mailbox, with folders of its own").clicked() {
+            if ui.small_button(tl("+ Add account")).on_hover_text(tl("Another mailbox, with folders of its own")).clicked() {
                 settings = Some(None);
             }
         });
@@ -1034,7 +1083,7 @@ impl App {
                     if r.hovered() { t.accent } else { t.text_weak },
                 );
             }
-            gear = r.on_hover_text(format!("Settings of {title}")).clicked();
+            gear = r.on_hover_text(tf("Settings of {account}", &[("account", title)])).clicked();
         }
         if resp.clicked() && !gear {
             if open {
@@ -1052,7 +1101,7 @@ impl App {
         let t = self.tokens;
         let store = &self.session.store;
         let Ok(folder) = store.folder(id) else { return };
-        let (name, role) = (folder.name.clone(), folder.role);
+        let (name, role) = (folder_label(folder), folder.role);
         let email = if with_account { store.account(folder.account).map(|a| a.address.email.clone()).ok() } else { None };
         let unread = store.unread_count(id);
         let favorite = store.is_favorite(id);
@@ -1111,7 +1160,7 @@ impl App {
             self.run("folder.select", json!({ "folder": id.0 }));
         }
         resp.context_menu(|ui| {
-            let label = if favorite { "Remove from Favorites" } else { "Add to Favorites" };
+            let label = tl(if favorite { "Remove from Favorites" } else { "Add to Favorites" });
             if ui.button(label).clicked() {
                 self.run("folder.favorite", json!({ "folder": id.0, "favorite": !favorite }));
                 ui.close();
@@ -1127,16 +1176,16 @@ impl App {
             self.session.store.search(&self.search).iter().map(|m| m.id).collect()
         };
         let title = if self.search.is_empty() {
-            self.session.store.folder(self.session.folder).map(|f| f.name.clone()).unwrap_or_default()
+            self.session.store.folder(self.session.folder).map(folder_label).unwrap_or_default()
         } else {
-            format!("Results for “{}”", self.search)
+            tf("Results for “{query}”", &[("query", &self.search)])
         };
         Frame::NONE.inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.label(RichText::new(title).heading().color(t.text));
         });
         if ids.is_empty() {
             ui.add_space(24.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new("Nothing here").color(t.text_weak)));
+            ui.vertical_centered(|ui| ui.label(RichText::new(tl("Nothing here")).color(t.text_weak)));
             return;
         }
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -1145,11 +1194,11 @@ impl App {
                 let selected = self.session.message == Some(id);
                 let role = self.session.store.folder(m.folder).map(|f| f.role).ok();
                 let who = if matches!(role, Some(FolderRole::Sent | FolderRole::Drafts)) {
-                    m.to.first().map(|a| format!("To: {}", a.display())).unwrap_or_else(|| "(no recipients)".into())
+                    m.to.first().map(|a| tf("To: {names}", &[("names", a.display())])).unwrap_or_else(|| tl("(no recipients)").into())
                 } else {
-                    m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| "(unknown sender)".into())
+                    m.from.as_ref().map(|a| a.display().to_string()).unwrap_or_else(|| tl("(unknown sender)").into())
                 };
-                let subject = if m.subject.is_empty() { "(no subject)".to_string() } else { m.subject.clone() };
+                let subject = if m.subject.is_empty() { tl("(no subject)").to_string() } else { m.subject.clone() };
                 let when = m.date.map(|d| short_when(self.session.zone().from_utc(d), self.session.today())).unwrap_or_default();
                 let (seen, flagged, attachment, preview) = (m.seen, m.flagged, !m.attachments.is_empty(), m.preview(80));
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
@@ -1193,10 +1242,10 @@ impl App {
         }
         // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
         let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
-            ui.centered_and_justified(|ui| ui.label(RichText::new("Select a message to read it").color(t.text_weak)));
+            ui.centered_and_justified(|ui| ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak)));
             return;
         };
-        ui.label(RichText::new(if m.subject.is_empty() { "(no subject)" } else { &m.subject }).size(20.0).strong().color(t.text));
+        ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(20.0).strong().color(t.text));
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
@@ -1210,13 +1259,15 @@ impl App {
         });
         if !m.to.is_empty() {
             ui.label(
-                RichText::new(format!("To: {}", m.to.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "))).small().color(t.text_weak),
+                RichText::new(tf("To: {names}", &[("names", &m.to.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "))]))
+                    .small()
+                    .color(t.text_weak),
             );
         }
         for (label, list) in [("Cc", &m.cc), ("Bcc", &m.bcc)] {
             if !list.is_empty() {
                 let names = list.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-                ui.label(RichText::new(format!("{label}: {names}")).small().color(t.text_weak));
+                ui.label(RichText::new(format!("{}: {names}", tl(label))).small().color(t.text_weak));
             }
         }
         if !m.attachments.is_empty() {
@@ -1243,11 +1294,18 @@ impl App {
             ui.horizontal(|ui| {
                 if rich.remote_images > 0 {
                     let n = rich.remote_images;
-                    ui.label(RichText::new(format!("🛡 {n} remote image{} not loaded", if n == 1 { "" } else { "s" })).small().color(t.text_weak))
-                        .on_hover_text("Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.");
+                    ui.label(
+                        RichText::new(format!(
+                            "🛡 {}",
+                            tf(if n == 1 { "{n} remote image not loaded" } else { "{n} remote images not loaded" }, &[("n", &n.to_string())])
+                        ))
+                        .small()
+                        .color(t.text_weak),
+                    )
+                    .on_hover_text(tl("Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them."));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    toggle_plain = ui.small_button(if self.session.plain_text { "Show formatted" } else { "Show as plain text" }).clicked();
+                    toggle_plain = ui.small_button(tl(if self.session.plain_text { "Show formatted" } else { "Show as plain text" })).clicked();
                 });
             });
         }
@@ -1274,9 +1332,9 @@ impl App {
         let mut send = false;
         let mut discard = false;
         ui.horizontal(|ui| {
-            send = ui.add(egui::Button::new(RichText::new("Send").strong().color(Color32::WHITE)).fill(t.accent)).clicked();
-            discard = ui.button("Discard").clicked();
-            if !d.show_bcc && ui.button("Bcc").on_hover_text("Blind copies: they get the message, the others don't see them").clicked() {
+            send = ui.add(egui::Button::new(RichText::new(tl("Send")).strong().color(Color32::WHITE)).fill(t.accent)).clicked();
+            discard = ui.button(tl("Discard")).clicked();
+            if !d.show_bcc && ui.button(tl("Bcc")).on_hover_text(tl("Blind copies: they get the message, the others don't see them")).clicked() {
                 d.show_bcc = true;
             }
         });
@@ -1289,7 +1347,7 @@ impl App {
             }
             rows.push(("Subject", &mut d.subject));
             for (label, field) in rows {
-                ui.label(RichText::new(label).color(t.text_weak));
+                ui.label(RichText::new(tl(label)).color(t.text_weak));
                 changed |= ui.add(egui::TextEdit::singleline(field).desired_width(f32::INFINITY)).lost_focus();
                 ui.end_row();
             }
@@ -1328,7 +1386,7 @@ impl App {
         let first = self.session.day.first_of_month();
         let Ok(grid_start) = first.add_days(-i64::from(first.weekday().index())) else { return };
         let today = self.session.today();
-        let names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+        let names = WEEKDAYS.map(tl);
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
         let cell_h = ((avail.y - 24.0) / 6.0).max(40.0);
@@ -1608,11 +1666,11 @@ impl App {
         ui.add_space(8.0);
         let events: Vec<_> = self.session.store.events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
-            ui.label(RichText::new("No appointments").color(t.text_weak));
+            ui.label(RichText::new(tl("No appointments")).color(t.text_weak));
         }
         for (e, occurrence) in events {
             let when = match occurrence {
-                When::AllDay { .. } => "All day".to_string(),
+                When::AllDay { .. } => tl("All day").to_string(),
                 When::Timed { start, end, .. } => format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute()),
             };
             Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
@@ -1621,20 +1679,23 @@ impl App {
                     ui.label(RichText::new(when).small().color(t.accent));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if e.rrule.is_some() {
-                            if ui.small_button("🗑 Series").on_hover_text("Delete every occurrence").clicked() {
+                            if ui.small_button(tl("🗑 Series")).on_hover_text(tl("Delete every occurrence")).clicked() {
                                 self.run("event.delete", json!({ "id": e.id.0 }));
                             }
-                            if ui.small_button("🗑").on_hover_text("Delete this occurrence only").clicked() {
+                            if ui.small_button("🗑").on_hover_text(tl("Delete this occurrence only")).clicked() {
                                 self.run("event.delete", json!({ "id": e.id.0, "occurrence": occurrence.start_date().to_string() }));
                             }
-                        } else if ui.small_button("🗑").on_hover_text("Delete appointment").clicked() {
+                        } else if ui.small_button("🗑").on_hover_text(tl("Delete appointment")).clicked() {
                             self.run("event.delete", json!({ "id": e.id.0 }));
                         }
                     });
                 });
                 ui.label(RichText::new(&e.summary).strong().color(t.text));
                 if let Some(r) = &e.rrule {
-                    let text = e.rule().map_or_else(|| format!("Repeats ({r}), shown once"), |rule| format!("⟳ {}", describe_rule(&rule)));
+                    let text = e.rule().map_or_else(
+                        || tf("Repeats ({rule}), shown once", &[("rule", &r.to_string())]),
+                        |rule| format!("⟳ {}", describe_rule(&rule)),
+                    );
                     ui.label(RichText::new(text).small().color(t.text_weak));
                 }
                 if !e.location.is_empty() {
@@ -1642,9 +1703,9 @@ impl App {
                 }
                 if let Some(m) = e.reminders.first() {
                     let text = match *m {
-                        0 => "🔔 At start time".to_string(),
-                        m if m > 0 => format!("🔔 {} before", due_in(i64::from(m)).trim_start_matches("in ")),
-                        m => format!("🔔 {} after the start", due_in(i64::from(m)).trim_end_matches(" overdue")),
+                        0 => format!("🔔 {}", tl("At start time")),
+                        m if m > 0 => format!("🔔 {}", tf("{span} before", &[("span", &span(i64::from(m)))])),
+                        m => format!("🔔 {}", tf("{span} after the start", &[("span", &span(i64::from(m)))])),
                     };
                     ui.label(RichText::new(text).small().color(t.text_weak));
                 }
@@ -1658,7 +1719,7 @@ impl App {
     fn calendar_list(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         ui.add_space(12.0);
-        ui.label(RichText::new("Calendars").strong().color(t.text));
+        ui.label(RichText::new(tl("Calendars")).strong().color(t.text));
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
         for (id, name, synced) in calendars {
             ui.horizontal(|ui| {
@@ -1666,7 +1727,7 @@ impl App {
                 ui.painter().rect_filled(dot, 3.0, self.calendar_color(id));
                 ui.label(RichText::new(name).color(t.text));
                 if synced {
-                    ui.label(RichText::new("⟳").small().color(t.text_weak)).on_hover_text("Synced with the CalDAV server at Send/Receive");
+                    ui.label(RichText::new("⟳").small().color(t.text_weak)).on_hover_text(tl("Synced with the CalDAV server at Send/Receive"));
                 }
             });
         }
@@ -1685,7 +1746,7 @@ impl App {
         let mut save = false;
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
         let default_calendar = self.last_calendar.filter(|id| calendars.iter().any(|c| c.0 == *id)).or_else(|| calendars.first().map(|c| c.0));
-        egui::Window::new("New Appointment").collapsible(false).resizable(false).open(&mut open).show(ui.ctx(), |ui| {
+        egui::Window::new(tl("New Appointment")).collapsible(false).resizable(false).open(&mut open).show(ui.ctx(), |ui| {
             let f = &mut self.event_form;
             egui::Grid::new("event-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
                 for (label, field, hint) in [
@@ -1694,20 +1755,20 @@ impl App {
                     ("End", &mut f.end, "optional"),
                     ("Location", &mut f.location, ""),
                 ] {
-                    ui.label(label);
-                    ui.add(egui::TextEdit::singleline(field).hint_text(hint).desired_width(260.0));
+                    ui.label(tl(label));
+                    ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
                     ui.end_row();
                 }
-                ui.label("Reminder");
-                let shown = REMINDERS.iter().find(|(id, _)| *id == f.reminder.as_str()).map_or("15 minutes", |(_, label)| *label);
+                ui.label(tl("Reminder"));
+                let shown = tl(REMINDERS.iter().find(|(id, _)| *id == f.reminder.as_str()).map_or("15 minutes", |(_, label)| *label));
                 egui::ComboBox::from_id_salt("event-reminder").selected_text(shown).show_ui(ui, |ui| {
                     for (id, label) in REMINDERS {
-                        ui.selectable_value(&mut f.reminder, id.to_string(), label);
+                        ui.selectable_value(&mut f.reminder, id.to_string(), tl(label));
                     }
                 });
                 ui.end_row();
                 if calendars.len() > 1 {
-                    ui.label("Calendar");
+                    ui.label(tl("Calendar"));
                     let chosen = f.calendar.or(default_calendar);
                     let shown = calendars.iter().find(|c| Some(c.0) == chosen).map_or(String::new(), |c| c.1.clone());
                     egui::ComboBox::from_id_salt("event-calendar").selected_text(shown).show_ui(ui, |ui| {
@@ -1720,16 +1781,16 @@ impl App {
                     });
                     ui.end_row();
                 }
-                ui.label("Repeat");
-                let shown = REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label);
+                ui.label(tl("Repeat"));
+                let shown = tl(REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label));
                 egui::ComboBox::from_id_salt("event-repeat").selected_text(shown).show_ui(ui, |ui| {
                     for (id, label) in REPEATS {
-                        ui.selectable_value(&mut f.repeat, id.to_string(), label);
+                        ui.selectable_value(&mut f.repeat, id.to_string(), tl(label));
                     }
                 });
                 ui.end_row();
             });
-            save = ui.button("Save").clicked();
+            save = ui.button(tl("Save")).clicked();
         });
         if save {
             let f = &self.event_form;
@@ -1765,8 +1826,8 @@ impl App {
         });
         egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text("Search people").desired_width(320.0));
-                if ui.button("➕ New Contact").clicked() {
+                ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(320.0));
+                if ui.button(tl("➕ New Contact")).clicked() {
                     self.contact_form = ContactForm::new_in(self.default_book());
                 }
             });
@@ -1778,13 +1839,13 @@ impl App {
             if books.len() > 1 {
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
-                    if ui.selectable_label(self.contact_book.is_none(), "All").clicked() {
+                    if ui.selectable_label(self.contact_book.is_none(), tl("All")).clicked() {
                         self.contact_book = None;
                     }
                     for (id, name, synced) in &books {
                         let label = if *synced { format!("⟳ {name}") } else { name.clone() };
                         let r = ui.selectable_label(self.contact_book == Some(*id), label);
-                        let r = if *synced { r.on_hover_text("Synced with the CardDAV server at Send/Receive") } else { r };
+                        let r = if *synced { r.on_hover_text(tl("Synced with the CardDAV server at Send/Receive")) } else { r };
                         if r.clicked() {
                             self.contact_book = Some(*id);
                         }
@@ -1797,8 +1858,12 @@ impl App {
             let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
             if contacts.is_empty() {
                 ui.label(
-                    RichText::new(if q.is_empty() { "No contacts yet. Add one, or open a .vcf file with Tinta Correo." } else { "Nobody matches." })
-                        .color(t.text_weak),
+                    RichText::new(tl(if q.is_empty() {
+                        "No contacts yet. Add one, or open a .vcf file with Tinta Correo."
+                    } else {
+                        "Nobody matches."
+                    }))
+                    .color(t.text_weak),
                 );
             }
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -1823,7 +1888,7 @@ impl App {
                                 });
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     if let Some(a) = c.emails.first()
-                                        && ui.button("Email").clicked()
+                                        && ui.button(tl("Email")).clicked()
                                     {
                                         self.run("message.compose", json!({ "to": a.to_string() }));
                                         self.run("view.mail", json!({}));
@@ -1849,7 +1914,7 @@ impl App {
         let t = self.tokens;
         let books: Vec<(u32, String)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone())).collect();
         let f = &mut self.contact_form;
-        ui.label(RichText::new(if f.id.is_some() { "Contact" } else { "New contact" }).strong());
+        ui.label(RichText::new(tl(if f.id.is_some() { "Contact" } else { "New contact" })).strong());
         ui.add_space(6.0);
         let field = |ui: &mut Ui, label: &str, value: &mut String, hint: &str| {
             ui.label(RichText::new(label).small().color(t.text_weak));
@@ -1857,7 +1922,7 @@ impl App {
         };
         field(ui, "Name", &mut f.name, "");
         field(ui, "Email", &mut f.email, "one or more, comma-separated");
-        ui.label(RichText::new("Phone").small().color(t.text_weak));
+        ui.label(RichText::new(tl("Phone")).small().color(t.text_weak));
         let mut remove = None;
         for (i, (kind, number)) in f.phones.iter_mut().enumerate() {
             ui.horizontal(|ui| {
@@ -1867,7 +1932,7 @@ impl App {
                     }
                 });
                 ui.add(egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
-                if ui.small_button("✖").on_hover_text("Remove this phone").clicked() {
+                if ui.small_button("✖").on_hover_text(tl("Remove this phone")).clicked() {
                     remove = Some(i);
                 }
             });
@@ -1875,16 +1940,16 @@ impl App {
         if let Some(i) = remove {
             f.phones.remove(i);
         }
-        if f.phones.len() < 50 && ui.small_button("➕ Add phone").clicked() {
+        if f.phones.len() < 50 && ui.small_button(tl("➕ Add phone")).clicked() {
             f.phones.push((if f.phones.is_empty() { "mobile" } else { "work" }.into(), String::new()));
         }
         field(ui, "Organization", &mut f.organization, "");
         field(ui, "Job title", &mut f.title, "");
         field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
-        ui.label(RichText::new("Notes").small().color(t.text_weak));
+        ui.label(RichText::new(tl("Notes")).small().color(t.text_weak));
         ui.add(egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
         if books.len() > 1 {
-            ui.label(RichText::new("Address book").small().color(t.text_weak));
+            ui.label(RichText::new(tl("Address book")).small().color(t.text_weak));
             let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
             egui::ComboBox::from_id_salt("contact-book").width(ui.available_width()).selected_text(current).show_ui(ui, |ui| {
                 for (id, name) in &books {
@@ -1895,9 +1960,9 @@ impl App {
         ui.add_space(8.0);
         let (mut save, mut delete) = (false, false);
         ui.horizontal(|ui| {
-            save = ui.button(if f.id.is_some() { "Save" } else { "Add" }).clicked();
+            save = ui.button(tl(if f.id.is_some() { "Save" } else { "Add" })).clicked();
             if f.id.is_some() {
-                delete = ui.button("🗑 Delete").clicked();
+                delete = ui.button(tl("🗑 Delete")).clicked();
             }
         });
         if save {
@@ -1927,33 +1992,38 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
     let fill = if cancelled { soft(t.flag, t.reading) } else { t.accent_soft };
     Frame::NONE.fill(fill).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let answered = |s: &str| match s {
-            "ACCEPTED" => "accepted",
-            "TENTATIVE" => "tentatively accepted",
-            "DECLINED" => "declined",
-            "DELEGATED" => "delegated",
-            _ => "answered",
+        let answered = |s: &str| {
+            tl(match s {
+                "ACCEPTED" => "accepted",
+                "TENTATIVE" => "tentatively accepted",
+                "DECLINED" => "declined",
+                "DELEGATED" => "delegated",
+                _ => "answered",
+            })
         };
         let headline = match info.method.as_str() {
-            "CANCEL" => "This meeting has been cancelled".to_string(),
-            "REPLY" => format!(
-                "{} has {} this meeting",
-                info.replier.as_deref().unwrap_or("An attendee"),
-                info.status.as_deref().map_or("answered", answered)
+            "CANCEL" => tl("This meeting has been cancelled").to_string(),
+            "REPLY" => tf(
+                "{who} has {status} this meeting",
+                &[("who", info.replier.as_deref().unwrap_or(tl("An attendee"))), ("status", info.status.as_deref().map_or(tl("answered"), answered))],
             ),
-            "PUBLISH" => "Event".to_string(),
-            "COUNTER" => "An attendee proposes a new time".to_string(),
+            "PUBLISH" => tl("Event").to_string(),
+            "COUNTER" => tl("An attendee proposes a new time").to_string(),
             _ => match &info.organizer {
-                Some(o) => format!("Meeting invitation from {o}"),
-                None => "Meeting invitation".to_string(),
+                Some(o) => tf("Meeting invitation from {organizer}", &[("organizer", o)]),
+                None => tl("Meeting invitation").to_string(),
             },
         };
         ui.label(RichText::new(format!("📅 {headline}")).small().color(t.text_weak));
-        ui.label(RichText::new(if info.summary.is_empty() { "(no title)" } else { &info.summary }).size(16.0).strong().color(t.text));
+        ui.label(RichText::new(if info.summary.is_empty() { tl("(no title)") } else { &info.summary }).size(16.0).strong().color(t.text));
         let mut when = match info.when {
             Some(When::AllDay { start, end }) => {
                 let last = end.add_days(-1).unwrap_or(start);
-                if last <= start { format!("{}, all day", long_date(start)) } else { format!("{} – {}", long_date(start), long_date(last)) }
+                if last <= start {
+                    tf("{date}, all day", &[("date", &long_date(start))])
+                } else {
+                    format!("{} – {}", long_date(start), long_date(last))
+                }
             }
             Some(When::Timed { start, end, .. }) if start.date == end.date => {
                 format!("{}, {:02}:{:02}–{:02}:{:02}", long_date(start.date), start.hour(), start.minute(), end.hour(), end.minute())
@@ -1970,30 +2040,30 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
             None => String::new(),
         };
         if info.repeats {
-            when.push_str(" · repeats");
+            when.push_str(&format!(" · {}", tl("repeats")));
         }
         if !info.location.is_empty() {
             when.push_str(&format!(" · {}", info.location));
         }
         ui.label(RichText::new(when).color(t.text));
         if info.in_calendar {
-            ui.label(RichText::new("✔ In your calendar").small().color(t.accent));
+            ui.label(RichText::new(tl("✔ In your calendar")).small().color(t.accent));
         } else if info.method == "REQUEST"
             && let Some(status) = info.status.as_deref().filter(|s| *s != "NEEDS-ACTION")
         {
-            ui.label(RichText::new(format!("You have {} it", answered(status))).small().color(t.text_weak));
+            ui.label(RichText::new(tf("You have {status} it", &[("status", answered(status))])).small().color(t.text_weak));
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| match info.method.as_str() {
             "REQUEST" | "PUBLISH" => {
                 let mode = ["send", "edit", "none"].get(*reply).copied().unwrap_or("send");
                 for (label, response) in [("✔ Accept", "accept"), ("？ Tentative", "tentative"), ("✖ Decline", "decline")] {
-                    if ui.button(label).clicked() {
+                    if ui.button(tl(label)).clicked() {
                         out = Some(json!({ "response": response, "reply": mode }));
                     }
                 }
                 if info.method == "REQUEST" && info.organizer.is_some() {
-                    let names = ["Send the response now", "Edit the response first", "Do not send a response"];
+                    let names = ["Send the response now", "Edit the response first", "Do not send a response"].map(tl);
                     egui::ComboBox::from_id_salt("invite-reply").selected_text(names.get(*reply).copied().unwrap_or(names[0])).show_ui(ui, |ui| {
                         for (i, n) in names.iter().enumerate() {
                             ui.selectable_value(reply, i, *n);
@@ -2001,7 +2071,7 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
                     });
                 }
             }
-            "CANCEL" if ui.add_enabled(info.in_calendar, egui::Button::new("Remove from Calendar")).clicked() => out = Some(json!({})),
+            "CANCEL" if ui.add_enabled(info.in_calendar, egui::Button::new(tl("Remove from Calendar"))).clicked() => out = Some(json!({})),
             _ => {}
         });
     });
@@ -2033,12 +2103,17 @@ fn soft(c: Color32, bg: Color32) -> Color32 {
     Color32::from_rgb(mix(c.r(), bg.r()), mix(c.g(), bg.g()), mix(c.b(), bg.b()))
 }
 
+fn ukrainian() -> bool {
+    i18n::current() == i18n::Language::Uk
+}
+
 fn month_abbr(m: u8) -> &'static str {
-    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
+    let names = if ukrainian() { MONTHS_ABBR_UK } else { ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] };
+    names.get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
 }
 
 fn weekday_abbr(d: Date) -> &'static str {
-    ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].get(usize::from(d.weekday().index())).copied().unwrap_or("")
+    WEEKDAYS.get(usize::from(d.weekday().index())).copied().map_or("", tl)
 }
 
 /// The ribbon's title for what the calendar shows: `22 October 2026`, `19–25 October 2026`,
@@ -2047,26 +2122,44 @@ fn range_title(s: &Session) -> String {
     let (from, to) = s.calendar_range();
     match s.calendar_mode {
         CalendarMode::Month => month_title(s.day),
-        CalendarMode::Day => format!("{} {}", from.day(), month_title(from)),
-        _ if from.month() == to.month() => format!("{}–{} {}", from.day(), to.day(), month_title(to)),
-        _ if from.year() == to.year() => format!("{} {} – {} {}", from.day(), month_name(from), to.day(), month_title(to)),
-        _ => format!("{} {} – {} {}", from.day(), month_title(from), to.day(), month_title(to)),
+        CalendarMode::Day => format!("{} {}", from.day(), month_year(from)),
+        _ if from.month() == to.month() => format!("{}–{} {}", from.day(), to.day(), month_year(to)),
+        _ if from.year() == to.year() => format!("{} {} – {} {}", from.day(), month_name(from), to.day(), month_year(to)),
+        _ => format!("{} {} – {} {}", from.day(), month_year(from), to.day(), month_year(to)),
     }
 }
 
+/// The month's name after a day number: `22 October`, `22 жовтня` (Ukrainian takes the genitive).
 fn month_name(d: Date) -> &'static str {
-    MONTHS.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
+    let names = if ukrainian() { MONTHS_GENITIVE_UK } else { MONTHS };
+    names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
 }
 
 const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS_UK: [&str; 12] =
+    ["Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень", "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"];
+const MONTHS_GENITIVE_UK: [&str; 12] =
+    ["січня", "лютого", "березня", "квітня", "травня", "червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"];
+const MONTHS_ABBR_UK: [&str; 12] = ["січ.", "лют.", "бер.", "квіт.", "трав.", "черв.", "лип.", "серп.", "вер.", "жовт.", "лист.", "груд."];
 
+/// A month on its own: `October 2026`, `Жовтень 2026`.
 fn month_title(d: Date) -> String {
+    let names = if ukrainian() { MONTHS_UK } else { MONTHS };
+    format!("{} {}", names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""), d.year())
+}
+
+/// The month and year after a day number: `22 October 2026`, `22 жовтня 2026`.
+fn month_year(d: Date) -> String {
     format!("{} {}", month_name(d), d.year())
 }
 
 fn long_date(d: Date) -> String {
-    let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    format!("{}, {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), d.day(), month_title(d))
+    let days = if ukrainian() {
+        ["понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя"]
+    } else {
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    };
+    format!("{}, {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), d.day(), month_year(d))
 }
 
 /// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
@@ -2150,7 +2243,7 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
         return;
     };
     if span.deceptive {
-        ui.label(RichText::new("⚠ ").size(size).color(t.flag)).on_hover_text("This link does not go where its text says");
+        ui.label(RichText::new("⚠ ").size(size).color(t.flag)).on_hover_text(tl("This link does not go where its text says"));
     }
     let shown = egui::Link::new(text.color(t.accent).underline());
     let hover = if span.deceptive { format!("Careful: the text names one site, but the link goes to\n{url}") } else { url.clone() };
@@ -2161,6 +2254,9 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
 
 /// A rule in words: "Every week on Mon, Thu until 2026-12-31".
 fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
+    if ukrainian() {
+        return describe_rule_uk(r);
+    }
     use ibercorreo_core::recur::Freq;
     let unit = match r.freq {
         Freq::Daily => "day",
@@ -2197,6 +2293,49 @@ fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
     out
 }
 
+/// [`describe_rule`] in Ukrainian: "Щотижня: Пн, Чт до 2026-12-31", "Кожні 2 міс.: останній день".
+fn describe_rule_uk(r: &ibercorreo_core::recur::Rule) -> String {
+    use ibercorreo_core::recur::Freq;
+    let mut out = match (r.freq, r.interval) {
+        (Freq::Daily, 1) => "Щодня".to_string(),
+        (Freq::Weekly, 1) => "Щотижня".to_string(),
+        (Freq::Monthly, 1) => "Щомісяця".to_string(),
+        (Freq::Yearly, 1) => "Щороку".to_string(),
+        (freq, n) => {
+            let unit = match freq {
+                Freq::Daily => "дн.",
+                Freq::Weekly => "тиж.",
+                Freq::Monthly => "міс.",
+                Freq::Yearly => "р.",
+            };
+            format!("Кожні {n} {unit}")
+        }
+    };
+    let mut on: Vec<String> = r
+        .by_day
+        .iter()
+        .map(|(n, w)| {
+            let name = WEEKDAYS.get(usize::from(w.index())).copied().map_or("?", tl);
+            match n {
+                Some(-1) => format!("останній {name}"),
+                Some(n) => format!("{n}-й {name}"),
+                None => name.to_string(),
+            }
+        })
+        .collect();
+    on.extend(r.by_month_day.iter().map(|d| if *d == -1 { "останній день".to_string() } else { format!("{d}-го числа") }));
+    if !on.is_empty() {
+        out.push_str(&format!(": {}", on.join(", ")));
+    }
+    if let Some(c) = r.count {
+        out.push_str(&format!(", повторень: {c}"));
+    }
+    if let Some((d, _)) = r.until {
+        out.push_str(&format!(" до {d}"));
+    }
+    out
+}
+
 /// The Repeat choices in the appointment form: `event.add` values and their labels.
 /// The appointment form's reminder choices: `reminder` values for `event.add` ("": its default).
 const REMINDERS: [(&str, &str); 8] = [
@@ -2212,26 +2351,33 @@ const REMINDERS: [(&str, &str); 8] = [
 
 const SNOOZES: [(u64, &str); 5] = [(5, "5 minutes"), (10, "10 minutes"), (15, "15 minutes"), (60, "1 hour"), (1440, "1 day")];
 
+/// A length of time in its largest whole unit: `1 day`, `2 hours`, `25 minutes` (`25 хв`).
+fn span(minutes: i64) -> String {
+    let m = minutes.unsigned_abs();
+    let (n, one, many, short) = if m >= 1440 {
+        (m / 1440, "1 day", "{n} days", "{n} дн.")
+    } else if m >= 60 {
+        (m / 60, "1 hour", "{n} hours", "{n} год")
+    } else {
+        (m, "1 minute", "{n} minutes", "{n} хв")
+    };
+    // Ukrainian counts take three plural forms; the abbreviated units have none.
+    let template = if ukrainian() {
+        short
+    } else if n == 1 {
+        one
+    } else {
+        many
+    };
+    template.replace("{n}", &n.to_string())
+}
+
 /// `in 10 minutes`, `now`, `25 minutes overdue`, `in 2 hours`, `1 day overdue`.
 fn due_in(minutes: i64) -> String {
-    let span = |m: i64| {
-        let m = m.unsigned_abs();
-        if m >= 1440 {
-            let d = m / 1440;
-            if d == 1 { "1 day".to_string() } else { format!("{d} days") }
-        } else if m >= 60 {
-            let h = m / 60;
-            if h == 1 { "1 hour".to_string() } else { format!("{h} hours") }
-        } else if m == 1 {
-            "1 minute".to_string()
-        } else {
-            format!("{m} minutes")
-        }
-    };
     match minutes {
-        0 => "now".into(),
-        m if m > 0 => format!("in {}", span(m)),
-        m => format!("{} overdue", span(m)),
+        0 => tl("now").into(),
+        m if m > 0 => tf("in {span}", &[("span", &span(m))]),
+        m => tf("{span} overdue", &[("span", &span(m))]),
     }
 }
 
@@ -2259,9 +2405,9 @@ fn ordinal(n: i8) -> String {
 
 fn human_size(bytes: usize) -> String {
     match bytes {
-        0..1024 => format!("{bytes} B"),
-        1024..1_048_576 => format!("{} KB", bytes / 1024),
-        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+        0..1024 => format!("{bytes} {}", tl("B")),
+        1024..1_048_576 => format!("{} {}", bytes / 1024, tl("KB")),
+        _ => format!("{:.1} {}", bytes as f64 / 1_048_576.0, tl("MB")),
     }
 }
 

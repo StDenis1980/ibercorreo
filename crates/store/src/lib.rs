@@ -62,6 +62,10 @@ pub struct Store {
     /// The zone the calendar is shown in, chosen by the person; `None` follows the computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_zone: Option<String>,
+    /// The interface language (a lowercase language code, `uk`), chosen by the person; `None`
+    /// follows the computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,

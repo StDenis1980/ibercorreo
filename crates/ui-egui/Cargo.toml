@@ -10,6 +10,7 @@ ibercorreo-core.workspace = true
 ibercorreo-engine.workspace = true
 egui.workspace = true
 serde_json.workspace = true
+sys-locale.workspace = true
 
 [dev-dependencies]
 ibercorreo-store.workspace = true
