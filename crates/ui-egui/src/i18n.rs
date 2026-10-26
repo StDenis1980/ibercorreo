@@ -32,11 +32,16 @@ pub enum Language {
     Ca,
     Gl,
     Eu,
+    It,
+    Fr,
+    De,
+    Pl,
 }
 
 impl Language {
     /// Every language, English first: it is the source and the fallback.
-    pub const ALL: [Language; 6] = [Language::En, Language::Uk, Language::Es, Language::Ca, Language::Gl, Language::Eu];
+    pub const ALL: [Language; 10] =
+        [Language::En, Language::Uk, Language::Es, Language::Ca, Language::Gl, Language::Eu, Language::It, Language::Fr, Language::De, Language::Pl];
 
     /// BCP 47 code, lowercase; also the `language` setting's value.
     pub const fn code(self) -> &'static str {
@@ -47,6 +52,10 @@ impl Language {
             Language::Ca => "ca",
             Language::Gl => "gl",
             Language::Eu => "eu",
+            Language::It => "it",
+            Language::Fr => "fr",
+            Language::De => "de",
+            Language::Pl => "pl",
         }
     }
 
@@ -59,6 +68,10 @@ impl Language {
             Language::Ca => "Català",
             Language::Gl => "Galego",
             Language::Eu => "Euskara",
+            Language::It => "Italiano",
+            Language::Fr => "Français",
+            Language::De => "Deutsch",
+            Language::Pl => "Polski",
         }
     }
 
@@ -71,6 +84,10 @@ impl Language {
             Language::Ca => Some(include_str!("i18n/ca.tsv")),
             Language::Gl => Some(include_str!("i18n/gl.tsv")),
             Language::Eu => Some(include_str!("i18n/eu.tsv")),
+            Language::It => Some(include_str!("i18n/it.tsv")),
+            Language::Fr => Some(include_str!("i18n/fr.tsv")),
+            Language::De => Some(include_str!("i18n/de.tsv")),
+            Language::Pl => Some(include_str!("i18n/pl.tsv")),
         }
     }
 
@@ -87,6 +104,10 @@ impl Language {
         static CA: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Ca.source().unwrap_or_default()));
         static GL: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Gl.source().unwrap_or_default()));
         static EU: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Eu.source().unwrap_or_default()));
+        static IT: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::It.source().unwrap_or_default()));
+        static FR: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Fr.source().unwrap_or_default()));
+        static DE: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::De.source().unwrap_or_default()));
+        static PL: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Pl.source().unwrap_or_default()));
         match self {
             Language::En => None,
             Language::Uk => Some(&UK),
@@ -94,6 +115,10 @@ impl Language {
             Language::Ca => Some(&CA),
             Language::Gl => Some(&GL),
             Language::Eu => Some(&EU),
+            Language::It => Some(&IT),
+            Language::Fr => Some(&FR),
+            Language::De => Some(&DE),
+            Language::Pl => Some(&PL),
         }
     }
 }
@@ -226,6 +251,10 @@ mod tests {
         assert_eq!(Language::from_tag("ca-ES-valencia"), Some(Language::Ca));
         assert_eq!(Language::from_tag("gl_ES.UTF-8"), Some(Language::Gl));
         assert_eq!(Language::from_tag("eu-ES"), Some(Language::Eu));
+        assert_eq!(Language::from_tag("it_IT.UTF-8"), Some(Language::It));
+        assert_eq!(Language::from_tag("fr-CA"), Some(Language::Fr));
+        assert_eq!(Language::from_tag("de_AT"), Some(Language::De));
+        assert_eq!(Language::from_tag("pl-PL"), Some(Language::Pl));
         assert_eq!(Language::from_tag("ru-RU"), None);
         assert_eq!(Language::from_tag(""), None);
         assert_eq!(resolve(Some("uk")), Language::Uk);
@@ -243,6 +272,10 @@ mod tests {
         assert_eq!(tr(Language::Ca, "Inbox"), "Safata d'entrada");
         assert_eq!(tr(Language::Gl, "Inbox"), "Caixa de entrada");
         assert_eq!(tr(Language::Eu, "Inbox"), "Sarrera-ontzia");
+        assert_eq!(tr(Language::It, "Inbox"), "Posta in arrivo");
+        assert_eq!(tr(Language::Fr, "Inbox"), "Boîte de réception");
+        assert_eq!(tr(Language::De, "Inbox"), "Posteingang");
+        assert_eq!(tr(Language::Pl, "Inbox"), "Skrzynka odbiorcza");
         assert_eq!(tr(Language::Uk, "no such string anywhere"), "no such string anywhere");
         set_current(Language::Uk);
         assert_eq!(tl("Inbox"), "Вхідні");
