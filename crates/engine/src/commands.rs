@@ -150,7 +150,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "New Email",
         group: "Home/New",
         shortcut: Some("Ctrl+N"),
-        params: "to?: string — comma-separated addresses\ncc?: string\nsubject?: string\nbody?: string",
+        params: "to?: string — comma-separated addresses\ncc?: string\nbcc?: string — blind copies: sent to, never shown to the others\nsubject?: string\nbody?: string\naccount?: number — the account it is sent from; default the one whose folder is open\nsignature?: boolean — add the account's signature under the body; default true",
         edits: true,
         run: message_compose,
     },
@@ -159,7 +159,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Edit draft",
         group: "Message/Basic Text",
         shortcut: None,
-        params: "id?: number — a draft\nto?: string\ncc?: string\nsubject?: string\nbody?: string",
+        params: "id?: number — a draft\nto?: string\ncc?: string\nbcc?: string\nsubject?: string\nbody?: string",
         edits: true,
         run: message_update,
     },
@@ -502,7 +502,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
+        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -843,14 +843,30 @@ pub(crate) fn the_user(s: &Session, account: AccountId) -> Address {
         .unwrap_or_else(|| Address { name: Some("Me".into()), email: "me@localhost".into() })
 }
 
-fn new_draft(s: &mut Session, account: AccountId, to: Vec<Address>, cc: Vec<Address>, subject: &str, body: &str) -> Result<Value> {
+/// The parts of a new draft: who to, its subject, the text written (`body`), whether the
+/// account's signature follows it, and the message quoted below (for a reply or forward).
+struct DraftParts<'a> {
+    to: Vec<Address>,
+    cc: Vec<Address>,
+    bcc: Vec<Address>,
+    subject: &'a str,
+    body: &'a str,
+    signed: bool,
+    quoted: &'a str,
+}
+
+fn new_draft(s: &mut Session, account: AccountId, d: DraftParts<'_>) -> Result<Value> {
     let drafts = s.store.folder_by_role(account, FolderRole::Drafts)?;
+    let signature = if d.signed { s.store.account(account).map(|a| a.signature.clone()).unwrap_or_default() } else { String::new() };
+    // As Outlook does: the signature under the text written, above what is quoted.
+    let body = if signature.is_empty() { format!("{}{}", d.body, d.quoted) } else { format!("{}\n\n{signature}{}", d.body, d.quoted) };
     let mut m = Message::new(MessageId(0), drafts);
     m.from = Some(the_user(s, account));
-    m.to = to;
-    m.cc = cc;
-    m.set_subject(subject);
-    m.body = ibercorreo_core::clamp_text(body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
+    m.to = d.to;
+    m.cc = d.cc;
+    m.bcc = d.bcc;
+    m.set_subject(d.subject);
+    m.body = ibercorreo_core::clamp_text(&body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
     m.seen = true;
     m.date = Some(s.now());
     let id = s.store.add_message(m)?;
@@ -863,8 +879,11 @@ fn new_draft(s: &mut Session, account: AccountId, to: Vec<Address>, cc: Vec<Addr
 fn message_compose(s: &mut Session, p: &Value) -> Result<Value> {
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
     let cc = Address::parse_list(str_param(p, "cc")?.unwrap_or(""))?;
+    let bcc = Address::parse_list(str_param(p, "bcc")?.unwrap_or(""))?;
     let account = account_param(s, p)?.unwrap_or_else(|| s.current_account());
-    new_draft(s, account, to, cc, str_param(p, "subject")?.unwrap_or(""), str_param(p, "body")?.unwrap_or(""))
+    let signed = bool_param(p, "signature")?.unwrap_or(true);
+    let (subject, body) = (str_param(p, "subject")?.unwrap_or(""), str_param(p, "body")?.unwrap_or(""));
+    new_draft(s, account, DraftParts { to, cc, bcc, subject, body, signed, quoted: "" })
 }
 
 fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
@@ -876,6 +895,7 @@ fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
     // Parse everything before changing anything.
     let to = str_param(p, "to")?.map(Address::parse_list).transpose()?;
     let cc = str_param(p, "cc")?.map(Address::parse_list).transpose()?;
+    let bcc = str_param(p, "bcc")?.map(Address::parse_list).transpose()?;
     let subject = str_param(p, "subject")?;
     let body = str_param(p, "body")?;
     let m = s.store.message_mut(id)?;
@@ -884,6 +904,9 @@ fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if let Some(cc) = cc {
         m.cc = cc;
+    }
+    if let Some(bcc) = bcc {
+        m.bcc = bcc;
     }
     if let Some(subject) = subject {
         m.set_subject(subject);
@@ -925,14 +948,17 @@ fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
     if to.is_empty() {
         to = orig.to.clone();
     }
-    new_draft(s, account, to, cc, &prefixed("Re", &orig.subject), &quote(&orig))
+    let subject = prefixed("Re", &orig.subject);
+    new_draft(s, account, DraftParts { to, cc, bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig) })
 }
 
 fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let orig = s.store.message(id)?.clone();
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
-    new_draft(s, account_of_message(s, id)?, to, Vec::new(), &prefixed("Fwd", &orig.subject), &quote(&orig))
+    let subject = prefixed("Fwd", &orig.subject);
+    let account = account_of_message(s, id)?;
+    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig) })
 }
 
 fn rfc5322_date(dt: DateTime) -> String {
@@ -978,6 +1004,7 @@ fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
     let mut v = summary(m);
     if let Some(o) = v.as_object_mut() {
         o.insert("cc".into(), json!(m.cc.iter().map(ToString::to_string).collect::<Vec<_>>()));
+        o.insert("bcc".into(), json!(m.bcc.iter().map(ToString::to_string).collect::<Vec<_>>()));
         o.insert("body".into(), Value::String(m.body.clone()));
         let rich = m.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
         o.insert("rich".into(), rich.unwrap_or(Value::Null));
@@ -1809,6 +1836,15 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
             format!("calendars and contacts already sync with {}'s server; one account at a time can sync them", other.address.email),
         ));
     }
+    let signature = match str_param(p, "signature")? {
+        None => old.map(|a| a.signature.clone()).unwrap_or_default(),
+        Some(text) => {
+            if text.len() > ibercorreo_core::mail::MAX_SIGNATURE_LEN {
+                return Err(Error::invalid("signature", format!("longer than {} bytes", ibercorreo_core::mail::MAX_SIGNATURE_LEN)));
+            }
+            text.trim_end().replace("\r\n", "\n")
+        }
+    };
     let oauth = str_param(p, "oauth")?.map(str::trim).unwrap_or("");
     if !oauth.is_empty() && ibercorreo_core::mail::OAuthProvider::get(oauth).is_none() {
         let known: Vec<_> = ibercorreo_core::mail::OAUTH_PROVIDERS.iter().map(|p| p.id).collect();
@@ -1824,7 +1860,7 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
         smtp_security,
         oauth: oauth.to_string(),
     };
-    Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav })
+    Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav, signature })
 }
 
 /// The mailbox an account reads: its IMAP server and sign-in name. Another one is another
@@ -1886,7 +1922,7 @@ fn account_remove(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn account_json(a: &Account) -> Value {
-    let mut v = json!({ "id": a.id.0, "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav });
+    let mut v = json!({ "id": a.id.0, "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav, "signature": a.signature });
     if let (AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. }, Some(obj)) =
         (&a.kind, v.as_object_mut())
     {

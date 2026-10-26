@@ -124,6 +124,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   kept in the store, in the order added, gone with their folder or account; the sample starts
   with Inbox and Sent), each account a heading that folds, folder icons drawn in code, and
   unread counts on every folder. 64 commands.
+- 2026-10-26 — M3.3c: a signature per account (Account settings, `signature` in `account.set`,
+  added under new mail, replies and forwards above the quoted text; `compose` takes
+  `signature:false`), a Bcc field (the **Bcc** button in compose; blind copies go into the SMTP
+  envelope and never into the headers; checked against Postfix and Dovecot), and a progress bar in
+  the status bar while syncing (account, folder, "N of M"). 64 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -142,6 +147,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M3.2.
 - 2026-10-26 — M3.3.
 - 2026-10-26 — M3.3b.
+- 2026-10-26 — M3.3c.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

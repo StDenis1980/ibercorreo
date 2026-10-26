@@ -47,6 +47,11 @@ fn security(s: ibercorreo_core::Security) -> Security {
 /// Run the job. Nothing here panics or gives up early on one failure: a failed send leaves the
 /// mail queued and the receive still runs.
 pub fn run(job: &Job) -> Finished {
+    run_with(job, &mut |_| {})
+}
+
+/// [`run`], telling `progress` how the mail sync comes along ([`ibercorreo_sync::Progress`]).
+pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
     let AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. } = &job.account.kind else {
         return Finished { sent: Vec::new(), batch: Err("this account has no mail server".into()), calendar: None, contacts: None };
     };
@@ -98,7 +103,7 @@ pub fn run(job: &Job) -> Finished {
             } else if let Some(path) = &job.sent_path {
                 outbox::save_sent(&mut c, path, &job.outbox, &mut sent);
             }
-            let batch = ibercorreo_sync::run(&mut c, &job.state, &job.limits).map_err(|e| e.to_string());
+            let batch = ibercorreo_sync::run_with(&mut c, &job.state, &job.limits, progress).map_err(|e| e.to_string());
             let _ = c.logout();
             batch
         });

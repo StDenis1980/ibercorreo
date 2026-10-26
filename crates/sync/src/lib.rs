@@ -162,16 +162,52 @@ fn has(flags: &[String], flag: &str) -> bool {
     flags.iter().any(|f| f.eq_ignore_ascii_case(flag))
 }
 
+/// How far a sync has come, for a progress bar: the folder being synced (`index` of `folders`,
+/// counting from 0) and how many of its new messages are downloaded.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Progress {
+    pub folder: String,
+    pub index: usize,
+    pub folders: usize,
+    pub fetched: usize,
+    pub to_fetch: usize,
+}
+
+impl Progress {
+    /// The share done, 0 to 1.
+    pub fn fraction(&self) -> f32 {
+        if self.folders == 0 {
+            return 1.0;
+        }
+        let within = if self.to_fetch == 0 { 0.0 } else { self.fetched.min(self.to_fetch) as f32 / self.to_fetch as f32 };
+        ((self.index as f32 + within) / self.folders as f32).clamp(0.0, 1.0)
+    }
+}
+
 /// Send local changes, then fetch the account's state. A failure in one mailbox is recorded in
 /// [`Batch::errors`] and the others continue; a lost connection ends the sync with an error.
 pub fn run<S: Read + Write>(client: &mut Client<S>, state: &State, limits: &Limits) -> Result<Batch> {
+    run_with(client, state, limits, &mut |_| {})
+}
+
+/// [`run`], telling `progress` as each folder starts and as its new mail comes in.
+pub fn run_with<S: Read + Write>(client: &mut Client<S>, state: &State, limits: &Limits, progress: &mut dyn FnMut(&Progress)) -> Result<Batch> {
     let mut batch = Batch::default();
     push(client, state, &mut batch)?;
 
     let mut mailboxes = client.list()?;
     mailboxes.truncate(limits.folders);
-    for mailbox in mailboxes.iter().filter(|m| m.selectable()) {
-        match folder(client, mailbox, state, limits) {
+    let selectable: Vec<&Mailbox> = mailboxes.iter().filter(|m| m.selectable()).collect();
+    let folders = selectable.len();
+    for (index, mailbox) in selectable.into_iter().enumerate() {
+        let mut at = Progress { folder: mailbox.name.clone(), index, folders, ..Progress::default() };
+        progress(&at);
+        let mut step = |fetched: usize, to_fetch: usize| {
+            at.fetched = fetched;
+            at.to_fetch = to_fetch;
+            progress(&at);
+        };
+        match folder(client, mailbox, state, limits, &mut step) {
             Ok(f) => batch.folders.push(f),
             Err(e @ (Error::Io(_) | Error::Timeout | Error::Closed | Error::Bye(_))) => return Err(e),
             Err(e) => batch.errors.push(format!("{}: {e}", mailbox.name)),
@@ -223,7 +259,13 @@ fn push<S: Read + Write>(client: &mut Client<S>, state: &State, batch: &mut Batc
     Ok(())
 }
 
-fn folder<S: Read + Write>(client: &mut Client<S>, mailbox: &Mailbox, state: &State, limits: &Limits) -> Result<FolderSync> {
+fn folder<S: Read + Write>(
+    client: &mut Client<S>,
+    mailbox: &Mailbox,
+    state: &State,
+    limits: &Limits,
+    step: &mut dyn FnMut(usize, usize),
+) -> Result<FolderSync> {
     let selected = client.select(&mailbox.raw, true)?;
     // A server without UIDVALIDITY (not allowed by the RFC) gets 0: its UIDs are then never trusted
     // across a change to a real value.
@@ -250,12 +292,18 @@ fn folder<S: Read + Write>(client: &mut Client<S>, mailbox: &Mailbox, state: &St
     let take = unseen.len().min(limits.new_per_folder);
     f.remaining = unseen.len().saturating_sub(take);
     let newest = unseen.get(unseen.len().saturating_sub(take)..).unwrap_or(&[]);
+    let mut fetched = 0usize;
     for chunk in newest.chunks(limits.fetch_batch.max(1)) {
+        step(fetched, newest.len());
         for item in client.uid_fetch(&uid_set(chunk)?, Items::Full)? {
             if let (Some(uid), Some(raw)) = (item.uid, item.body) {
                 f.new.push(NewMessage { uid, flags: item.flags.unwrap_or_default(), raw });
             }
         }
+        fetched = fetched.saturating_add(chunk.len());
+    }
+    if !newest.is_empty() {
+        step(fetched, newest.len());
     }
     Ok(f)
 }

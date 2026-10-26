@@ -96,6 +96,8 @@ struct Shell {
 
 /// What the Send/Receive thread reports: each account's result, then that it is done.
 enum Progress {
+    /// How far it has come: what to show, and the share done of every account's sync.
+    Step(String, f32),
     Account(AccountId, Box<ibercorreo_net::job::Finished>),
     Done,
 }
@@ -419,8 +421,21 @@ impl Shell {
         let (tx, rx) = mpsc::channel();
         let ctx = self.ctx.clone();
         let spawned = std::thread::Builder::new().name("send-receive".into()).spawn(move || {
-            for job in &jobs {
-                let finished = ibercorreo_net::job::run(job);
+            let count = jobs.len().max(1) as f32;
+            for (n, job) in jobs.iter().enumerate() {
+                let email = job.account.address.email.clone();
+                let mut step = |p: &ibercorreo_sync::Progress| {
+                    let what = if p.to_fetch > 0 {
+                        format!("{email} · {} {} of {}", p.folder, p.fetched, p.to_fetch)
+                    } else {
+                        format!("{email} · {}", p.folder)
+                    };
+                    let _ = tx.send(Progress::Step(what, (n as f32 + p.fraction()) / count));
+                    if let Some(ctx) = &ctx {
+                        ctx.request_repaint();
+                    }
+                };
+                let finished = ibercorreo_net::job::run_with(job, &mut step);
                 if tx.send(Progress::Account(job.account.id, Box::new(finished))).is_err() {
                     return;
                 }
@@ -441,9 +456,11 @@ impl Shell {
         loop {
             let Some(rx) = &self.worker else { return };
             match rx.try_recv() {
+                Ok(Progress::Step(what, done)) => self.app.sync_progress = Some((what, done)),
                 Ok(Progress::Account(id, finished)) => self.finish_account(id, *finished),
                 Ok(Progress::Done) => {
                     self.worker = None;
+                    self.app.sync_progress = None;
                     if !self.outcome.is_empty() {
                         self.app.session.status = self.outcome.join("; ");
                     }
@@ -456,6 +473,7 @@ impl Shell {
                 Err(TryRecvError::Empty) => return,
                 Err(TryRecvError::Disconnected) => {
                     self.worker = None;
+                    self.app.sync_progress = None;
                     self.app.session.status = "Send/Receive stopped unexpectedly; what had not finished was not changed".into();
                     return;
                 }

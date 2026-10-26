@@ -36,3 +36,4 @@ M3: OAuth2 sign-in for Gmail and Microsoft 365, autodiscovery, IMAP IDLE, a full
 - 2026-10-23 — M2.5b (CalDAV push) landed; M2.5 done.
 - 2026-10-26 — M3.3 (several accounts) landed.
 - 2026-10-26 — M3.3b (Favorites in the folder pane) landed.
+- 2026-10-26 — M3.3c (signatures, Bcc, sync progress) landed.
