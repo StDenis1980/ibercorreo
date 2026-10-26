@@ -211,15 +211,16 @@ fn real_server_sync_when_configured() {
     }
     let sync = |store: &mut ibercorreo_store::Store| {
         let mut c = connect();
-        let batch = ibercorreo_sync::run(&mut c, &ibercorreo_sync::state(store), &ibercorreo_sync::Limits::default()).unwrap();
+        let batch =
+            ibercorreo_sync::run(&mut c, &ibercorreo_sync::state(store, ibercorreo_core::AccountId(0)), &ibercorreo_sync::Limits::default()).unwrap();
         c.logout().unwrap();
-        ibercorreo_sync::apply(store, batch)
+        ibercorreo_sync::apply(store, ibercorreo_core::AccountId(0), batch)
     };
     let mut store = ibercorreo_store::Store::new();
     let r = sync(&mut store);
     assert_eq!((r.added, r.errors.len()), (3, 0), "{r:?}");
-    let inbox = store.folder_by_role(FolderRole::Inbox).unwrap();
-    let trash = store.folder_by_role(FolderRole::Trash).unwrap();
+    let inbox = store.folder_by_role(ibercorreo_core::AccountId(0), FolderRole::Inbox).unwrap();
+    let trash = store.folder_by_role(ibercorreo_core::AccountId(0), FolderRole::Trash).unwrap();
     let id = |store: &ibercorreo_store::Store, subject: &str| store.all_messages().iter().find(|m| m.subject == subject).map(|m| m.id);
     let m1 = id(&store, "m1").unwrap();
     let m2 = id(&store, "m2").unwrap();
@@ -244,7 +245,7 @@ fn real_server_sync_when_configured() {
     c.select("Trash", false).unwrap();
     assert_eq!(c.uid_search("1:*").unwrap(), Vec::<u32>::new());
     assert_eq!(store.messages_in(inbox).len(), 2);
-    assert!(ibercorreo_sync::state(&store).pushes.is_empty());
+    assert!(ibercorreo_sync::state(&store, ibercorreo_core::AccountId(0)).pushes.is_empty());
     c.logout().unwrap();
 }
 

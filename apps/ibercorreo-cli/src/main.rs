@@ -5,7 +5,9 @@
 //! ibercorreo-cli run [--store FILE | --sample] [--save] --cmd 'id={json}'...
 //! ibercorreo-cli eml FILE.eml                     a message as JSON
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
-//! ibercorreo-cli sync --store FILE [--ca CERT.der] Send/Receive for the store's account (set it
+//! ibercorreo-cli sync --store FILE [--account ID] [--ca CERT.der]
+//!                                                 Send/Receive for one of the store's accounts
+//!                                                 (the first, or ID from account.list; set it
 //!                                                 with `run --cmd account.set=...`): send the
 //!                                                 Outbox, then two-way IMAP sync; the password is
 //!                                                 read from IBERCORREO_PASSWORD, never an argument
@@ -56,7 +58,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
     );
     ExitCode::from(2)
 }
@@ -145,7 +147,7 @@ fn run(args: &[String]) -> Result<(), String> {
     s.set_system_zone(zone);
     s.day = s.today();
     s.path = store_path.clone();
-    if let Ok(inbox) = s.store.folder_by_role(FolderRole::Inbox) {
+    if let Ok(inbox) = s.store.folder_by_role(s.store.first_account(), FolderRole::Inbox) {
         s.folder = inbox;
     }
     for c in cmds {
@@ -218,12 +220,14 @@ fn sync(args: &[String]) -> Result<(), String> {
     use ibercorreo_net::Tls;
     let mut store_path: Option<PathBuf> = None;
     let mut ca = None;
+    let mut account_id: Option<u32> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || it.next().ok_or(format!("{a} needs a value"));
         match a.as_str() {
             "--store" => store_path = Some(PathBuf::from(value()?)),
             "--ca" => ca = Some(value()?.clone()),
+            "--account" => account_id = Some(value()?.parse::<u32>().map_err(|e| format!("--account: {e}"))?),
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
@@ -240,7 +244,11 @@ fn sync(args: &[String]) -> Result<(), String> {
     let mut s = Session::new(store, now().date);
     s.set_now(now());
     s.path = Some(store_path);
-    let account = s.store.accounts.first().cloned().ok_or("no account: run --cmd 'account.set={...}' first")?;
+    let account = match account_id {
+        Some(id) => s.store.account(ibercorreo_core::AccountId(id)).cloned().map_err(|e| e.to_string())?,
+        None => s.store.accounts.first().cloned().ok_or("no account: run --cmd 'account.set={...}' first")?,
+    };
+    let id = account.id;
     let credential = match account.oauth() {
         Some(p) => {
             let app = ibercorreo_net::oauth::app(p.id).map_err(|e| e.to_string())?;
@@ -256,9 +264,9 @@ fn sync(args: &[String]) -> Result<(), String> {
         account,
         credential: credential.clone(),
         tls,
-        state: s.sync_state(),
-        outbox: s.outbox(),
-        sent_path: s.sent_path(),
+        state: s.sync_state(id),
+        outbox: s.outbox(id),
+        sent_path: s.sent_path(id),
         limits: ibercorreo_sync::Limits::default(),
         calendar: s.calendar_sync_state(),
         contacts: s.contacts_sync_state(),
@@ -267,7 +275,7 @@ fn sync(args: &[String]) -> Result<(), String> {
     if !finished.sent.is_empty() {
         s.apply_sent(&finished.sent);
     }
-    let report = finished.batch.map(|b| s.apply_sync(b));
+    let report = finished.batch.map(|b| s.apply_sync(id, b));
     let calendar = finished.calendar.map(|r| r.map(|b| s.apply_calendar_sync(b)));
     let contacts = finished.contacts.map(|r| r.map(|b| s.apply_contacts_sync(b)));
     s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;

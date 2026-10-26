@@ -1,12 +1,12 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-23 · M3 (accounts) in progress
+Status: 2026-10-26 · M3 (accounts) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 59 |
+| Commands in the registry | 63 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -106,6 +106,19 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   revoked grant asks to sign in again. Client IDs come from the build or the environment
   (`docs/oauth.md`); `ibercorreo-cli oauth`. Checked end to end with a test provider: Dovecot
   signing in by XOAUTH2 (sync and IDLE) and Postfix sending by it.
+- 2026-10-26 — M3.3: several accounts. `AccountId`; every folder belongs to an account, each
+  with its seven standard folders (store format 4; older stores read as one account).
+  `account.add`, `account.remove`, `account.list`, an `id` on `account.set`/`account.get`; a
+  changed server or sign-in name forgets the mail synced from the old one; mail is written,
+  answered, sent and filed in its own account, a move across accounts is refused, and search
+  spans them all. Calendars and contacts sync with one account's server at a time. The folder
+  pane groups folders under each address, with ⚙ settings, **+ Add account** and Remove account;
+  choosing Google or Microsoft, or typing a Gmail/Outlook address, fills in the servers at once.
+  The app syncs every account in turn, with its own password or OAuth grant and its own IDLE
+  watch, opens the settings of the one whose sign-in failed, and keeps downloading while a
+  folder has more than the 500 newest still on the server (the status says how many).
+  `ibercorreo-cli sync --account ID`. Checked against Dovecot with two accounts (3 and 520
+  messages). 63 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -122,6 +135,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M2.7b; M2 done.
 - 2026-10-23 — M3.1.
 - 2026-10-23 — M3.2.
+- 2026-10-26 — M3.3.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

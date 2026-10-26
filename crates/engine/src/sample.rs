@@ -3,7 +3,7 @@
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind, Attachment};
-use ibercorreo_core::{Address, Contact, Date, DateTime, Event, EventId, FolderRole, Message, MessageId, Result};
+use ibercorreo_core::{AccountId, Address, Contact, Date, DateTime, Event, EventId, FolderRole, Message, MessageId, Result};
 use ibercorreo_store::Store;
 
 struct Mail {
@@ -83,9 +83,15 @@ fn addr(s: &str) -> Result<Address> {
 /// The sample store, dated around `today`.
 pub fn store(today: Date) -> Result<Store> {
     let mut s = Store::new();
-    s.accounts.push(Account { name: "Work".into(), address: addr("Denys <denys@example.com>")?, kind: AccountKind::Local, caldav: String::new() });
-    let inbox = s.folder_by_role(FolderRole::Inbox)?;
-    let sent = s.folder_by_role(FolderRole::Sent)?;
+    let work = s.add_account(Account {
+        id: AccountId(0),
+        name: "Work".into(),
+        address: addr("Denys <denys@example.com>")?,
+        kind: AccountKind::Local,
+        caldav: String::new(),
+    })?;
+    let inbox = s.folder_by_role(work, FolderRole::Inbox)?;
+    let sent = s.folder_by_role(work, FolderRole::Sent)?;
     for (i, mail) in INBOX.iter().enumerate() {
         let mut m = Message::new(MessageId(0), inbox);
         m.from = Some(addr(mail.from)?);
@@ -106,7 +112,7 @@ pub fn store(today: Date) -> Result<Store> {
         (FolderRole::Inbox, "Café Azul <novidades@example.net>", "Novidades de outubro", 2, NEWSLETTER),
         (FolderRole::Junk, "Bank Support <support@example.info>", "Confirm your account", 1, PHISHING),
     ] {
-        let mut m = Message::new(MessageId(0), s.folder_by_role(role)?);
+        let mut m = Message::new(MessageId(0), s.folder_by_role(work, role)?);
         m.from = Some(addr(from)?);
         m.to = vec![addr("Denys <denys@example.com>")?];
         m.set_subject(subject);
@@ -189,5 +195,20 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
         c.organization = Some(org.into());
         s.add_contact(c);
     }
+    // A second account, to show how several sit side by side in the folder pane.
+    let home = s.add_account(Account {
+        id: AccountId(0),
+        name: "Personal".into(),
+        address: addr("Denys <denys.home@example.org>")?,
+        kind: AccountKind::Local,
+        caldav: String::new(),
+    })?;
+    let mut m = Message::new(MessageId(0), s.folder_by_role(home, FolderRole::Inbox)?);
+    m.from = Some(addr("Olena <olena@example.org>")?);
+    m.to = vec![addr("Denys <denys.home@example.org>")?];
+    m.set_subject("Fotos del fin de semana");
+    m.date = Some(DateTime::new(today.add_days(-1)?, 20, 5, 0)?);
+    m.body = "¡Hola! Te paso las fotos de Valencia el domingo. Un abrazo, Olena".into();
+    s.add_message(m)?;
     Ok(s)
 }

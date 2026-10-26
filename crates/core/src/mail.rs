@@ -10,6 +10,12 @@ pub struct FolderId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub u64);
 
+/// An account in the store. Stores from before several accounts hold one, with id 0, which owns
+/// every folder.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct AccountId(pub u32);
+
 /// What a folder is for, so the interface can name and order it in the person's language whatever
 /// the server calls it (RFC 6154 special-use).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,6 +49,9 @@ impl FolderRole {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Folder {
     pub id: FolderId,
+    /// The account whose mail it holds.
+    #[serde(default)]
+    pub account: AccountId,
     pub name: String,
     pub role: FolderRole,
     /// The server mailbox this folder mirrors; `None` for a folder that only exists here.
@@ -132,16 +141,47 @@ pub struct OAuthProvider {
     pub domains: &'static [&'static str],
     /// Its SMTP server files what it sends in the Sent mailbox itself, so no copy is saved there.
     pub saves_sent: bool,
+    /// Its IMAP server (port 993, TLS).
+    pub imap_host: &'static str,
+    /// Its SMTP server, and whether it takes STARTTLS on port 587 (else TLS on 465).
+    pub smtp_host: &'static str,
+    pub smtp_starttls: bool,
+    /// Address domains whose mail it serves, so choosing it can fill in the servers.
+    pub mail_domains: &'static [&'static str],
 }
 
 pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
-    OAuthProvider { id: "google", name: "Google", domains: &["gmail.com", "googlemail.com"], saves_sent: true },
-    OAuthProvider { id: "microsoft", name: "Microsoft", domains: &["office365.com", "outlook.com"], saves_sent: false },
+    OAuthProvider {
+        id: "google",
+        name: "Google",
+        domains: &["gmail.com", "googlemail.com"],
+        saves_sent: true,
+        imap_host: "imap.gmail.com",
+        smtp_host: "smtp.gmail.com",
+        smtp_starttls: false,
+        mail_domains: &["gmail.com", "googlemail.com"],
+    },
+    OAuthProvider {
+        id: "microsoft",
+        name: "Microsoft",
+        domains: &["office365.com", "outlook.com"],
+        saves_sent: false,
+        imap_host: "outlook.office365.com",
+        smtp_host: "smtp.office365.com",
+        smtp_starttls: true,
+        mail_domains: &["outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.es", "hotmail.es"],
+    },
 ];
 
 impl OAuthProvider {
     pub fn get(id: &str) -> Option<&'static OAuthProvider> {
         OAUTH_PROVIDERS.iter().find(|p| p.id == id)
+    }
+
+    /// The provider that serves mail for `email` (`ana@gmail.com` is Google's), by its domain.
+    pub fn for_address(email: &str) -> Option<&'static OAuthProvider> {
+        let domain = email.trim().rsplit_once('@')?.1.trim_end_matches('.').to_ascii_lowercase();
+        OAUTH_PROVIDERS.iter().find(|p| p.mail_domains.iter().any(|d| domain == *d))
     }
 
     /// The provider whose mail server `host` is (`imap.gmail.com` is Google's).
@@ -172,6 +212,8 @@ impl Account {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
+    #[serde(default)]
+    pub id: AccountId,
     pub name: String,
     pub address: Address,
     pub kind: AccountKind,
@@ -348,6 +390,15 @@ mod tests {
     #[test]
     fn oauth_providers_by_server_name() {
         assert_eq!(OAuthProvider::for_host("imap.gmail.com").map(|p| p.id), Some("google"));
+        assert_eq!(OAuthProvider::for_address("Ana@GMail.com").map(|p| p.id), Some("google"));
+        assert_eq!(OAuthProvider::for_address("ana@hotmail.com").map(|p| p.id), Some("microsoft"));
+        for other in ["ana@example.org", "ana", "ana@", "@gmail.com.evil.org", "gmail.com"] {
+            assert_eq!(OAuthProvider::for_address(other).map(|p| p.id), None, "{other}");
+        }
+        for p in OAUTH_PROVIDERS {
+            assert_eq!(OAuthProvider::for_host(p.imap_host).map(|x| x.id), Some(p.id));
+            assert_eq!(OAuthProvider::for_host(p.smtp_host).map(|x| x.id), Some(p.id));
+        }
         assert_eq!(OAuthProvider::for_host("SMTP.Office365.com.").map(|p| p.id), Some("microsoft"));
         assert_eq!(OAuthProvider::for_host("outlook.com").map(|p| p.id), Some("microsoft"));
         // Only whole labels: a look-alike domain is not the provider.

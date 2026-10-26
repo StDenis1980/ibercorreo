@@ -53,14 +53,14 @@ fn registry_ids_are_unique_and_documented() {
 fn compose_send_and_undo() {
     let mut s = session();
     let id = s.run("message.compose", &json!({"to": "Ana <ana@example.org>", "subject": "Olá", "body": "Teste"})).unwrap()["id"].as_u64().unwrap();
-    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(FolderRole::Drafts).unwrap());
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());
     s.run("message.send", &json!({"id": id})).unwrap();
-    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(FolderRole::Outbox).unwrap());
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Outbox).unwrap());
     assert!(s.run("message.send", &json!({"id": id})).is_err(), "only drafts send");
     s.run("edit.undo", &Value::Null).unwrap();
-    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(FolderRole::Drafts).unwrap());
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());
     s.run("edit.redo", &Value::Null).unwrap();
-    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(FolderRole::Outbox).unwrap());
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Outbox).unwrap());
     let empty = s.run("message.compose", &json!({})).unwrap()["id"].as_u64().unwrap();
     assert!(s.run("message.send", &json!({"id": empty})).is_err(), "no recipients");
 }
@@ -80,7 +80,7 @@ fn delete_moves_to_trash_then_deletes() {
     let first = s.store.messages_in(s.folder).first().unwrap().id;
     s.run("message.select", &json!({"id": first.0})).unwrap();
     s.run("message.delete", &Value::Null).unwrap();
-    let trash = s.store.folder_by_role(FolderRole::Trash).unwrap();
+    let trash = s.store.folder_by_role(AccountId(0), FolderRole::Trash).unwrap();
     assert_eq!(s.store.message(first).unwrap().folder, trash);
     assert_eq!(s.message, None);
     s.run("message.delete", &json!({"id": first.0})).unwrap();
@@ -265,14 +265,14 @@ fn outbox_renders_and_sending_results_move_mail() {
     };
     let (ok, saved, later, bad) =
         (queue("ana@example.org", "a"), queue("bob@example.org", "b"), queue("c@example.org", "c"), queue("d@example.org", "d"));
-    let out = s.outbox();
+    let out = s.outbox(AccountId(0));
     assert_eq!(out.len(), 4);
     let first = out.iter().find(|o| o.id == ok).unwrap();
     assert_eq!(first.to, ["ana@example.org"]);
     assert_eq!(first.from, "denys@example.com");
     let text = String::from_utf8(first.raw.clone()).unwrap();
     assert!(text.contains("Subject: a\r\n") && text.contains("Message-ID: <"), "{text}");
-    assert_eq!(s.outbox().iter().find(|o| o.id == ok).unwrap().raw, first.raw, "the same bytes every time");
+    assert_eq!(s.outbox(AccountId(0)).iter().find(|o| o.id == ok).unwrap().raw, first.raw, "the same bytes every time");
 
     s.apply_sent(&[
         Sent { id: ok, outcome: Outcome::Sent { saved: false } },
@@ -281,11 +281,11 @@ fn outbox_renders_and_sending_results_move_mail() {
         Sent { id: bad, outcome: Outcome::Failed("550 no such user".into()) },
     ]);
     let folder = |id| s.store.message(id).map(|m| m.folder);
-    assert_eq!(folder(ok), s.store.folder_by_role(FolderRole::Sent));
+    assert_eq!(folder(ok), s.store.folder_by_role(AccountId(0), FolderRole::Sent));
     assert!(s.store.message(ok).unwrap().seen);
     assert!(s.store.message(saved).is_err(), "the server's Sent copy comes back with the next sync");
-    assert_eq!(folder(later), s.store.folder_by_role(FolderRole::Outbox));
-    assert_eq!(folder(bad), s.store.folder_by_role(FolderRole::Drafts));
+    assert_eq!(folder(later), s.store.folder_by_role(AccountId(0), FolderRole::Outbox));
+    assert_eq!(folder(bad), s.store.folder_by_role(AccountId(0), FolderRole::Drafts));
     assert!(!s.can_undo(), "undo must never put sent mail back in the Outbox");
     assert!(s.status.contains("Sent 2") && s.status.contains("550"), "{}", s.status);
 }
@@ -301,7 +301,7 @@ fn account_settings_and_sync_request() {
     assert_eq!(v["imapHost"], "imap.example.org");
     assert_eq!((v["imapPort"].as_u64(), v["smtpPort"].as_u64()), (Some(993), Some(587)));
     assert_eq!(v["user"], "denys@example.org");
-    assert_eq!(s.store.accounts.len(), 1, "the first account is replaced");
+    assert_eq!(s.store.accounts.len(), 2, "the open folder's account is changed, not another added");
     s.run("account.sync", &Value::Null).unwrap();
     assert!(s.sync_requested);
     for bad in [
@@ -445,7 +445,7 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
     assert!(s.invite_info(id).unwrap().in_calendar);
     let answer = MessageId(out["reply"].as_u64().unwrap());
     let m = s.store.message(answer).unwrap();
-    assert_eq!(m.folder, s.store.folder_by_role(FolderRole::Outbox).unwrap());
+    assert_eq!(m.folder, s.store.folder_by_role(AccountId(0), FolderRole::Outbox).unwrap());
     assert_eq!(m.subject, "Accepted: Revisión del presupuesto");
     assert_eq!(m.to[0].email, "marta@example.es");
     let raw = commands::render(&s, answer).unwrap();
@@ -454,7 +454,7 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
     let reply = ibercorreo_ical::invite(back.invite.as_deref().unwrap()).unwrap();
     assert_eq!(reply.method, "REPLY");
     assert_eq!((reply.attendees[0].email.as_str(), reply.attendees[0].status.as_deref()), ("denys@example.com", Some("ACCEPTED")));
-    assert_eq!(s.outbox().len(), 1);
+    assert_eq!(s.outbox(AccountId(0)).len(), 1);
 
     // An update from the organizer moves the meeting; answering again changes it in place.
     let moved = s
@@ -492,16 +492,16 @@ fn declining_removes_the_meeting_and_can_be_edited_first() {
     let mut s = session();
     let id = invitation(&s);
     s.run("invite.respond", &json!({"id": id.0, "response": "accept", "reply": "none"})).unwrap();
-    assert_eq!(s.outbox().len(), 0, "no answer asked for");
+    assert_eq!(s.outbox(AccountId(0)).len(), 0, "no answer asked for");
     let out = s.run("invite.respond", &json!({"id": id.0, "response": "decline", "reply": "edit"})).unwrap();
     assert_eq!(out["removed"], 1);
     assert!(!s.invite_info(id).unwrap().in_calendar);
     let draft = MessageId(out["reply"].as_u64().unwrap());
     assert_eq!(s.message, Some(draft), "the answer opens to edit");
-    assert_eq!(s.store.message(draft).unwrap().folder, s.store.folder_by_role(FolderRole::Drafts).unwrap());
+    assert_eq!(s.store.message(draft).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());
     s.run("message.update", &json!({"body": "Lo siento, estoy de viaje."})).unwrap();
     s.run("message.send", &Value::Null).unwrap();
-    let sent = &s.outbox()[0];
+    let sent = &s.outbox(AccountId(0))[0];
     let text = String::from_utf8_lossy(&sent.raw).to_string();
     let back = ibercorreo_mime::parse(text.as_bytes(), MessageId(99), FolderId(0)).unwrap();
     assert_eq!(back.body.trim(), "Lo siento, estoy de viaje.");
@@ -628,4 +628,82 @@ fn server_address_books_sync_and_contacts_move_between_books() {
         .unwrap();
     assert!(s.store.books().iter().all(|b| b.remote.is_none()));
     assert!(s.store.contact(ana).is_ok());
+}
+
+#[test]
+fn several_accounts_each_send_from_their_own_folders() {
+    let mut s = session();
+    let ana = json!({"email": "ana@example.org", "name": "Ana", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});
+    let v = s.run("account.add", &ana).unwrap();
+    let a = AccountId(u32::try_from(v["id"].as_u64().unwrap()).unwrap());
+    assert_eq!(s.current_account(), a, "the new account's Inbox opens");
+    assert!(s.run("account.add", &ana).is_err(), "the same mailbox twice");
+    let list = s.run("account.list", &Value::Null).unwrap();
+    assert_eq!(list.as_array().map(Vec::len), Some(3));
+    assert_eq!(list.as_array().unwrap().iter().filter(|x| x["current"] == true).count(), 1);
+    // A message written here comes from this account and leaves through its Outbox.
+    let id = s.run("message.compose", &json!({"to": "bo@example.net", "subject": "hola"})).unwrap()["id"].as_u64().unwrap();
+    let m = s.store.message(MessageId(id)).unwrap();
+    assert_eq!(m.from.as_ref().map(|f| f.email.as_str()), Some("ana@example.org"));
+    assert_eq!(m.folder, s.store.folder_by_role(a, FolderRole::Drafts).unwrap());
+    s.run("message.send", &json!({"id": id})).unwrap();
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(a, FolderRole::Outbox).unwrap());
+    assert!(s.outbox(AccountId(0)).iter().all(|o| o.id != MessageId(id)), "not in the other account's Outbox");
+    assert_eq!(s.outbox(a).len(), 1);
+    s.apply_sent(&[ibercorreo_sync::outbox::Sent { id: MessageId(id), outcome: ibercorreo_sync::outbox::Outcome::Sent { saved: false } }]);
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(a, FolderRole::Sent).unwrap());
+    // Composing for another account by id; folder names reach the open account, or the one named.
+    let other = s.run("message.compose", &json!({"account": 0, "subject": "work"})).unwrap()["id"].as_u64().unwrap();
+    assert_eq!(s.store.message(MessageId(other)).unwrap().from.as_ref().map(|f| f.email.as_str()), Some("denys@example.com"));
+    s.run("folder.select", &json!({"folder": "inbox", "account": a.0})).unwrap();
+    assert_eq!(s.folder, s.store.folder_by_role(a, FolderRole::Inbox).unwrap());
+    assert!(s.run("message.compose", &json!({"account": 77})).is_err());
+    // Delete goes to the message's own Trash; moving across accounts is refused.
+    s.run("message.delete", &json!({"id": other})).unwrap();
+    assert_eq!(s.store.message(MessageId(other)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Trash).unwrap());
+    let theirs = s.store.folder_by_role(a, FolderRole::Archive).unwrap();
+    assert!(s.run("message.move", &json!({"id": other, "folder": theirs.0})).is_err());
+    // Removing an account takes its folders; undo brings it back.
+    s.run("account.remove", &json!({"id": a.0})).unwrap();
+    assert!(s.store.account(a).is_err() && s.store.message(MessageId(id)).is_err());
+    assert_eq!(s.current_account(), AccountId(0), "the selection moves to a folder that is left");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(s.store.account(a).is_ok() && s.store.message(MessageId(id)).is_ok());
+}
+
+#[test]
+fn another_mailbox_for_an_account_forgets_the_old_mail() {
+    let mut s = session();
+    let base = json!({"email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});
+    let a = AccountId(u32::try_from(s.run("account.add", &base).unwrap()["id"].as_u64().unwrap()).unwrap());
+    let inbox = s.store.folder_by_role(a, FolderRole::Inbox).unwrap();
+    s.store.folder_mut(inbox).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "INBOX".into(), uid_validity: 1 });
+    let mut m = Message::new(MessageId(0), inbox);
+    m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false });
+    let synced = s.store.add_message(m).unwrap();
+    // A new name for the same mailbox keeps the mail.
+    s.run(
+        "account.set",
+        &json!({"id": a.0, "email": "ana@example.org", "name": "Ana G.", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"}),
+    )
+    .unwrap();
+    assert!(s.store.message(synced).is_ok());
+    // Another server (as when Outlook replaces Gmail) does not mix the two.
+    s.run("account.set", &json!({"id": a.0, "email": "ana@outlook.com", "imapHost": "outlook.office365.com", "smtpHost": "smtp.office365.com"}))
+        .unwrap();
+    assert!(s.store.message(synced).is_err());
+    assert_eq!(s.store.folder(inbox).unwrap().remote, None);
+}
+
+#[test]
+fn only_one_account_syncs_calendars() {
+    let mut s = session();
+    let dav =
+        json!({"email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org", "caldav": "https://dav.example.org/"});
+    s.run("account.add", &dav).unwrap();
+    let mut second = dav.clone();
+    second["email"] = json!("bo@example.net");
+    assert!(s.run("account.add", &second).is_err(), "a second CalDAV account");
+    second["caldav"] = json!("");
+    s.run("account.add", &second).unwrap();
 }

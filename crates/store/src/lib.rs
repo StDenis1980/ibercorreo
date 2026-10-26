@@ -12,8 +12,8 @@ use std::path::Path;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, AddressBook, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId, FolderRole,
-    Message, MessageId, RemoteRef, Result, Zone, clamp_text,
+    Account, AccountId, AddressBook, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId,
+    FolderRole, Message, MessageId, RemoteRef, Result, Zone, clamp_text,
 };
 use serde::{Deserialize, Serialize};
 
@@ -24,7 +24,22 @@ pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// leave a tombstone until the server has deleted them too.
 /// 3: contacts hold several phones (`phones`), a UID, title, note, birthday and unread vCard lines,
 /// and live in address books (`books`), which may mirror CardDAV servers.
-pub const FORMAT_VERSION: u32 = 3;
+/// 4: several accounts: accounts have an `id`, folders the `account` they belong to (files from
+/// before give everything account 0).
+pub const FORMAT_VERSION: u32 = 4;
+/// The most accounts a store holds.
+pub const MAX_ACCOUNTS: usize = 50;
+
+/// The folders every account starts with.
+const STANDARD_FOLDERS: [(&str, FolderRole); 7] = [
+    ("Inbox", FolderRole::Inbox),
+    ("Drafts", FolderRole::Drafts),
+    ("Sent", FolderRole::Sent),
+    ("Outbox", FolderRole::Outbox),
+    ("Archive", FolderRole::Archive),
+    ("Junk", FolderRole::Junk),
+    ("Trash", FolderRole::Trash),
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Store {
@@ -36,6 +51,8 @@ pub struct Store {
     events: Vec<Event>,
     contacts: Vec<Contact>,
     next_folder: u32,
+    #[serde(default)]
+    next_account: u32,
     next_message: u64,
     next_event: u64,
     next_contact: u64,
@@ -127,28 +144,95 @@ impl Store {
     /// An empty store with the standard folders and one calendar.
     pub fn new() -> Store {
         let mut s = Store { version: FORMAT_VERSION, ..Store::default() };
-        for (name, role) in [
-            ("Inbox", FolderRole::Inbox),
-            ("Drafts", FolderRole::Drafts),
-            ("Sent", FolderRole::Sent),
-            ("Outbox", FolderRole::Outbox),
-            ("Archive", FolderRole::Archive),
-            ("Junk", FolderRole::Junk),
-            ("Trash", FolderRole::Trash),
-        ] {
-            s.add_folder(name, role);
-        }
+        s.add_standard_folders(AccountId(0));
         s.calendars.push(Calendar { id: 0, name: "Calendar".into(), color: "#1F7A8C".into(), remote: None });
         s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
         s
     }
 
+    // ---- accounts ----
+
+    pub fn account(&self, id: AccountId) -> Result<&Account> {
+        self.accounts.iter().find(|a| a.id == id).ok_or_else(|| Error::not_found("account", id.0.to_string()))
+    }
+
+    pub fn account_mut(&mut self, id: AccountId) -> Result<&mut Account> {
+        self.accounts.iter_mut().find(|a| a.id == id).ok_or_else(|| Error::not_found("account", id.0.to_string()))
+    }
+
+    /// The account whose mail `folder` holds.
+    pub fn account_of(&self, folder: FolderId) -> Result<AccountId> {
+        Ok(self.folder(folder)?.account)
+    }
+
+    /// Add an account (its `id` is replaced) with the standard folders, and return its id. The
+    /// first account takes over the folders a store starts with, and the mail already in them.
+    pub fn add_account(&mut self, mut account: Account) -> Result<AccountId> {
+        if self.accounts.len() >= MAX_ACCOUNTS {
+            return Err(Error::invalid("account", format!("at most {MAX_ACCOUNTS} accounts")));
+        }
+        let id = if self.accounts.is_empty() && self.folders.iter().all(|f| f.account == AccountId(0)) {
+            AccountId(0)
+        } else {
+            let next = self.accounts.iter().map(|a| a.id.0.saturating_add(1)).chain(self.folders.iter().map(|f| f.account.0.saturating_add(1))).max();
+            AccountId(next.unwrap_or(0).max(self.next_account))
+        };
+        self.next_account = id.0.saturating_add(1).max(self.next_account);
+        account.id = id;
+        self.accounts.push(account);
+        self.add_standard_folders(id);
+        Ok(id)
+    }
+
+    /// Remove an account with its folders and the mail in them, returning it. The last one gone,
+    /// the store keeps empty standard folders, as a new store has.
+    pub fn remove_account(&mut self, id: AccountId) -> Result<Account> {
+        let pos = self.accounts.iter().position(|a| a.id == id).ok_or_else(|| Error::not_found("account", id.0.to_string()))?;
+        let account = self.accounts.remove(pos);
+        let gone: std::collections::HashSet<FolderId> = self.folders.iter().filter(|f| f.account == id).map(|f| f.id).collect();
+        self.messages.retain(|m| !gone.contains(&m.folder));
+        self.tombstones.retain(|t| !gone.contains(&t.folder));
+        self.folders.retain(|f| f.account != id);
+        if self.folders.is_empty() {
+            self.add_standard_folders(AccountId(0));
+        }
+        Ok(account)
+    }
+
+    /// The account moved to another server (or another person's mailbox): what was synced from
+    /// the old one goes, with the folders only the server had. Mail that only exists here stays.
+    /// Returns how many messages went.
+    pub fn forget_server_mail(&mut self, id: AccountId) -> usize {
+        let synced: std::collections::HashSet<FolderId> =
+            self.folders.iter().filter(|f| f.account == id && f.remote.is_some()).map(|f| f.id).collect();
+        let before = self.messages.len();
+        self.messages.retain(|m| !(m.remote.is_some_and(|r| synced.contains(&r.folder)) || (m.remote.is_some() && synced.contains(&m.folder))));
+        let dropped = before.saturating_sub(self.messages.len());
+        self.tombstones.retain(|t| !synced.contains(&t.folder));
+        let held: std::collections::HashSet<FolderId> = self.messages.iter().map(|m| m.folder).collect();
+        self.folders.retain(|f| !(synced.contains(&f.id) && f.role == FolderRole::Other && !held.contains(&f.id)));
+        for f in self.folders.iter_mut().filter(|f| synced.contains(&f.id)) {
+            f.remote = None;
+        }
+        self.add_standard_folders(id);
+        dropped
+    }
+
+    /// Give `account` each standard folder it lacks.
+    fn add_standard_folders(&mut self, account: AccountId) {
+        for (name, role) in STANDARD_FOLDERS {
+            if !self.folders.iter().any(|f| f.account == account && f.role == role) {
+                self.add_folder(account, name, role);
+            }
+        }
+    }
+
     // ---- folders ----
 
-    pub fn add_folder(&mut self, name: &str, role: FolderRole) -> FolderId {
+    pub fn add_folder(&mut self, account: AccountId, name: &str, role: FolderRole) -> FolderId {
         let id = FolderId(self.next_folder);
         self.next_folder = self.next_folder.saturating_add(1);
-        self.folders.push(Folder { id, name: name.to_string(), role, remote: None });
+        self.folders.push(Folder { id, account, name: name.to_string(), role, remote: None });
         id
     }
 
@@ -156,24 +240,41 @@ impl Store {
         self.folders.iter_mut().find(|f| f.id == id).ok_or_else(|| Error::not_found("folder", id.0.to_string()))
     }
 
-    /// The folder that mirrors server mailbox `path`.
-    pub fn folder_by_path(&self, path: &str) -> Option<FolderId> {
-        self.folders.iter().find(|f| f.remote.as_ref().is_some_and(|r| r.path == path)).map(|f| f.id)
+    /// The folder of `account` that mirrors server mailbox `path`.
+    pub fn folder_by_path(&self, account: AccountId, path: &str) -> Option<FolderId> {
+        self.folders.iter().find(|f| f.account == account && f.remote.as_ref().is_some_and(|r| r.path == path)).map(|f| f.id)
     }
 
-    /// Folders in the order the folder pane shows them.
+    /// Folders in the order the folder pane shows them: account by account (in the order they
+    /// were added), Inbox first.
     pub fn folders(&self) -> Vec<&Folder> {
+        let rank = |a: AccountId| self.accounts.iter().position(|x| x.id == a).unwrap_or(0);
         let mut v: Vec<&Folder> = self.folders.iter().collect();
-        v.sort_by_key(|f| (f.role.order(), f.name.to_lowercase()));
+        v.sort_by_key(|f| (rank(f.account), f.role.order(), f.name.to_lowercase()));
         v
+    }
+
+    /// The folders of one account, in folder pane order.
+    pub fn folders_of(&self, account: AccountId) -> Vec<&Folder> {
+        self.folders().into_iter().filter(|f| f.account == account).collect()
     }
 
     pub fn folder(&self, id: FolderId) -> Result<&Folder> {
         self.folders.iter().find(|f| f.id == id).ok_or_else(|| Error::not_found("folder", id.0.to_string()))
     }
 
-    pub fn folder_by_role(&self, role: FolderRole) -> Result<FolderId> {
-        self.folders.iter().find(|f| f.role == role).map(|f| f.id).ok_or_else(|| Error::not_found("folder", format!("{role:?}")))
+    /// `account`'s folder with `role` (its Inbox, its Sent…).
+    pub fn folder_by_role(&self, account: AccountId, role: FolderRole) -> Result<FolderId> {
+        self.folders
+            .iter()
+            .find(|f| f.account == account && f.role == role)
+            .map(|f| f.id)
+            .ok_or_else(|| Error::not_found("folder", format!("{role:?}")))
+    }
+
+    /// The account shown first: the first one added, or the folders of a store with none.
+    pub fn first_account(&self) -> AccountId {
+        self.accounts.first().map(|a| a.id).or_else(|| self.folders.first().map(|f| f.account)).unwrap_or_default()
     }
 
     pub fn unread_count(&self, folder: FolderId) -> usize {
@@ -812,6 +913,16 @@ impl Store {
             s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
         }
         s.check()?;
+        let accounts: Vec<AccountId> = s.accounts.iter().map(|a| a.id).collect();
+        for a in accounts {
+            s.add_standard_folders(a);
+        }
+        if s.folders.is_empty() {
+            s.add_standard_folders(AccountId(0));
+        }
+        if let Some(top) = s.accounts.iter().map(|a| a.id.0.saturating_add(1)).max() {
+            s.next_account = s.next_account.max(top);
+        }
         for c in &mut s.contacts {
             c.upgrade();
         }
@@ -822,6 +933,20 @@ impl Store {
 
     /// Ids unique and every reference resolvable, so a hand-edited file can't confuse the app.
     fn check(&self) -> Result<()> {
+        if self.accounts.len() > MAX_ACCOUNTS {
+            return Err(Error::invalid("store file", format!("more than {MAX_ACCOUNTS} accounts")));
+        }
+        let mut accounts = std::collections::HashSet::new();
+        for a in &self.accounts {
+            if !accounts.insert(a.id) {
+                return Err(Error::invalid("store file", format!("duplicate account id {}", a.id.0)));
+            }
+        }
+        for f in &self.folders {
+            if !self.accounts.is_empty() && !accounts.contains(&f.account) {
+                return Err(Error::invalid("store file", format!("folder {} belongs to no account", f.id.0)));
+            }
+        }
         let mut ids = std::collections::HashSet::new();
         for m in &self.messages {
             if !ids.insert(m.id) {
@@ -853,10 +978,10 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ibercorreo_core::{Address, DateTime};
+    use ibercorreo_core::{Address, DateTime, RemoteFolder};
 
     fn msg(store: &Store, subject: &str, day: u8) -> Message {
-        let mut m = Message::new(MessageId(0), store.folder_by_role(FolderRole::Inbox).unwrap());
+        let mut m = Message::new(MessageId(0), store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap());
         m.set_subject(subject);
         m.from = Some(Address::parse("Ana <ana@example.org>").unwrap());
         m.date = Some(DateTime::new(Date::new(2026, 10, day).unwrap(), 9, 0, 0).unwrap());
@@ -866,8 +991,8 @@ mod tests {
     #[test]
     fn messages_sort_newest_first_and_move() {
         let mut s = Store::new();
-        let inbox = s.folder_by_role(FolderRole::Inbox).unwrap();
-        let trash = s.folder_by_role(FolderRole::Trash).unwrap();
+        let inbox = s.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let trash = s.folder_by_role(AccountId(0), FolderRole::Trash).unwrap();
         let a = s.add_message(msg(&s, "older", 1)).unwrap();
         let b = s.add_message(msg(&s, "newer", 20)).unwrap();
         assert_eq!(s.messages_in(inbox).iter().map(|m| m.id).collect::<Vec<_>>(), vec![b, a]);
@@ -996,7 +1121,7 @@ END:VCALENDAR\r\n";
     #[test]
     fn deleting_a_synced_message_leaves_a_tombstone_until_undone() {
         let mut s = Store::new();
-        let inbox = s.folder_by_role(FolderRole::Inbox).unwrap();
+        let inbox = s.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
         let mut m = msg(&s, "synced", 1);
         m.remote = Some(RemoteRef { folder: inbox, uid: 42, seen: false, flagged: false });
         let id = s.add_message(m).unwrap();
@@ -1091,5 +1216,144 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
         assert!(s.remove_book(0).is_err(), "the last book stays");
         let back = Store::from_json(&serde_json::to_vec(&s).unwrap()).unwrap();
         assert_eq!(back.books().len(), 1);
+    }
+
+    fn imap(email: &str) -> Account {
+        Account {
+            id: AccountId(99),
+            name: email.into(),
+            address: Address::parse(email).unwrap(),
+            kind: ibercorreo_core::mail::AccountKind::Imap {
+                imap_host: "imap.example.org".into(),
+                imap_port: 993,
+                smtp_host: "smtp.example.org".into(),
+                smtp_port: 465,
+                user: String::new(),
+                imap_security: Default::default(),
+                smtp_security: Default::default(),
+                oauth: String::new(),
+            },
+            caldav: String::new(),
+        }
+    }
+
+    fn synced(s: &mut Store, folder: FolderId, uid: u32, subject: &str) -> MessageId {
+        let mut m = Message::new(MessageId(0), folder);
+        m.set_subject(subject);
+        m.remote = Some(RemoteRef { folder, uid, seen: false, flagged: false });
+        s.add_message(m).unwrap()
+    }
+
+    #[test]
+    fn each_account_has_its_own_folders() {
+        let mut s = Store::new();
+        let local = s.add_message(msg(&s, "written before any account", 1)).unwrap();
+        let a = s.add_account(imap("ana@example.org")).unwrap();
+        assert_eq!(a, AccountId(0), "the first account takes over the folders the store started with");
+        assert_eq!(s.message(local).unwrap().folder, s.folder_by_role(a, FolderRole::Inbox).unwrap());
+        let b = s.add_account(imap("bo@example.net")).unwrap();
+        assert_ne!(a, b);
+        assert_eq!(s.folders_of(b).len(), 7, "a new account gets the standard folders");
+        assert_ne!(s.folder_by_role(a, FolderRole::Inbox).unwrap(), s.folder_by_role(b, FolderRole::Inbox).unwrap());
+        let order: Vec<AccountId> = s.folders().iter().map(|f| f.account).collect();
+        assert!(order.windows(2).all(|w| w[0] <= w[1]), "the pane lists account by account: {order:?}");
+        // Mailboxes with the same name on two servers stay apart.
+        let (ia, ib) = (s.folder_by_role(a, FolderRole::Inbox).unwrap(), s.folder_by_role(b, FolderRole::Inbox).unwrap());
+        for id in [ia, ib] {
+            s.folder_mut(id).unwrap().remote = Some(RemoteFolder { path: "INBOX".into(), uid_validity: 1 });
+        }
+        assert_eq!(s.folder_by_path(a, "INBOX"), Some(ia));
+        assert_eq!(s.folder_by_path(b, "INBOX"), Some(ib));
+        let back = Store::from_json(&serde_json::to_vec(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+        // A third account after removing the second does not reuse its id.
+        s.remove_account(b).unwrap();
+        let c = s.add_account(imap("cy@example.com")).unwrap();
+        assert!(c > b, "{c:?} after {b:?}");
+    }
+
+    #[test]
+    fn removing_an_account_takes_its_mail_and_leaves_the_rest() {
+        let mut s = Store::new();
+        let a = s.add_account(imap("ana@example.org")).unwrap();
+        let b = s.add_account(imap("bo@example.net")).unwrap();
+        let ia = s.folder_by_role(a, FolderRole::Inbox).unwrap();
+        let ib = s.folder_by_role(b, FolderRole::Inbox).unwrap();
+        let keep = synced(&mut s, ia, 1, "ana's");
+        let gone = synced(&mut s, ib, 1, "bo's");
+        s.remove_message(gone).unwrap();
+        let gone2 = synced(&mut s, ib, 2, "bo's too");
+        assert_eq!(s.tombstones().len(), 1);
+        s.remove_account(b).unwrap();
+        assert!(s.message(gone2).is_err() && s.folder(ib).is_err() && s.tombstones().is_empty());
+        assert!(s.message(keep).is_ok());
+        assert!(s.remove_account(b).is_err(), "removed already");
+        s.remove_account(a).unwrap();
+        assert!(s.accounts.is_empty());
+        assert_eq!(s.folders().len(), 7, "a store without accounts keeps empty standard folders");
+        assert!(s.all_messages().is_empty());
+        assert_eq!(s.add_account(imap("di@example.org")).unwrap(), AccountId(0));
+    }
+
+    #[test]
+    fn another_server_forgets_the_mail_synced_from_the_old_one() {
+        let mut s = Store::new();
+        let a = s.add_account(imap("ana@example.org")).unwrap();
+        let inbox = s.folder_by_role(a, FolderRole::Inbox).unwrap();
+        s.folder_mut(inbox).unwrap().remote = Some(RemoteFolder { path: "INBOX".into(), uid_validity: 7 });
+        let lists = s.add_folder(a, "Lists", FolderRole::Other);
+        s.folder_mut(lists).unwrap().remote = Some(RemoteFolder { path: "Lists".into(), uid_validity: 7 });
+        let kept = s.add_folder(a, "Projects", FolderRole::Other);
+        s.folder_mut(kept).unwrap().remote = Some(RemoteFolder { path: "Projects".into(), uid_validity: 7 });
+        synced(&mut s, inbox, 1, "old server");
+        synced(&mut s, lists, 2, "old server list");
+        let tomb = synced(&mut s, inbox, 3, "deleted here");
+        s.remove_message(tomb).unwrap();
+        let mut mine = msg(&s, "only here", 2);
+        mine.folder = kept;
+        let mine = s.add_message(mine).unwrap();
+        let draft = s.add_message(msg(&s, "local draft", 3)).unwrap();
+        let other = s.add_account(imap("bo@example.net")).unwrap();
+        let their_inbox = s.folder_by_role(other, FolderRole::Inbox).unwrap();
+        let theirs = synced(&mut s, their_inbox, 1, "other account");
+
+        assert_eq!(s.forget_server_mail(a), 2);
+        assert!(s.tombstones().is_empty(), "nothing is deleted on the old server");
+        assert!(s.folder(lists).is_err(), "an empty server-only folder goes");
+        assert!(s.folder(kept).is_ok_and(|f| f.remote.is_none()), "a folder holding mail of its own stays, unlinked");
+        assert!(s.message(mine).is_ok() && s.message(draft).is_ok() && s.message(theirs).is_ok());
+        assert!(s.folder(inbox).is_ok_and(|f| f.remote.is_none()));
+    }
+
+    #[test]
+    fn hand_edited_accounts_are_refused() {
+        let mut s = Store::new();
+        s.add_account(imap("ana@example.org")).unwrap();
+        let mut v = serde_json::to_value(&s).unwrap();
+        let first = v["accounts"][0].clone();
+        v["accounts"].as_array_mut().unwrap().push(first);
+        assert!(Store::from_json(&serde_json::to_vec(&v).unwrap()).is_err(), "two accounts with one id");
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["folders"][0]["account"] = serde_json::json!(5);
+        assert!(Store::from_json(&serde_json::to_vec(&v).unwrap()).is_err(), "a folder of no account");
+    }
+
+    #[test]
+    fn a_store_from_before_several_accounts_reads_as_account_zero() {
+        let mut s = Store::new();
+        s.add_account(imap("ana@example.org")).unwrap();
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["version"] = serde_json::json!(3);
+        v.as_object_mut().unwrap().remove("next_account");
+        v["accounts"][0].as_object_mut().unwrap().remove("id");
+        for f in v["folders"].as_array_mut().unwrap() {
+            f.as_object_mut().unwrap().remove("account");
+        }
+        let back = Store::from_json(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!(back.version, FORMAT_VERSION);
+        assert_eq!(back.accounts[0].id, AccountId(0));
+        assert_eq!(back.folders().len(), 7);
+        let mut back = back;
+        assert_eq!(back.add_account(imap("bo@example.net")).unwrap(), AccountId(1));
     }
 }

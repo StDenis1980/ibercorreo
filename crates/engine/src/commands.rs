@@ -3,7 +3,7 @@
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind};
 use ibercorreo_core::{
-    Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Phone, Result, Security, Zone,
+    AccountId, Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Phone, Result, Security, Zone,
 };
 use serde_json::{Value, json};
 
@@ -493,11 +493,38 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "email: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
+        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
-    CommandSpec { id: "account.get", label: "Show account", group: "File/Account", shortcut: None, params: "", edits: false, run: account_get },
+    CommandSpec {
+        id: "account.add",
+        label: "Add account",
+        group: "File/Account",
+        shortcut: None,
+        params: "(the parameters of account.set, without id): a new account with folders of its own; its Inbox opens",
+        edits: true,
+        run: account_add,
+    },
+    CommandSpec {
+        id: "account.remove",
+        label: "Remove account",
+        group: "File/Account",
+        shortcut: None,
+        params: "id?: number — the account (account.list); default the one whose folder is open\n(Its folders and the mail kept here go; nothing is deleted on the server.)",
+        edits: true,
+        run: account_remove,
+    },
+    CommandSpec {
+        id: "account.get",
+        label: "Show account",
+        group: "File/Account",
+        shortcut: None,
+        params: "id?: number — default the account whose folder is open",
+        edits: false,
+        run: account_get,
+    },
+    CommandSpec { id: "account.list", label: "Accounts", group: "File/Account", shortcut: None, params: "", edits: false, run: account_list },
     CommandSpec {
         id: "account.sync",
         label: "Send/Receive",
@@ -594,6 +621,19 @@ fn target_message(s: &Session, p: &Value) -> Result<MessageId> {
     Ok(id)
 }
 
+/// The `account` parameter (an account id), checked to exist.
+fn account_param(s: &Session, p: &Value) -> Result<Option<AccountId>> {
+    match u32_param(p, "account")? {
+        Some(id) => Ok(Some(s.store.account(AccountId(id))?.id)),
+        None => Ok(None),
+    }
+}
+
+/// The account of the folder message `id` is in.
+fn account_of_message(s: &Session, id: MessageId) -> Result<AccountId> {
+    s.store.account_of(s.store.message(id)?.folder)
+}
+
 fn folder_param(s: &Session, p: &Value, key: &str) -> Result<Option<FolderId>> {
     let role = |name: &str| match name.trim().to_ascii_lowercase().as_str() {
         "inbox" => Some(FolderRole::Inbox),
@@ -607,7 +647,7 @@ fn folder_param(s: &Session, p: &Value, key: &str) -> Result<Option<FolderId>> {
     };
     let id = match p.get(key) {
         None | Some(Value::Null) => return Ok(None),
-        Some(Value::String(name)) if role(name).is_some() => s.store.folder_by_role(role(name).unwrap_or(FolderRole::Inbox))?,
+        Some(Value::String(name)) if role(name).is_some() => s.role_folder(account_param(s, p)?, role(name).unwrap_or(FolderRole::Inbox))?,
         _ => FolderId(u32_param(p, key)?.ok_or_else(|| Error::invalid("params", format!("{key} is required")))?),
     };
     s.store.folder(id)?;
@@ -689,7 +729,9 @@ fn folder_list(s: &mut Session, _: &Value) -> Result<Value> {
         s.store
             .folders()
             .iter()
-            .map(|f| json!({ "id": f.id.0, "name": f.name, "role": format!("{:?}", f.role), "unread": s.store.unread_count(f.id) }))
+            .map(|f| {
+                json!({ "id": f.id.0, "account": f.account.0, "name": f.name, "role": format!("{:?}", f.role), "unread": s.store.unread_count(f.id) })
+            })
             .collect(),
     ))
 }
@@ -740,6 +782,9 @@ fn message_flag(s: &mut Session, p: &Value) -> Result<Value> {
 fn message_move(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let to = folder_param(s, p, "folder")?.ok_or_else(|| Error::invalid("params", "folder is required"))?;
+    if s.store.account_of(to)? != account_of_message(s, id)? {
+        return Err(Error::invalid("folder", "moving mail to another account's folder is not supported yet"));
+    }
     s.store.move_message(id, to)?;
     s.fix_selection();
     Ok(json!({ "id": id.0, "folder": to.0 }))
@@ -747,7 +792,7 @@ fn message_move(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn move_to_role(s: &mut Session, p: &Value, role: FolderRole) -> Result<Value> {
     let id = target_message(s, p)?;
-    let to = s.store.folder_by_role(role)?;
+    let to = s.store.folder_by_role(account_of_message(s, id)?, role)?;
     s.store.move_message(id, to)?;
     s.fix_selection();
     s.status = format!("Moved to {}", s.store.folder(to)?.name);
@@ -756,7 +801,7 @@ fn move_to_role(s: &mut Session, p: &Value, role: FolderRole) -> Result<Value> {
 
 fn message_delete(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
-    let trash = s.store.folder_by_role(FolderRole::Trash)?;
+    let trash = s.store.folder_by_role(account_of_message(s, id)?, FolderRole::Trash)?;
     if s.store.message(id)?.folder == trash {
         s.store.remove_message(id)?;
         s.fix_selection();
@@ -767,14 +812,20 @@ fn message_delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-pub(crate) fn the_user(s: &Session) -> Address {
-    s.store.accounts.first().map(|a| a.address.clone()).unwrap_or_else(|| Address { name: Some("Me".into()), email: "me@localhost".into() })
+/// Who writes from `account`: its address (a store without accounts: a placeholder).
+pub(crate) fn the_user(s: &Session, account: AccountId) -> Address {
+    s.store
+        .account(account)
+        .ok()
+        .or(s.store.accounts.first())
+        .map(|a| a.address.clone())
+        .unwrap_or_else(|| Address { name: Some("Me".into()), email: "me@localhost".into() })
 }
 
-fn new_draft(s: &mut Session, to: Vec<Address>, cc: Vec<Address>, subject: &str, body: &str) -> Result<Value> {
-    let drafts = s.store.folder_by_role(FolderRole::Drafts)?;
+fn new_draft(s: &mut Session, account: AccountId, to: Vec<Address>, cc: Vec<Address>, subject: &str, body: &str) -> Result<Value> {
+    let drafts = s.store.folder_by_role(account, FolderRole::Drafts)?;
     let mut m = Message::new(MessageId(0), drafts);
-    m.from = Some(the_user(s));
+    m.from = Some(the_user(s, account));
     m.to = to;
     m.cc = cc;
     m.set_subject(subject);
@@ -791,12 +842,13 @@ fn new_draft(s: &mut Session, to: Vec<Address>, cc: Vec<Address>, subject: &str,
 fn message_compose(s: &mut Session, p: &Value) -> Result<Value> {
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
     let cc = Address::parse_list(str_param(p, "cc")?.unwrap_or(""))?;
-    new_draft(s, to, cc, str_param(p, "subject")?.unwrap_or(""), str_param(p, "body")?.unwrap_or(""))
+    let account = account_param(s, p)?.unwrap_or_else(|| s.current_account());
+    new_draft(s, account, to, cc, str_param(p, "subject")?.unwrap_or(""), str_param(p, "body")?.unwrap_or(""))
 }
 
 fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
-    let drafts = s.store.folder_by_role(FolderRole::Drafts)?;
+    let drafts = s.store.folder_by_role(account_of_message(s, id)?, FolderRole::Drafts)?;
     if s.store.message(id)?.folder != drafts {
         return Err(Error::invalid("message", "only drafts can be edited"));
     }
@@ -838,7 +890,8 @@ fn prefixed(prefix: &str, subject: &str) -> String {
 fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
     let id = target_message(s, p)?;
     let orig = s.store.message(id)?.clone();
-    let me = the_user(s);
+    let account = account_of_message(s, id)?;
+    let me = the_user(s, account);
     let mut to: Vec<Address> = orig.from.iter().cloned().collect();
     let mut cc = Vec::new();
     if all {
@@ -851,14 +904,14 @@ fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
     if to.is_empty() {
         to = orig.to.clone();
     }
-    new_draft(s, to, cc, &prefixed("Re", &orig.subject), &quote(&orig))
+    new_draft(s, account, to, cc, &prefixed("Re", &orig.subject), &quote(&orig))
 }
 
 fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let orig = s.store.message(id)?.clone();
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
-    new_draft(s, to, Vec::new(), &prefixed("Fwd", &orig.subject), &quote(&orig))
+    new_draft(s, account_of_message(s, id)?, to, Vec::new(), &prefixed("Fwd", &orig.subject), &quote(&orig))
 }
 
 fn rfc5322_date(dt: DateTime) -> String {
@@ -874,7 +927,7 @@ fn rfc5322_date(dt: DateTime) -> String {
 /// rendering the same queued message twice gives the same bytes (what is sent is what is saved).
 pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     let m = s.store.message(id)?;
-    let from = m.from.clone().unwrap_or_else(|| the_user(s));
+    let from = m.from.clone().unwrap_or_else(|| the_user(s, s.store.account_of(m.folder).unwrap_or_default()));
     let when = m.date.unwrap_or_else(|| s.now());
     let date = rfc5322_date(when);
     let unique = format!("{}.{:05}.{}.ibercorreo", when.date.day_number(), u32::from(when.minute_of_day()) * 60 + u32::from(when.second()), id.0);
@@ -883,13 +936,14 @@ pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
 
 fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
-    let drafts = s.store.folder_by_role(FolderRole::Drafts)?;
+    let account = account_of_message(s, id)?;
+    let drafts = s.store.folder_by_role(account, FolderRole::Drafts)?;
     if s.store.message(id)?.folder != drafts {
         return Err(Error::invalid("message", "only drafts can be sent"));
     }
     // Fails on no recipients; proves the message can be written before it leaves Drafts.
     render(s, id)?;
-    let outbox = s.store.folder_by_role(FolderRole::Outbox)?;
+    let outbox = s.store.folder_by_role(account, FolderRole::Outbox)?;
     s.store.message_mut(id)?.date = Some(s.now());
     s.store.move_message(id, outbox)?;
     s.fix_selection();
@@ -930,7 +984,7 @@ fn import_eml(s: &mut Session, p: &Value) -> Result<Value> {
     let raw = required_str(p, "raw")?;
     let f = match folder_param(s, p, "folder")? {
         Some(f) => f,
-        None => s.store.folder_by_role(FolderRole::Inbox)?,
+        None => s.role_folder(account_param(s, p)?, FolderRole::Inbox)?,
     };
     let id = s.store.import_eml(raw.as_bytes(), f)?;
     Ok(summary(s.store.message(id)?))
@@ -988,7 +1042,7 @@ fn party_display(p: &ibercorreo_ical::Party) -> String {
 
 pub(crate) fn invite_info(s: &Session, m: &Message) -> Option<InviteInfo> {
     let inv = ibercorreo_ical::invite(m.invite.as_deref()?).ok()?;
-    let me = the_user(s);
+    let me = the_user(s, s.store.account_of(m.folder).ok()?);
     let first = inv.events.iter().find(|e| e.recurrence_id.is_none()).or(inv.events.first());
     let when = first.map(|e| {
         let zone = e.tzid.as_deref().and_then(Zone::named);
@@ -1117,12 +1171,14 @@ fn invite_respond(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let calendar = u32_param(p, "calendar")?;
     let (events, removed) = if status == "DECLINED" { (Vec::new(), remove_meeting(s, &inv)?) } else { (add_meeting(s, &inv, calendar)?, 0) };
-    let me = the_user(s);
+    let account = account_of_message(s, id)?;
+    let me = the_user(s, account);
     // A published event (no organizer to tell), or one this account organises, gets no answer.
     let organizer = inv.organizer.as_ref().filter(|o| inv.method == "REQUEST" && !o.email.eq_ignore_ascii_case(&me.email));
     let mut answer = None;
     if let (Some(org), false) = (organizer, reply == "none") {
-        let mut m = Message::new(MessageId(0), s.store.folder_by_role(if reply == "send" { FolderRole::Outbox } else { FolderRole::Drafts })?);
+        let mut m =
+            Message::new(MessageId(0), s.store.folder_by_role(account, if reply == "send" { FolderRole::Outbox } else { FolderRole::Drafts })?);
         m.from = Some(me.clone());
         m.to = vec![Address::new(org.name.as_deref(), &org.email)?];
         let summary = inv.events.first().map(|e| e.summary.as_str()).unwrap_or("");
@@ -1686,7 +1742,26 @@ fn port_param(p: &Value, key: &str, default: u16) -> Result<u16> {
     }
 }
 
-fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
+/// The account `account.set` changes: `id`, else the current one (`None`: there is none yet).
+fn account_target(s: &Session, p: &Value) -> Result<Option<AccountId>> {
+    match account_id_param(s, p)? {
+        Some(id) => Ok(Some(id)),
+        None if s.store.accounts.is_empty() => Ok(None),
+        None => Ok(Some(s.current_account())),
+    }
+}
+
+/// The `id` parameter of the account commands, checked to exist.
+fn account_id_param(s: &Session, p: &Value) -> Result<Option<AccountId>> {
+    match u32_param(p, "id")? {
+        Some(id) => Ok(Some(s.store.account(AccountId(id))?.id)),
+        None => Ok(None),
+    }
+}
+
+/// An account from `account.set` / `account.add` parameters; `old` is the account being changed
+/// (its CalDAV address is kept when `caldav` is left out).
+fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<Account> {
     let email = required_str(p, "email")?;
     let name = str_param(p, "name")?.map(str::trim).filter(|n| !n.is_empty());
     let address = Address::new(name, email)?;
@@ -1696,15 +1771,23 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
     if user.len() > 320 || user.chars().any(char::is_control) {
         return Err(Error::invalid("params", "user is not a sign-in name"));
     }
-    let old_caldav = s.store.accounts.first().map(|a| a.caldav.clone()).unwrap_or_default();
     let caldav = match str_param(p, "caldav")?.map(str::trim) {
-        None => old_caldav.clone(),
+        None => old.map(|a| a.caldav.clone()).unwrap_or_default(),
         Some("") => String::new(),
         Some(url) => {
             ibercorreo_dav::Url::parse(url).map_err(|e| Error::invalid("caldav", e.to_string()))?;
             url.to_string()
         }
     };
+    // Calendars and contacts mirror one server for now: they have no account of their own.
+    if !caldav.is_empty()
+        && let Some(other) = s.store.accounts.iter().find(|a| !a.caldav.is_empty() && old.is_none_or(|o| o.id != a.id))
+    {
+        return Err(Error::invalid(
+            "caldav",
+            format!("calendars and contacts already sync with {}'s server; one account at a time can sync them", other.address.email),
+        ));
+    }
     let oauth = str_param(p, "oauth")?.map(str::trim).unwrap_or("");
     if !oauth.is_empty() && ibercorreo_core::mail::OAuthProvider::get(oauth).is_none() {
         let known: Vec<_> = ibercorreo_core::mail::OAUTH_PROVIDERS.iter().map(|p| p.id).collect();
@@ -1720,26 +1803,69 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
         smtp_security,
         oauth: oauth.to_string(),
     };
-    let server_changed = !old_caldav.is_empty() && old_caldav != caldav;
-    let account = Account { name: address.display().to_string(), address, kind, caldav };
-    // One account for now (several arrive in M3): the first is replaced.
-    match s.store.accounts.first_mut() {
-        Some(a) => *a = account,
-        None => s.store.accounts.push(account),
-    }
-    // Another server (or none): the calendars and address books mirrored from the old one go.
-    if server_changed {
-        ibercorreo_sync::calendar::forget(&mut s.store);
-        ibercorreo_sync::contacts::forget(&mut s.store);
-        s.fix_selection();
-    }
-    s.status = "Account saved".into();
-    account_get(s, &Value::Null)
+    Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav })
 }
 
-fn account_get(s: &mut Session, _: &Value) -> Result<Value> {
-    let a = s.store.accounts.first().ok_or_else(|| Error::not_found("account", "none set up"))?;
-    let mut v = json!({ "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav });
+/// The mailbox an account reads: its IMAP server and sign-in name. Another one is another
+/// person's (or another provider's) mail.
+fn mailbox_key(a: &Account) -> Option<(String, u16, String)> {
+    match &a.kind {
+        AccountKind::Imap { imap_host, imap_port, .. } => Some((imap_host.to_ascii_lowercase(), *imap_port, a.login()?.to_ascii_lowercase())),
+        AccountKind::Local => None,
+    }
+}
+
+fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let Some(id) = account_target(s, p)? else { return account_add(s, p) };
+    let old = s.store.account(id)?.clone();
+    let account = account_from_params(s, p, Some(&old))?;
+    let mailbox_changed = mailbox_key(&old).is_some() && mailbox_key(&old) != mailbox_key(&account);
+    let dav_changed = !old.caldav.is_empty() && old.caldav != account.caldav;
+    *s.store.account_mut(id)? = account;
+    // Another mailbox: the mail synced from the old one goes, so the two never mix.
+    if mailbox_changed {
+        s.store.forget_server_mail(id);
+    }
+    // Another server (or none): the calendars and address books mirrored from the old one go.
+    if dav_changed {
+        ibercorreo_sync::calendar::forget(&mut s.store);
+        ibercorreo_sync::contacts::forget(&mut s.store);
+    }
+    s.fix_selection();
+    s.status = "Account saved".into();
+    account_get(s, &json!({ "id": id.0 }))
+}
+
+fn account_add(s: &mut Session, p: &Value) -> Result<Value> {
+    let account = account_from_params(s, p, None)?;
+    let email = account.address.email.clone();
+    if s.store.accounts.iter().any(|a| mailbox_key(a).is_some() && mailbox_key(a) == mailbox_key(&account)) {
+        return Err(Error::invalid("account", format!("{email} is already set up")));
+    }
+    let id = s.store.add_account(account)?;
+    // The new account's Inbox opens, ready for its first Send/Receive.
+    s.folder = s.store.folder_by_role(id, FolderRole::Inbox)?;
+    s.message = None;
+    s.view = View::Mail;
+    s.status = format!("Account {email} added");
+    account_get(s, &json!({ "id": id.0 }))
+}
+
+fn account_remove(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = account_id_param(s, p)?.or_else(|| (!s.store.accounts.is_empty()).then(|| s.current_account()));
+    let id = id.ok_or_else(|| Error::not_found("account", "none set up"))?;
+    let gone = s.store.remove_account(id)?;
+    if !gone.caldav.is_empty() {
+        ibercorreo_sync::calendar::forget(&mut s.store);
+        ibercorreo_sync::contacts::forget(&mut s.store);
+    }
+    s.fix_selection();
+    s.status = format!("Account {} removed; its mail on the server is untouched", gone.address.email);
+    Ok(json!({ "id": id.0, "email": gone.address.email, "removed": true }))
+}
+
+fn account_json(a: &Account) -> Value {
+    let mut v = json!({ "id": a.id.0, "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav });
     if let (AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. }, Some(obj)) =
         (&a.kind, v.as_object_mut())
     {
@@ -1757,12 +1883,38 @@ fn account_get(s: &mut Session, _: &Value) -> Result<Value> {
             obj.insert(k.into(), val);
         }
     }
-    Ok(v)
+    v
+}
+
+fn account_get(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = match account_id_param(s, p)? {
+        Some(id) => id,
+        None if s.store.accounts.is_empty() => return Err(Error::not_found("account", "none set up")),
+        None => s.current_account(),
+    };
+    Ok(account_json(s.store.account(id)?))
+}
+
+fn account_list(s: &mut Session, _: &Value) -> Result<Value> {
+    let current = s.current_account();
+    Ok(Value::Array(
+        s.store
+            .accounts
+            .iter()
+            .map(|a| {
+                let mut v = account_json(a);
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("current".into(), json!(a.id == current));
+                }
+                v
+            })
+            .collect(),
+    ))
 }
 
 /// Ask the front end to send the Outbox and sync: the engine never touches the network itself.
 fn account_sync(s: &mut Session, _: &Value) -> Result<Value> {
-    let has_server = s.store.accounts.first().is_some_and(|a| matches!(a.kind, AccountKind::Imap { .. }));
+    let has_server = s.store.accounts.iter().any(|a| matches!(a.kind, AccountKind::Imap { .. }));
     if !has_server {
         return Err(Error::invalid("account", "no mail server set up: open Account settings"));
     }

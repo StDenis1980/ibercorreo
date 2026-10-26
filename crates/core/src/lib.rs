@@ -19,7 +19,7 @@ pub use calendar::{Calendar, CalendarRemote, Event, EventId, EventRemote};
 pub use contact::{AddressBook, Contact, Phone};
 pub use date::{Date, DateTime, Weekday};
 pub use error::{Error, Result};
-pub use mail::{Account, Address, Folder, FolderId, FolderRole, Message, MessageId, RemoteFolder, RemoteRef, Security};
+pub use mail::{Account, AccountId, Address, Folder, FolderId, FolderRole, Message, MessageId, RemoteFolder, RemoteRef, Security};
 pub use zone::Zone;
 
 /// Upper bound on any single text field taken from input (subject, name, location): 64 KiB.

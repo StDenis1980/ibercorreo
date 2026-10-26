@@ -1,12 +1,13 @@
 # Tinta Correo — OAuth 2.0 sign-in (Gmail, Microsoft 365)
 
-Status: 2026-10-23 · M3.2 · the flow works; a build needs client IDs registered by the project
+Status: 2026-10-26 · M3.3 · the flow works; a build needs client IDs registered by the project
 
 Gmail, Outlook.com and Microsoft 365 do not take a mail program's password: the person signs in
 on the provider's own page and the program gets a token. Tinta Correo does this the way RFC 8252
 describes for native apps:
 
-1. Account settings → **Sign in with: Google / Microsoft** → **Save and sign in**.
+1. Account settings (or **+ Add account**) → **Sign in with: Google / Microsoft** (this fills in
+   the provider's servers) → **Save and sign in**. Each account has its own grant.
 2. Tinta Correo opens a one-time listener on `127.0.0.1` (a free port) and opens the provider's
    sign-in page in the browser, with a PKCE challenge (S256) and a random `state`.
 3. The person signs in there and allows access to their mail. The browser comes back to the
@@ -106,3 +107,4 @@ Dovecot and Postfix.
 
 ## Revision history
 - 2026-10-23 — created (M3.2).
+- 2026-10-26 — several accounts, each with its own grant; choosing a provider fills in its servers (M3.3).
