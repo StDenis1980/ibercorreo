@@ -1,0 +1,232 @@
+# Español (es) interface catalog for Tinta Correo, Spanish of Spain, Outlook terminology.
+# craft-i18n catalog format. Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(sin destinatarios)
+	(no subject)	(sin asunto)
+	(no title)	(sin título)
+	(unknown sender)	(remitente desconocido)
+	+ Add account	+ Agregar cuenta
+	+ New Appointment	+ Nueva cita
+	1 day	1 día
+	1 hour	1 hora
+	1 minute	1 minuto
+	10 minutes	10 minutos
+	15 minutes	15 minutos
+	2 hours	2 horas
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 o 2026-10-22
+	30 minutes	30 minutos
+	5 minutes	5 minutos
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	Un servidor CalDAV y CardDAV, como Nextcloud, Radicale o Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	Una dirección de {provider}: sus servidores ya están rellenados. Escriba una contraseña de aplicación y guarde.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Una dirección de {provider}: sus servidores ya están rellenados. Guarde y luego inicie sesión en la página de {provider} en su navegador.
+	Account settings	Configuración de la cuenta
+	Account…	Cuenta…
+	Add	Agregar
+	Add account	Agregar cuenta
+	Add to Favorites	Agregar a Favoritos
+	Added under new messages, replies and forwards from this account	Se agrega bajo los mensajes nuevos, respuestas y reenvíos de esta cuenta
+	Address	Dirección
+	Address book	Libreta de direcciones
+	All	Todo
+	All day	Todo el día
+	An attendee	Un asistente
+	An attendee proposes a new time	Un asistente propone otra hora
+	Another mailbox, with folders of its own	Otro buzón, con sus propias carpetas
+	Archive	Archivo
+	At start time	A la hora de inicio
+	Automatic (system language)	Automático (idioma del sistema)
+	B	B
+	Bcc	CCO
+	Birthday	Cumpleaños
+	Blind copies: they get the message, the others don't see them	Copias ocultas: reciben el mensaje, pero los demás destinatarios no las ven
+	Calendar	Calendario
+	Calendar (Ctrl+2)	Calendario (Ctrl+2)
+	Calendars	Calendarios
+	Calendars and contacts	Calendarios y contactos
+	Cancel	Cancelar
+	Careful: the text names one site, but the link goes to\n{url}	Cuidado: el texto nombra un sitio, pero el vínculo lleva a\n{url}
+	Cc	CC
+	Contact	Contacto
+	Copy the sign-in address	Copiar la dirección de inicio de sesión
+	Day	Día
+	Delete	Eliminar
+	Delete appointment	Eliminar cita
+	Delete every occurrence	Eliminar todas las repeticiones
+	Delete this occurrence only	Eliminar solo esta repetición
+	Discard	Descartar
+	Dismiss	Descartar
+	Dismiss All	Descartar todos
+	Do not send a response	No enviar respuesta
+	Drafts	Borradores
+	Edit the response first	Editar la respuesta antes de enviar
+	Email	Correo electrónico
+	Email address	Dirección de correo electrónico
+	End	Fin
+	Event	Evento
+	Every day	Cada día
+	Every month	Cada mes
+	Every week	Cada semana
+	Every weekday	Cada día laborable
+	Every year	Cada año
+	Favorites	Favoritos
+	Fax	Fax
+	Flag	Marca
+	Forward	Reenviar
+	Fri	vie.
+	Home	Particular
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Las imágenes de otros servidores pueden avisar al remitente de que ha abierto el mensaje, por eso Tinta Correo nunca las descarga.
+	Inbox	Bandeja de entrada
+	Incoming (IMAP)	Entrante (IMAP)
+	Interface language	Idioma de la interfaz
+	Job title	Puesto
+	Junk	Correo no deseado
+	KB	KB
+	Keep	Conservar
+	Local	Local
+	Location	Ubicación
+	Look up the servers for this address (the provider's published settings, then the usual names)	Buscar los servidores de esta dirección (primero la configuración publicada por el proveedor, luego los nombres habituales)
+	MB	MB
+	Mail (Ctrl+1)	Correo (Ctrl+1)
+	Mark as unread	Marcar como no leído
+	Meeting invitation	Convocatoria de reunión
+	Meeting invitation from {organizer}	Convocatoria de reunión de {organizer}
+	Mobile	Móvil
+	Mon	lun.
+	Month	Mes
+	Name	Nombre
+	Never	Nunca
+	New Appointment	Nueva cita
+	New contact	Nuevo contacto
+	No appointments	No hay citas
+	No browser opened?	¿No se ha abierto el navegador?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Aún no hay contactos. Agregue uno o abra un archivo .vcf con Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	No hay configuración publicada: estos servidores respondieron con los nombres habituales. Revíselos y guarde.
+	No settings found: {error}. Enter the servers by hand.	No se encontró configuración: {error}. Escriba los servidores a mano.
+	Nobody matches.	Nadie coincide.
+	None	Ninguno
+	Notes	Notas
+	Nothing here	No hay nada aquí
+	Organization	Organización
+	Other	Otro
+	Outbox	Bandeja de salida
+	Outgoing (SMTP)	Saliente (SMTP)
+	Password	Contraseña
+	People	Personas
+	People (Ctrl+3)	Personas (Ctrl+3)
+	Phone	Teléfono
+	Port	Puerto
+	Redo	Rehacer
+	Reminder	Aviso
+	Remove	Quitar
+	Remove account…	Quitar cuenta…
+	Remove from Calendar	Quitar del calendario
+	Remove from Favorites	Quitar de Favoritos
+	Remove this phone	Quitar este teléfono
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	¿Quitar {address} y el correo guardado aquí? No se elimina nada en el servidor.
+	Repeat	Repetición
+	Repeats ({rule}), shown once	Se repite ({rule}), se muestra una vez
+	Reply	Responder
+	Reply All	Responder a todos
+	Results for “{query}”	Resultados de «{query}»
+	Right-click a folder: Add to Favorites	Haga clic derecho en una carpeta: Agregar a Favoritos
+	Same as this computer ({zone})	Igual que este equipo ({zone})
+	Sat	sáb.
+	Save	Guardar
+	Save and Send/Receive	Guardar y Enviar y recibir
+	Save and sign in	Guardar e iniciar sesión
+	Search mail	Buscar en el correo
+	Search people	Buscar personas
+	Search: Lisbon, Kyiv, New York…	Buscar: Lisboa, Kiev, Nueva York…
+	Select a message to read it	Seleccione un mensaje para leerlo
+	Send	Enviar
+	Send the Outbox and get new mail (F9)	Enviar la bandeja de salida y recibir correo nuevo (F9)
+	Send the response now	Enviar la respuesta ahora
+	Sent	Elementos enviados
+	Server	Servidor
+	Set up your account to sync calendars.	Configure su cuenta para sincronizar calendarios.
+	Set up your account to sync contacts.	Configure su cuenta para sincronizar contactos.
+	Set up your mail server to send and receive.	Configure su servidor de correo para enviar y recibir.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	Se encontró la configuración de {found}, pero {provider} solo admite el inicio de sesión en su propia página (OAuth) y esta compilación no tiene un id. de cliente de {provider}.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	Se encontró la configuración de {found}. Revísela y guarde; luego inicie sesión en la página de {provider} en su navegador.
+	Settings for {found} found. Check them, enter the password and save.	Se encontró la configuración de {found}. Revísela, escriba la contraseña y guarde.
+	Settings of {account}	Configuración de {account}
+	Show as plain text	Mostrar como texto sin formato
+	Show formatted	Mostrar con formato
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Inicie sesión en la página de {provider} en su navegador (OAuth 2.0): aquí no se guarda ninguna contraseña
+	Sign in with	Iniciar sesión con
+	Sign-in name	Nombre de inicio de sesión
+	Signature	Firma
+	Signed in with {name}	Sesión iniciada con {name}
+	Snooze all 5 minutes	Posponer todos 5 minutos
+	Snooze…	Posponer…
+	Start	Inicio
+	Subject	Asunto
+	Sun	dom.
+	Sync mail, calendars and contacts (F9)	Sincronizar correo, calendarios y contactos (F9)
+	Synced with the CalDAV server at Send/Receive	Se sincroniza con el servidor CalDAV al Enviar y recibir
+	Synced with the CardDAV server at Send/Receive	Se sincroniza con el servidor CardDAV al Enviar y recibir
+	The settings of the account whose folder is open	La configuración de la cuenta cuya carpeta está abierta
+	The sign-in did not finish: {error}.	No se completó el inicio de sesión: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Esta compilación no tiene un id. de cliente de {provider} para iniciar sesión con OAuth
+	This link does not go where its text says	Este vínculo no lleva adonde dice su texto
+	This meeting has been cancelled	Esta reunión se ha cancelado
+	Thu	jue.
+	Title	Título
+	To	Para
+	To: {names}	Para: {names}
+	Today	Hoy
+	Trash	Elementos eliminados
+	Tue	mar.
+	Undo	Deshacer
+	Unread	No leído
+	Unread in Inbox: {n}	No leídos en la bandeja de entrada: {n}
+	Waiting for you to sign in in your browser…	Esperando a que inicie sesión en el navegador…
+	Wed	mié.
+	Week	Semana
+	Work	Trabajo
+	Work Week	Semana laboral
+	You have {status} it	La ha {status}
+	Your name	Su nombre
+	Your name\nCompany · phone	Su nombre\nEmpresa · teléfono
+	accepted	aceptado
+	answered	respondido
+	declined	rechazado
+	delegated	delegado
+	if not the email address	si no es la dirección de correo electrónico
+	in {span}	dentro de {span}
+	kept in the system's credential store	guardada en el almacén de credenciales del sistema
+	now	ahora
+	one or more, comma-separated	uno o varios, separados por comas
+	optional	opcional
+	repeats	se repite
+	shown to recipients	visible para los destinatarios
+	tentatively accepted	aceptado provisionalmente
+	{date}, all day	{date}, todo el día
+	{n} Reminders	{n} avisos
+	{n} days	{n} días
+	{n} hours	{n} horas
+	{n} minutes	{n} minutos
+	{n} remote image not loaded	{n} imagen remota sin descargar
+	{n} remote images not loaded	{n} imágenes remotas sin descargar
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Los servidores de {provider} ya están rellenados. Guarde y luego inicie sesión en la página de {provider} en su navegador.
+	{span} after the start	{span} después del inicio
+	{span} before	{span} antes
+	{span} overdue	vencido hace {span}
+	{who} has {status} this meeting	{who} ha {status} esta reunión
+	✉ New Email	✉ Nuevo correo
+	✔ Accept	✔ Aceptar
+	✔ In your calendar	✔ En su calendario
+	✖ Decline	✖ Rechazar
+	➕ Add phone	➕ Agregar teléfono
+	➕ New Contact	➕ Nuevo contacto
+	⟳ Send/Receive	⟳ Enviar y recibir
+	⟳ Sending and receiving…	⟳ Enviando y recibiendo…
+	⟳ Syncing…	⟳ Sincronizando…
+	？ Tentative	？ Provisional
+	🔍 Find settings	🔍 Buscar configuración
+	🔍 Looking…	🔍 Buscando…
+	🔔 1 Reminder	🔔 1 aviso
+	🗑 Delete	🗑 Eliminar
+	🗑 Series	🗑 Serie
