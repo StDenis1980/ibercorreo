@@ -356,7 +356,7 @@ impl Session {
         for m in self.store.messages_in(outbox) {
             let Ok(raw) = commands::render(self, m.id) else { continue };
             let from = m.from.clone().unwrap_or_else(|| commands::the_user(self, account)).email;
-            let to = m.to.iter().chain(&m.cc).map(|a| a.email.clone()).collect();
+            let to = m.to.iter().chain(&m.cc).chain(&m.bcc).map(|a| a.email.clone()).collect();
             out.push(ibercorreo_sync::outbox::Outgoing { id: m.id, from, to, raw: raw.into_bytes() });
         }
         out

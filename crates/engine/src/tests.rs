@@ -631,6 +631,73 @@ fn server_address_books_sync_and_contacts_move_between_books() {
 }
 
 #[test]
+fn blind_copies_are_sent_to_but_never_written() {
+    let mut s = session();
+    let id = s
+        .run(
+            "message.compose",
+            &json!({"to": "ana@example.org", "bcc": "boss@example.net, Rui <rui@example.pt>", "subject": "hola", "signature": false}),
+        )
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    s.run("message.send", &json!({"id": id})).unwrap();
+    let out = s.outbox(s.current_account());
+    let o = out.iter().find(|o| o.id == MessageId(id)).unwrap();
+    assert_eq!(o.to, ["ana@example.org", "boss@example.net", "rui@example.pt"], "the envelope has them all");
+    let raw = String::from_utf8(o.raw.clone()).unwrap();
+    assert!(!raw.contains("boss@") && !raw.contains("rui@") && !raw.to_ascii_lowercase().contains("bcc"), "{raw}");
+    let read = s.run("message.read", &json!({"id": id})).unwrap();
+    assert_eq!(read["bcc"].as_array().map(Vec::len), Some(2), "kept here, as Outlook shows them in Sent");
+
+    // Bcc alone is enough to send; a draft's Bcc can be changed.
+    let only = s.run("message.compose", &json!({"bcc": "boss@example.net"})).unwrap()["id"].as_u64().unwrap();
+    s.run("message.update", &json!({"id": only, "bcc": "rui@example.pt"})).unwrap();
+    assert_eq!(s.store.message(MessageId(only)).unwrap().bcc.first().map(|a| a.email.as_str()), Some("rui@example.pt"));
+    assert!(s.run("message.send", &json!({"id": only})).is_ok());
+    assert!(s.run("message.compose", &json!({"bcc": "not an address"})).is_err());
+}
+
+#[test]
+fn each_account_signs_its_own_mail_above_the_quote() {
+    let mut s = session();
+    let work = s.store.first_account();
+    let mut p = s.run("account.get", &json!({"id": work.0})).unwrap();
+    p["imapHost"] = json!("imap.example.com");
+    p["smtpHost"] = json!("smtp.example.com");
+    p["signature"] = json!("Denys\r\nTinta Office\n\n");
+    s.run("account.set", &p).unwrap();
+    assert_eq!(s.store.account(work).unwrap().signature, "Denys\nTinta Office", "line ends kept as \\n, trailing blank lines dropped");
+    let body = |s: &Session, v: Value| s.store.message(MessageId(v["id"].as_u64().unwrap())).unwrap().body.clone();
+
+    let v = s.run("message.compose", &json!({"to": "ana@example.org"})).unwrap();
+    assert_eq!(body(&s, v), "\n\nDenys\nTinta Office");
+    let v = s.run("message.compose", &json!({"to": "ana@example.org", "body": "Hola", "signature": false})).unwrap();
+    assert_eq!(body(&s, v), "Hola", "a script can leave it out");
+
+    let inbox = s.store.folder_by_role(work, FolderRole::Inbox).unwrap();
+    let first = s.store.messages_in(inbox).first().map(|m| m.id).unwrap();
+    let v = s.run("message.reply", &json!({"id": first.0})).unwrap();
+    let reply = body(&s, v);
+    let at = |needle: &str| reply.find(needle).unwrap();
+    assert!(at("Tinta Office") < at("wrote:"), "the signature sits above the quote: {reply}");
+
+    // The other account has none; changing other settings keeps a signature.
+    let personal = s.store.accounts.get(1).unwrap().id;
+    let home = s.store.folder_by_role(personal, FolderRole::Inbox).unwrap();
+    let theirs = s.store.messages_in(home).first().map(|m| m.id).unwrap();
+    let v = s.run("message.reply", &json!({"id": theirs.0})).unwrap();
+    assert!(!body(&s, v).contains("Tinta Office"));
+    let mut p = s.run("account.get", &json!({"id": work.0})).unwrap();
+    p.as_object_mut().unwrap().remove("signature");
+    p["name"] = json!("Denys M.");
+    s.run("account.set", &p).unwrap();
+    assert_eq!(s.store.account(work).unwrap().signature, "Denys\nTinta Office");
+    p["signature"] = json!("x".repeat(9000));
+    assert!(s.run("account.set", &p).is_err());
+}
+
+#[test]
 fn several_accounts_each_send_from_their_own_folders() {
     let mut s = session();
     let ana = json!({"email": "ana@example.org", "name": "Ana", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});

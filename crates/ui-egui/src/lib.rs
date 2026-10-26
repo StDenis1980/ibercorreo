@@ -28,6 +28,9 @@ struct Draft {
     id: u64,
     to: String,
     cc: String,
+    bcc: String,
+    /// The Bcc line is shown: asked for, or the draft has blind copies.
+    show_bcc: bool,
     subject: String,
     body: String,
 }
@@ -126,6 +129,8 @@ struct AccountForm {
     smtp_port: String,
     smtp_starttls: bool,
     caldav: String,
+    /// Added to new messages, replies and forwards.
+    signature: String,
     /// The OAuth provider signed in with (its id), or empty for a password.
     oauth: String,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
@@ -200,6 +205,8 @@ pub struct App {
     last_calendar: Option<u32>,
     /// Set by the shell while a Send/Receive runs in the background.
     pub syncing: bool,
+    /// Set by the shell as a Send/Receive goes: what it is doing, and the share done (0 to 1).
+    pub sync_progress: Option<(String, f32)>,
     /// An address whose server settings the person asked to find; the shell takes it.
     pub autoconfig_request: Option<String>,
     /// Set by the shell while it looks for server settings.
@@ -246,6 +253,7 @@ impl App {
         App {
             session,
             syncing: false,
+            sync_progress: None,
             autoconfig_request: None,
             autoconfig_running: false,
             oauth_ready: Vec::new(),
@@ -304,6 +312,7 @@ impl App {
             smtp_port: port("smtpPort"),
             smtp_starttls: text("smtpSecurity") == "starttls",
             caldav: text("caldav"),
+            signature: text("signature"),
             oauth: text("oauth"),
             note: note.to_string(),
         };
@@ -454,6 +463,11 @@ impl App {
                     ui.label("Address");
                     ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text("https://dav.example.org (optional)").desired_width(280.0));
                     ui.end_row();
+                    ui.label(RichText::new("Signature").strong()).on_hover_text("Added under new messages, replies and forwards from this account");
+                    ui.end_row();
+                    ui.label("");
+                    ui.add(egui::TextEdit::multiline(&mut f.signature).hint_text("Your name\nCompany · phone").desired_width(280.0).desired_rows(3));
+                    ui.end_row();
                 });
                 f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
                 ui.add_space(6.0);
@@ -523,7 +537,7 @@ impl App {
             "name": f.name, "email": f.email, "user": f.user,
             "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
             "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
-            "caldav": f.caldav, "oauth": f.oauth,
+            "caldav": f.caldav, "oauth": f.oauth, "signature": f.signature,
         });
         if let Some(o) = p.as_object_mut() {
             for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -714,7 +728,15 @@ impl App {
             (Some(m), Some(d)) if d.id == m.id.0 => {}
             (Some(m), _) => {
                 let list = |v: &[ibercorreo_core::Address]| v.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
-                self.draft = Some(Draft { id: m.id.0, to: list(&m.to), cc: list(&m.cc), subject: m.subject.clone(), body: m.body.clone() });
+                self.draft = Some(Draft {
+                    id: m.id.0,
+                    to: list(&m.to),
+                    cc: list(&m.cc),
+                    bcc: list(&m.bcc),
+                    show_bcc: !m.bcc.is_empty(),
+                    subject: m.subject.clone(),
+                    body: m.body.clone(),
+                });
             }
             (None, _) => self.draft = None,
         }
@@ -890,6 +912,14 @@ impl App {
             let unread = inbox.map(|f| self.session.store.unread_count(f)).unwrap_or(0);
             ui.label(RichText::new(format!("Unread in Inbox: {unread}")).small().color(self.tokens.text_weak));
             ui.separator();
+            if self.syncing
+                && let Some((what, done)) = &self.sync_progress
+            {
+                let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(140.0).desired_height(10.0).fill(self.tokens.accent);
+                ui.add(bar);
+                ui.label(RichText::new(what).small().color(self.tokens.text_weak));
+                ui.separator();
+            }
             ui.label(RichText::new(&self.session.status).small().color(self.tokens.text_weak));
         });
     }
@@ -936,7 +966,7 @@ impl App {
                     ui.add_space(2.0);
                     ui.horizontal(|ui| {
                         ui.add_space(30.0);
-                        ui.label(RichText::new("Right-click a folder → Add to Favorites").small().color(self.tokens.text_weak));
+                        ui.label(RichText::new("Right-click a folder: Add to Favorites").small().color(self.tokens.text_weak));
                     });
                     ui.add_space(4.0);
                 }
@@ -1183,10 +1213,11 @@ impl App {
                 RichText::new(format!("To: {}", m.to.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "))).small().color(t.text_weak),
             );
         }
-        if !m.cc.is_empty() {
-            ui.label(
-                RichText::new(format!("Cc: {}", m.cc.iter().map(ToString::to_string).collect::<Vec<_>>().join(", "))).small().color(t.text_weak),
-            );
+        for (label, list) in [("Cc", &m.cc), ("Bcc", &m.bcc)] {
+            if !list.is_empty() {
+                let names = list.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+                ui.label(RichText::new(format!("{label}: {names}")).small().color(t.text_weak));
+            }
         }
         if !m.attachments.is_empty() {
             ui.add_space(6.0);
@@ -1245,11 +1276,19 @@ impl App {
         ui.horizontal(|ui| {
             send = ui.add(egui::Button::new(RichText::new("Send").strong().color(Color32::WHITE)).fill(t.accent)).clicked();
             discard = ui.button("Discard").clicked();
+            if !d.show_bcc && ui.button("Bcc").on_hover_text("Blind copies: they get the message, the others don't see them").clicked() {
+                d.show_bcc = true;
+            }
         });
         ui.add_space(8.0);
         let mut changed = false;
         egui::Grid::new("compose").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-            for (label, field) in [("To", &mut d.to), ("Cc", &mut d.cc), ("Subject", &mut d.subject)] {
+            let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
+            if d.show_bcc {
+                rows.push(("Bcc", &mut d.bcc));
+            }
+            rows.push(("Subject", &mut d.subject));
+            for (label, field) in rows {
                 ui.label(RichText::new(label).color(t.text_weak));
                 changed |= ui.add(egui::TextEdit::singleline(field).desired_width(f32::INFINITY)).lost_focus();
                 ui.end_row();
@@ -1257,7 +1296,7 @@ impl App {
         });
         ui.add_space(6.0);
         changed |= ui.add_sized(ui.available_size(), egui::TextEdit::multiline(&mut d.body)).lost_focus();
-        let params = json!({ "id": d.id, "to": d.to, "cc": d.cc, "subject": d.subject, "body": d.body });
+        let params = json!({ "id": d.id, "to": d.to, "cc": d.cc, "bcc": d.bcc, "subject": d.subject, "body": d.body });
         let id = d.id;
         if changed || send {
             self.run("message.update", params);

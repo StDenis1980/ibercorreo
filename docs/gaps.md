@@ -12,12 +12,13 @@ Status: 2026-10-26 · Pick from the top.
    (M3.3); choosing Google or Microsoft (or typing their address) fills in the servers; a folder
    with more than 500 new messages keeps downloading until it is complete. Calendars and contacts
    sync with one account's server at a time. The folder pane has Favorites and folding
-   accounts, as Outlook's does. Missing: a progress bar, a unified Inbox, moving mail between
+   accounts, as Outlook's does; each account has its own signature, compose has Bcc, and the
+   status bar shows sync progress. Missing: a unified Inbox, moving mail between
    accounts, reordering Favorites by dragging, folding remembered after a restart, DNS SRV (RFC 6186) and MX lookups (no DNS
    resolver yet), a separate CardDAV/CalDAV address in Find settings, OAuth for Google's
    calendars and contacts, other OAuth providers. Sent copies are saved to the server's Sent
    except on Gmail, which files them itself (Microsoft 365 may too: unchecked, an account setting
-   will cover others); no Bcc field; a message is refused as a whole if any recipient is.
+   will cover others); a message is refused as a whole if any recipient is.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
    remapping); folders deleted on the server are kept here; whole messages are
    downloaded (no header-first fetch).
@@ -109,3 +110,4 @@ Status: 2026-10-26 · Pick from the top.
 - 2026-10-23 — gap 1 narrowed: OAuth sign-in for Gmail and Microsoft 365 (M3.2).
 - 2026-10-26 — gap 1 narrowed: several accounts, servers filled in for Google and Microsoft, downloads past 500 (M3.3).
 - 2026-10-26 — gap 1 narrowed: Favorites and folding accounts in the folder pane (M3.3b).
+- 2026-10-26 — gap 1 narrowed: signatures, Bcc and a sync progress bar (M3.3c).

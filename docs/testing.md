@@ -237,6 +237,20 @@ It fills and empties `/ana/contacts/`, sends an edit, a new contact and a deleti
 fresh store sees them. In the app the same `https://localhost:15232/` address finds the address
 books through `/.well-known/carddav`.
 
+## Blind copies end to end
+With Postfix and Dovecot as above, send a message with a blind copy:
+
+```sh
+ibercorreo-cli run --store s.json --save \
+  --cmd 'compose={"to":"carl@example.org","bcc":"boss@example.org","subject":"Bcc check"}' \
+  --cmd 'message.send={"id":0}'
+ibercorreo-cli sync --store s.json --ca $D/cert.der
+```
+
+Both carl's and boss's INBOX get the message, and its headers carry only `To:
+carl@example.org`, with no `Bcc:` line. In memory, `crates/engine/src/tests.rs`
+(`blind_copies_are_sent_to_but_never_written`) checks the envelope and the written headers.
+
 ## Meeting invitations end to end
 With Postfix, Dovecot and Radicale as above (and a Radicale user named like the mail sign-in,
 since the calendar uses the same name and password): send an invitation to the test mailbox
@@ -264,3 +278,4 @@ declining, editing the answer and cancelling one day of a series.
 - 2026-10-23 — M3.1: IDLE and autoconfiguration tests.
 - 2026-10-23 — M3.2: OAuth tests and the XOAUTH2 check against Dovecot and Postfix.
 - 2026-10-26 — M3.3: the two-account check against Dovecot.
+- 2026-10-26 — M3.3c: the blind-copy check against Postfix and Dovecot.

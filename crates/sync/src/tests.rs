@@ -223,7 +223,16 @@ a8 OK fetched
 ",
     );
     let limits = Limits { new_per_folder: 2, ..Limits::default() };
-    let batch = run(&mut c, &s, &limits).unwrap();
+    let mut steps = Vec::new();
+    let batch = run_with(&mut c, &s, &limits, &mut |p| steps.push((p.folder.clone(), p.index, p.folders, p.fetched, p.to_fetch))).unwrap();
+    let inbox = || "INBOX".to_string();
+    // The Noselect folder is not counted; the Inbox starts, then its two new messages come.
+    assert_eq!(steps, [(inbox(), 0, 1, 0, 0), (inbox(), 0, 1, 0, 2), (inbox(), 0, 1, 2, 2)]);
+    let done = Progress { folder: inbox(), index: 0, folders: 1, fetched: 2, to_fetch: 2 };
+    assert!((done.fraction() - 1.0).abs() < f32::EPSILON);
+    let half = Progress { index: 1, folders: 4, fetched: 50, to_fetch: 100, ..done.clone() };
+    assert!((half.fraction() - 0.375).abs() < 1e-6);
+    assert!((Progress::default().fraction() - 1.0).abs() < f32::EPSILON, "nothing to do is done");
     assert_eq!(batch.pushed.len(), 1);
     assert!(batch.errors.is_empty(), "{:?}", batch.errors);
     let inbox = batch.folders.first().unwrap();
@@ -335,6 +344,7 @@ fn two_accounts_sync_into_their_own_folders() {
         address: ibercorreo_core::Address::parse(email).unwrap(),
         kind: ibercorreo_core::mail::AccountKind::Local,
         caldav: String::new(),
+        signature: String::new(),
     };
     let a = store.add_account(account("ana@example.org")).unwrap();
     let b = store.add_account(account("bo@example.net")).unwrap();

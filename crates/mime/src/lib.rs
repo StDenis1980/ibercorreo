@@ -118,7 +118,8 @@ pub struct Outgoing<'a> {
 
 /// RFC 5322 text for `m`, ready for SMTP `DATA` or saving as `.eml`. Lines end in CRLF.
 pub fn write(m: &Message, out: &Outgoing<'_>) -> Result<String> {
-    if m.to.is_empty() && m.cc.is_empty() {
+    // Bcc is never written: blind copies go only in the SMTP envelope.
+    if m.to.is_empty() && m.cc.is_empty() && m.bcc.is_empty() {
         return Err(Error::invalid("message", "no recipients"));
     }
     let domain = out.from.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("localhost");
@@ -353,6 +354,16 @@ Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<scri
         assert_eq!(back.cc.first().and_then(|a| a.name.as_deref()), Some("José Ñúñez"));
         assert_eq!(back.body.trim_end(), "Bom dia!\nДо зустрічі.");
         assert!(write(&Message::new(MessageId(3), FolderId(0)), &Outgoing { from: &from, date: "x", message_id: "y" }).is_err());
+    }
+
+    #[test]
+    fn blind_copies_never_reach_the_headers() {
+        let from = Address::parse("Denys <denys@example.com>").unwrap();
+        let mut m = Message::new(MessageId(1), FolderId(3));
+        m.bcc = Address::parse_list("Boss <boss@example.net>").unwrap();
+        m.body = "only blind".into();
+        let raw = write(&m, &Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "b" }).unwrap();
+        assert!(!raw.contains("boss@") && !raw.contains("Bcc") && !raw.contains("\r\nTo:"), "{raw}");
     }
 
     #[test]

@@ -221,7 +221,14 @@ pub struct Account {
     /// with the same name and password as the mail; empty for none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub caldav: String,
+    /// Text added to new messages, replies and forwards from this account (plain text, at most
+    /// [`MAX_SIGNATURE_LEN`] bytes); empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub signature: String,
 }
+
+/// The longest signature kept.
+pub const MAX_SIGNATURE_LEN: usize = 8 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Address {
@@ -326,6 +333,9 @@ pub struct Message {
     pub from: Option<Address>,
     pub to: Vec<Address>,
     pub cc: Vec<Address>,
+    /// Blind copies: sent to, never written into the message's headers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bcc: Vec<Address>,
     pub subject: String,
     /// When it was sent, in the sender's wall-clock time (UTC offset applied by the parser).
     pub date: Option<DateTime>,
@@ -356,6 +366,7 @@ impl Message {
             from: None,
             to: Vec::new(),
             cc: Vec::new(),
+            bcc: Vec::new(),
             subject: String::new(),
             date: None,
             body: String::new(),
