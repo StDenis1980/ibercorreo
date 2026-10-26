@@ -2107,6 +2107,7 @@ fn month_abbr(m: u8) -> &'static str {
     let names = match i18n::current() {
         Language::Uk => MONTHS_ABBR_UK,
         Language::Es => MONTHS_ABBR_ES,
+        Language::Ca => MONTHS_ABBR_CA,
         Language::En => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     };
     names.get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
@@ -2130,11 +2131,12 @@ fn range_title(s: &Session) -> String {
 }
 
 /// The month's name after a day number: `22 October`, `22 жовтня` (Ukrainian takes the genitive),
-/// `22 de octubre`.
+/// `22 de octubre`, `22 d'octubre`.
 fn month_name(d: Date) -> &'static str {
     let names = match i18n::current() {
         Language::Uk => MONTHS_GENITIVE_UK,
         Language::Es => MONTHS_AFTER_DAY_ES,
+        Language::Ca => MONTHS_AFTER_DAY_CA,
         Language::En => MONTHS,
     };
     names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
@@ -2162,6 +2164,22 @@ const MONTHS_AFTER_DAY_ES: [&str; 12] = [
     "de noviembre",
     "de diciembre",
 ];
+const MONTHS_CA: [&str; 12] = ["Gener", "Febrer", "Març", "Abril", "Maig", "Juny", "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"];
+const MONTHS_AFTER_DAY_CA: [&str; 12] = [
+    "de gener",
+    "de febrer",
+    "de març",
+    "d'abril",
+    "de maig",
+    "de juny",
+    "de juliol",
+    "d'agost",
+    "de setembre",
+    "d'octubre",
+    "de novembre",
+    "de desembre",
+];
+const MONTHS_ABBR_CA: [&str; 12] = ["gen.", "febr.", "març", "abr.", "maig", "juny", "jul.", "ag.", "set.", "oct.", "nov.", "des."];
 const MONTHS_ABBR_ES: [&str; 12] = ["ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."];
 
 /// A month on its own: `October 2026`, `Жовтень 2026`, `Octubre de 2026`.
@@ -2169,6 +2187,7 @@ fn month_title(d: Date) -> String {
     let (names, of) = match i18n::current() {
         Language::Uk => (MONTHS_UK, ""),
         Language::Es => (MONTHS_ES, "de "),
+        Language::Ca => (MONTHS_CA, "de "),
         Language::En => (MONTHS, ""),
     };
     format!("{} {of}{}", names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""), d.year())
@@ -2176,7 +2195,7 @@ fn month_title(d: Date) -> String {
 
 /// The month and year after a day number: `22 October 2026`, `22 жовтня 2026`, `22 de octubre de 2026`.
 fn month_year(d: Date) -> String {
-    let of = if i18n::current() == Language::Es { "de " } else { "" };
+    let of = if matches!(i18n::current(), Language::Es | Language::Ca) { "de " } else { "" };
     format!("{} {of}{}", month_name(d), d.year())
 }
 
@@ -2184,6 +2203,7 @@ fn long_date(d: Date) -> String {
     let days = match i18n::current() {
         Language::Uk => ["понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя"],
         Language::Es => ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
+        Language::Ca => ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"],
         Language::En => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     };
     format!("{}, {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), d.day(), month_year(d))
@@ -2284,6 +2304,7 @@ fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
     match i18n::current() {
         Language::Uk => return describe_rule_uk(r),
         Language::Es => return describe_rule_es(r),
+        Language::Ca => return describe_rule_ca(r),
         Language::En => {}
     }
     use ibercorreo_core::recur::Freq;
@@ -2408,6 +2429,57 @@ fn describe_rule_es(r: &ibercorreo_core::recur::Rule) -> String {
     out
 }
 
+/// [`describe_rule`] in Catalan: "Cada setmana: dl., dj. fins a 2026-12-31", "Cada 2 mesos: l'últim dia".
+fn describe_rule_ca(r: &ibercorreo_core::recur::Rule) -> String {
+    use ibercorreo_core::recur::Freq;
+    let mut out = match (r.freq, r.interval) {
+        (Freq::Daily, 1) => "Cada dia".to_string(),
+        (Freq::Weekly, 1) => "Cada setmana".to_string(),
+        (Freq::Monthly, 1) => "Cada mes".to_string(),
+        (Freq::Yearly, 1) => "Cada any".to_string(),
+        (freq, n) => {
+            let unit = match freq {
+                Freq::Daily => "dies",
+                Freq::Weekly => "setmanes",
+                Freq::Monthly => "mesos",
+                Freq::Yearly => "anys",
+            };
+            format!("Cada {n} {unit}")
+        }
+    };
+    let mut on: Vec<String> = r
+        .by_day
+        .iter()
+        .map(|(n, w)| {
+            let name = WEEKDAYS.get(usize::from(w.index())).copied().map_or("?", tl);
+            match n {
+                Some(-1) => format!("l'últim {name}"),
+                Some(n) => {
+                    let suffix = match n {
+                        1 | 3 => "r",
+                        2 => "n",
+                        4 => "t",
+                        _ => "è",
+                    };
+                    format!("el {n}{suffix} {name}")
+                }
+                None => name.to_string(),
+            }
+        })
+        .collect();
+    on.extend(r.by_month_day.iter().map(|d| if *d == -1 { "l'últim dia".to_string() } else { format!("el dia {d}") }));
+    if !on.is_empty() {
+        out.push_str(&format!(": {}", on.join(", ")));
+    }
+    if let Some(c) = r.count {
+        out.push_str(&format!(", {c} vegades"));
+    }
+    if let Some((d, _)) = r.until {
+        out.push_str(&format!(" fins a {d}"));
+    }
+    out
+}
+
 /// The Repeat choices in the appointment form: `event.add` values and their labels.
 /// The appointment form's reminder choices: `reminder` values for `event.add` ("": its default).
 const REMINDERS: [(&str, &str); 8] = [
@@ -2488,7 +2560,7 @@ fn human_size(bytes: usize) -> String {
 mod tests {
     use super::*;
 
-    /// Dates, durations and repeat rules read naturally in each language: Spanish puts "de" before
+    /// Dates, durations and repeat rules read naturally in each language: Spanish and Catalan put "de" before
     /// the month and the year, and counts take a plural.
     #[test]
     fn dates_spans_and_rules_follow_the_interface_language() {
@@ -2501,6 +2573,10 @@ mod tests {
         assert_eq!(due_in(120), "dentro de 2 horas");
         assert_eq!(due_in(-1), "vencido hace 1 minuto");
         assert_eq!(describe_rule(&rule), "Cada 2 semanas: lun., jue., 5 veces");
+        i18n::set_current(Language::Ca);
+        assert_eq!(long_date(d), "dilluns, 26 d'octubre de 2026");
+        assert_eq!(due_in(-1440), "vençut fa 1 dia");
+        assert_eq!(describe_rule(&rule), "Cada 2 setmanes: dl., dj., 5 vegades");
         i18n::set_current(Language::Uk);
         assert_eq!(long_date(d), "понеділок, 26 жовтня 2026");
         assert_eq!(due_in(120), "через 2 год");
