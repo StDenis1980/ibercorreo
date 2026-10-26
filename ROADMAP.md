@@ -6,7 +6,7 @@ Status: 2026-10-26 · M3 (accounts) in progress
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 63 |
+| Commands in the registry | 64 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -119,6 +119,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   folder has more than the 500 newest still on the server (the status says how many).
   `ibercorreo-cli sync --account ID`. Checked against Dovecot with two accounts (3 and 520
   messages). 63 commands.
+- 2026-10-26 — M3.3b: the folder pane as Outlook lays it out. Favorites at the top (a right
+  click on any folder adds it or takes it out; `folder.favorite`, `favorite` in `folder.list`;
+  kept in the store, in the order added, gone with their folder or account; the sample starts
+  with Inbox and Sent), each account a heading that folds, folder icons drawn in code, and
+  unread counts on every folder. 64 commands.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -136,6 +141,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-23 — M3.1.
 - 2026-10-23 — M3.2.
 - 2026-10-26 — M3.3.
+- 2026-10-26 — M3.3b.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

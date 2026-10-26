@@ -74,6 +74,9 @@ pub struct Store {
     /// Synced contacts deleted here, still to be deleted on the server.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     card_deletions: Vec<RemoteDeletion>,
+    /// The folders shown under Favorites, in the order they were added.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    favorites: Vec<FolderId>,
 }
 
 /// A CalDAV or CardDAV resource deleted here: its collection (`calendar`, also for an address
@@ -193,6 +196,7 @@ impl Store {
         self.messages.retain(|m| !gone.contains(&m.folder));
         self.tombstones.retain(|t| !gone.contains(&t.folder));
         self.folders.retain(|f| f.account != id);
+        self.favorites.retain(|f| !gone.contains(f));
         if self.folders.is_empty() {
             self.add_standard_folders(AccountId(0));
         }
@@ -211,6 +215,8 @@ impl Store {
         self.tombstones.retain(|t| !synced.contains(&t.folder));
         let held: std::collections::HashSet<FolderId> = self.messages.iter().map(|m| m.folder).collect();
         self.folders.retain(|f| !(synced.contains(&f.id) && f.role == FolderRole::Other && !held.contains(&f.id)));
+        let folders = &self.folders;
+        self.favorites.retain(|id| folders.iter().any(|f| f.id == *id));
         for f in self.folders.iter_mut().filter(|f| synced.contains(&f.id)) {
             f.remote = None;
         }
@@ -234,6 +240,28 @@ impl Store {
         self.next_folder = self.next_folder.saturating_add(1);
         self.folders.push(Folder { id, account, name: name.to_string(), role, remote: None });
         id
+    }
+
+    /// The favorite folders, in the order they were added.
+    pub fn favorites(&self) -> &[FolderId] {
+        &self.favorites
+    }
+
+    pub fn is_favorite(&self, id: FolderId) -> bool {
+        self.favorites.contains(&id)
+    }
+
+    /// Show a folder under Favorites (at the end) or stop showing it there. Returns whether that
+    /// changed anything.
+    pub fn set_favorite(&mut self, id: FolderId, favorite: bool) -> Result<bool> {
+        self.folder(id)?;
+        let was = self.is_favorite(id);
+        if favorite && !was {
+            self.favorites.push(id);
+        } else if !favorite && was {
+            self.favorites.retain(|f| *f != id);
+        }
+        Ok(was != favorite)
     }
 
     pub fn folder_mut(&mut self, id: FolderId) -> Result<&mut Folder> {
@@ -920,6 +948,10 @@ impl Store {
         if s.folders.is_empty() {
             s.add_standard_folders(AccountId(0));
         }
+        // A hand-edited list keeps only folders that exist, each once.
+        let mut seen = std::collections::HashSet::new();
+        let folders = &s.folders;
+        s.favorites.retain(|id| folders.iter().any(|f| f.id == *id) && seen.insert(*id));
         if let Some(top) = s.accounts.iter().map(|a| a.id.0.saturating_add(1)).max() {
             s.next_account = s.next_account.max(top);
         }
@@ -979,6 +1011,34 @@ impl Store {
 mod tests {
     use super::*;
     use ibercorreo_core::{Address, DateTime, RemoteFolder};
+
+    #[test]
+    fn favorites_keep_their_order_and_go_with_their_folder() {
+        let mut s = Store::new();
+        let ana = s.add_account(imap("ana@example.org")).unwrap();
+        let bob = s.add_account(imap("bob@example.org")).unwrap();
+        let ana_sent = s.folder_by_role(ana, FolderRole::Sent).unwrap();
+        let bob_inbox = s.folder_by_role(bob, FolderRole::Inbox).unwrap();
+        assert!(s.set_favorite(bob_inbox, true).unwrap());
+        assert!(s.set_favorite(ana_sent, true).unwrap());
+        assert!(!s.set_favorite(ana_sent, true).unwrap(), "once only");
+        assert_eq!(s.favorites(), [bob_inbox, ana_sent]);
+        assert!(s.set_favorite(FolderId(9999), true).is_err());
+
+        let back = Store::from_json(&serde_json::to_vec(&s).unwrap()).unwrap();
+        assert_eq!(back.favorites(), [bob_inbox, ana_sent]);
+
+        s.remove_account(bob).unwrap();
+        assert_eq!(s.favorites(), [ana_sent]);
+        assert!(s.set_favorite(ana_sent, false).unwrap());
+        assert!(s.favorites().is_empty());
+
+        // A hand-edited file: unknown and repeated folders are dropped.
+        let mut v: serde_json::Value = serde_json::to_value(&back).unwrap();
+        v["favorites"] = serde_json::json!([ana_sent.0, 9999, ana_sent.0]);
+        let edited = Store::from_json(&serde_json::to_vec(&v).unwrap()).unwrap();
+        assert_eq!(edited.favorites(), [ana_sent]);
+    }
 
     fn msg(store: &Store, subject: &str, day: u8) -> Message {
         let mut m = Message::new(MessageId(0), store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap());

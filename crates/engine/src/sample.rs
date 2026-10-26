@@ -210,5 +210,8 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
     m.date = Some(DateTime::new(today.add_days(-1)?, 20, 5, 0)?);
     m.body = "¡Hola! Te paso las fotos de Valencia el domingo. Un abrazo, Olena".into();
     s.add_message(m)?;
+    // Favorites, as Outlook starts them: the Inbox and Sent of the first account.
+    s.set_favorite(inbox, true)?;
+    s.set_favorite(sent, true)?;
     Ok(s)
 }

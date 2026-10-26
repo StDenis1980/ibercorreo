@@ -74,6 +74,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: folder_select,
     },
     CommandSpec {
+        id: "folder.favorite",
+        label: "Show in Favorites",
+        group: "Folder/Favorites",
+        shortcut: None,
+        params: "folder?: number | role — default the open folder\nfavorite?: boolean — default true; false takes it out of Favorites",
+        edits: true,
+        run: folder_favorite,
+    },
+    CommandSpec {
         id: "message.list",
         label: "List messages",
         group: "Home/Find",
@@ -730,7 +739,10 @@ fn folder_list(s: &mut Session, _: &Value) -> Result<Value> {
             .folders()
             .iter()
             .map(|f| {
-                json!({ "id": f.id.0, "account": f.account.0, "name": f.name, "role": format!("{:?}", f.role), "unread": s.store.unread_count(f.id) })
+                json!({
+                    "id": f.id.0, "account": f.account.0, "name": f.name, "role": format!("{:?}", f.role),
+                    "unread": s.store.unread_count(f.id), "favorite": s.store.is_favorite(f.id),
+                })
             })
             .collect(),
     ))
@@ -742,6 +754,15 @@ fn folder_select(s: &mut Session, p: &Value) -> Result<Value> {
     s.view = View::Mail;
     s.message = None;
     Ok(json!({ "folder": f.0 }))
+}
+
+fn folder_favorite(s: &mut Session, p: &Value) -> Result<Value> {
+    let f = folder_param(s, p, "folder")?.unwrap_or(s.folder);
+    let favorite = bool_param(p, "favorite")?.unwrap_or(true);
+    s.store.set_favorite(f, favorite)?;
+    let name = s.store.folder(f)?.name.clone();
+    s.status = if favorite { format!("{name} added to Favorites") } else { format!("{name} removed from Favorites") };
+    Ok(json!({ "folder": f.0, "favorite": favorite }))
 }
 
 fn message_list(s: &mut Session, p: &Value) -> Result<Value> {
