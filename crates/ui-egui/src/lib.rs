@@ -2108,6 +2108,8 @@ fn month_abbr(m: u8) -> &'static str {
         Language::Uk => MONTHS_ABBR_UK,
         Language::Es => MONTHS_ABBR_ES,
         Language::Ca => MONTHS_ABBR_CA,
+        Language::Gl => MONTHS_ABBR_GL,
+        Language::Eu => MONTHS_ABBR_EU,
         Language::En => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     };
     names.get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
@@ -2121,6 +2123,9 @@ fn weekday_abbr(d: Date) -> &'static str {
 /// `26 October – 1 November 2026` or `October 2026`.
 fn range_title(s: &Session) -> String {
     let (from, to) = s.calendar_range();
+    if i18n::current() == Language::Eu {
+        return range_title_eu(s.calendar_mode, s.day, from, to);
+    }
     match s.calendar_mode {
         CalendarMode::Month => month_title(s.day),
         CalendarMode::Day => format!("{} {}", from.day(), month_year(from)),
@@ -2130,6 +2135,30 @@ fn range_title(s: &Session) -> String {
     }
 }
 
+/// [`range_title`] in Basque, which puts the year first and the month in the genitive:
+/// `2026ko urriaren 22a`, `2026ko urriaren 19–25`, `2026ko urriaren 26 – azaroaren 1`, `2026ko urria`.
+fn range_title_eu(mode: CalendarMode, day: Date, from: Date, to: Date) -> String {
+    let genitive = |d: Date| MONTHS_GENITIVE_EU.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("");
+    match mode {
+        CalendarMode::Month => month_title(day),
+        CalendarMode::Day => format!("{} {} {}a", year_eu(from.year()), genitive(from), from.day()),
+        _ if from.month() == to.month() => format!("{} {} {}–{}", year_eu(to.year()), genitive(to), from.day(), to.day()),
+        _ if from.year() == to.year() => format!("{} {} {} – {} {}", year_eu(to.year()), genitive(from), from.day(), genitive(to), to.day()),
+        _ => format!("{} {} {} – {} {} {}", year_eu(from.year()), genitive(from), from.day(), year_eu(to.year()), genitive(to), to.day()),
+    }
+}
+
+/// A Basque year with its "of" suffix: `2026ko`, but `2025eko`, `2030eko` (after a consonant sound).
+fn year_eu(year: i32) -> String {
+    let n = year.rem_euclid(100);
+    let consonant = match n % 10 {
+        1 | 5 => true,
+        0 if n != 0 => (n / 10) % 2 == 1,
+        _ => false,
+    };
+    format!("{year}{}", if consonant { "eko" } else { "ko" })
+}
+
 /// The month's name after a day number: `22 October`, `22 жовтня` (Ukrainian takes the genitive),
 /// `22 de octubre`, `22 d'octubre`.
 fn month_name(d: Date) -> &'static str {
@@ -2137,6 +2166,8 @@ fn month_name(d: Date) -> &'static str {
         Language::Uk => MONTHS_GENITIVE_UK,
         Language::Es => MONTHS_AFTER_DAY_ES,
         Language::Ca => MONTHS_AFTER_DAY_CA,
+        Language::Gl => MONTHS_AFTER_DAY_GL,
+        Language::Eu => MONTHS_GENITIVE_EU,
         Language::En => MONTHS,
     };
     names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
@@ -2180,31 +2211,77 @@ const MONTHS_AFTER_DAY_CA: [&str; 12] = [
     "de desembre",
 ];
 const MONTHS_ABBR_CA: [&str; 12] = ["gen.", "febr.", "març", "abr.", "maig", "juny", "jul.", "ag.", "set.", "oct.", "nov.", "des."];
+const MONTHS_GL: [&str; 12] =
+    ["Xaneiro", "Febreiro", "Marzo", "Abril", "Maio", "Xuño", "Xullo", "Agosto", "Setembro", "Outubro", "Novembro", "Decembro"];
+const MONTHS_AFTER_DAY_GL: [&str; 12] = [
+    "de xaneiro",
+    "de febreiro",
+    "de marzo",
+    "de abril",
+    "de maio",
+    "de xuño",
+    "de xullo",
+    "de agosto",
+    "de setembro",
+    "de outubro",
+    "de novembro",
+    "de decembro",
+];
+const MONTHS_ABBR_GL: [&str; 12] = ["xan.", "feb.", "mar.", "abr.", "maio", "xuño", "xul.", "ago.", "set.", "out.", "nov.", "dec."];
+const MONTHS_EU: [&str; 12] =
+    ["urtarrila", "otsaila", "martxoa", "apirila", "maiatza", "ekaina", "uztaila", "abuztua", "iraila", "urria", "azaroa", "abendua"];
+const MONTHS_GENITIVE_EU: [&str; 12] = [
+    "urtarrilaren",
+    "otsailaren",
+    "martxoaren",
+    "apirilaren",
+    "maiatzaren",
+    "ekainaren",
+    "uztailaren",
+    "abuztuaren",
+    "irailaren",
+    "urriaren",
+    "azaroaren",
+    "abenduaren",
+];
+const MONTHS_ABBR_EU: [&str; 12] = ["urt.", "ots.", "mar.", "api.", "mai.", "eka.", "uzt.", "abu.", "ira.", "urr.", "aza.", "abe."];
 const MONTHS_ABBR_ES: [&str; 12] = ["ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."];
 
-/// A month on its own: `October 2026`, `Жовтень 2026`, `Octubre de 2026`.
+/// A month on its own: `October 2026`, `Жовтень 2026`, `Octubre de 2026`, `2026ko urria`.
 fn month_title(d: Date) -> String {
+    if i18n::current() == Language::Eu {
+        return format!("{} {}", year_eu(d.year()), MONTHS_EU.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""));
+    }
     let (names, of) = match i18n::current() {
         Language::Uk => (MONTHS_UK, ""),
         Language::Es => (MONTHS_ES, "de "),
         Language::Ca => (MONTHS_CA, "de "),
-        Language::En => (MONTHS, ""),
+        Language::Gl => (MONTHS_GL, "de "),
+        Language::Eu | Language::En => (MONTHS, ""),
     };
     format!("{} {of}{}", names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""), d.year())
 }
 
 /// The month and year after a day number: `22 October 2026`, `22 жовтня 2026`, `22 de octubre de 2026`.
 fn month_year(d: Date) -> String {
-    let of = if matches!(i18n::current(), Language::Es | Language::Ca) { "de " } else { "" };
+    let of = if matches!(i18n::current(), Language::Es | Language::Ca | Language::Gl) { "de " } else { "" };
     format!("{} {of}{}", month_name(d), d.year())
 }
 
+/// A day in full: `Monday, 26 October 2026`, `lunes, 26 de octubre de 2026`,
+/// `2026ko urriaren 26a, astelehena`.
 fn long_date(d: Date) -> String {
+    if i18n::current() == Language::Eu {
+        let days = ["astelehena", "asteartea", "asteazkena", "osteguna", "ostirala", "larunbata", "igandea"];
+        let month = MONTHS_GENITIVE_EU.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("");
+        return format!("{} {month} {}a, {}", year_eu(d.year()), d.day(), days.get(usize::from(d.weekday().index())).copied().unwrap_or(""));
+    }
     let days = match i18n::current() {
         Language::Uk => ["понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя"],
         Language::Es => ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
         Language::Ca => ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"],
-        Language::En => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        Language::Gl => ["luns", "martes", "mércores", "xoves", "venres", "sábado", "domingo"],
+        Language::Eu | Language::En => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     };
     format!("{}, {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), d.day(), month_year(d))
 }
@@ -2305,6 +2382,8 @@ fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
         Language::Uk => return describe_rule_uk(r),
         Language::Es => return describe_rule_es(r),
         Language::Ca => return describe_rule_ca(r),
+        Language::Gl => return describe_rule_gl(r),
+        Language::Eu => return describe_rule_eu(r),
         Language::En => {}
     }
     use ibercorreo_core::recur::Freq;
@@ -2480,6 +2559,92 @@ fn describe_rule_ca(r: &ibercorreo_core::recur::Rule) -> String {
     out
 }
 
+/// [`describe_rule`] in Galician: "Cada semana: lun., xov. ata 2026-12-31", "Cada 2 meses: o último día".
+fn describe_rule_gl(r: &ibercorreo_core::recur::Rule) -> String {
+    use ibercorreo_core::recur::Freq;
+    let mut out = match (r.freq, r.interval) {
+        (Freq::Daily, 1) => "Cada día".to_string(),
+        (Freq::Weekly, 1) => "Cada semana".to_string(),
+        (Freq::Monthly, 1) => "Cada mes".to_string(),
+        (Freq::Yearly, 1) => "Cada ano".to_string(),
+        (freq, n) => {
+            let unit = match freq {
+                Freq::Daily => "días",
+                Freq::Weekly => "semanas",
+                Freq::Monthly => "meses",
+                Freq::Yearly => "anos",
+            };
+            format!("Cada {n} {unit}")
+        }
+    };
+    let mut on: Vec<String> = r
+        .by_day
+        .iter()
+        .map(|(n, w)| {
+            let name = WEEKDAYS.get(usize::from(w.index())).copied().map_or("?", tl);
+            match n {
+                Some(-1) => format!("o último {name}"),
+                Some(n) => format!("o {n}.º {name}"),
+                None => name.to_string(),
+            }
+        })
+        .collect();
+    on.extend(r.by_month_day.iter().map(|d| if *d == -1 { "o último día".to_string() } else { format!("o día {d}") }));
+    if !on.is_empty() {
+        out.push_str(&format!(": {}", on.join(", ")));
+    }
+    if let Some(c) = r.count {
+        out.push_str(&format!(", {c} veces"));
+    }
+    if let Some((d, _)) = r.until {
+        out.push_str(&format!(" ata {d}"));
+    }
+    out
+}
+
+/// [`describe_rule`] in Basque: "Astero: al., og., 2026-12-31 arte", "2 hiletik behin: azken eguna".
+fn describe_rule_eu(r: &ibercorreo_core::recur::Rule) -> String {
+    use ibercorreo_core::recur::Freq;
+    let mut out = match (r.freq, r.interval) {
+        (Freq::Daily, 1) => "Egunero".to_string(),
+        (Freq::Weekly, 1) => "Astero".to_string(),
+        (Freq::Monthly, 1) => "Hilero".to_string(),
+        (Freq::Yearly, 1) => "Urtero".to_string(),
+        (freq, n) => {
+            let unit = match freq {
+                Freq::Daily => "egunetik",
+                Freq::Weekly => "astetik",
+                Freq::Monthly => "hiletik",
+                Freq::Yearly => "urtetik",
+            };
+            format!("{n} {unit} behin")
+        }
+    };
+    let mut on: Vec<String> = r
+        .by_day
+        .iter()
+        .map(|(n, w)| {
+            let name = WEEKDAYS.get(usize::from(w.index())).copied().map_or("?", tl);
+            match n {
+                Some(-1) => format!("azken {name}"),
+                Some(n) => format!("{n}. {name}"),
+                None => name.to_string(),
+            }
+        })
+        .collect();
+    on.extend(r.by_month_day.iter().map(|d| if *d == -1 { "azken eguna".to_string() } else { format!("{d}. eguna") }));
+    if !on.is_empty() {
+        out.push_str(&format!(": {}", on.join(", ")));
+    }
+    if let Some(c) = r.count {
+        out.push_str(&format!(", {c} aldiz"));
+    }
+    if let Some((d, _)) = r.until {
+        out.push_str(&format!(" {d} arte"));
+    }
+    out
+}
+
 /// The Repeat choices in the appointment form: `event.add` values and their labels.
 /// The appointment form's reminder choices: `reminder` values for `event.add` ("": its default).
 const REMINDERS: [(&str, &str); 8] = [
@@ -2577,6 +2742,18 @@ mod tests {
         assert_eq!(long_date(d), "dilluns, 26 d'octubre de 2026");
         assert_eq!(due_in(-1440), "vençut fa 1 dia");
         assert_eq!(describe_rule(&rule), "Cada 2 setmanes: dl., dj., 5 vegades");
+        i18n::set_current(Language::Gl);
+        assert_eq!(long_date(d), "luns, 26 de outubro de 2026");
+        assert_eq!(describe_rule(&rule), "Cada 2 semanas: lun., xov., 5 veces");
+        i18n::set_current(Language::Eu);
+        assert_eq!(long_date(d), "2026ko urriaren 26a, astelehena");
+        assert_eq!(month_title(d), "2026ko urria");
+        assert_eq!(range_title_eu(CalendarMode::Week, d, d, Date::new(2026, 11, 1).unwrap()), "2026ko urriaren 26 – azaroaren 1");
+        assert_eq!(year_eu(2025), "2025eko");
+        assert_eq!(year_eu(2030), "2030eko");
+        assert_eq!(year_eu(2040), "2040ko");
+        assert_eq!(due_in(120), "2 ordu barru");
+        assert_eq!(describe_rule(&rule), "2 astetik behin: al., og., 5 aldiz");
         i18n::set_current(Language::Uk);
         assert_eq!(long_date(d), "понеділок, 26 жовтня 2026");
         assert_eq!(due_in(120), "через 2 год");
