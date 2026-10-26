@@ -28,17 +28,21 @@ pub const AUTO: &str = "auto";
 pub enum Language {
     En,
     Uk,
+    Es,
+    Ca,
 }
 
 impl Language {
     /// Every language, English first: it is the source and the fallback.
-    pub const ALL: [Language; 2] = [Language::En, Language::Uk];
+    pub const ALL: [Language; 4] = [Language::En, Language::Uk, Language::Es, Language::Ca];
 
     /// BCP 47 code, lowercase; also the `language` setting's value.
     pub const fn code(self) -> &'static str {
         match self {
             Language::En => "en",
             Language::Uk => "uk",
+            Language::Es => "es",
+            Language::Ca => "ca",
         }
     }
 
@@ -47,6 +51,8 @@ impl Language {
         match self {
             Language::En => "English",
             Language::Uk => "Українська",
+            Language::Es => "Español",
+            Language::Ca => "Català",
         }
     }
 
@@ -55,6 +61,8 @@ impl Language {
         match self {
             Language::En => None,
             Language::Uk => Some(include_str!("i18n/uk.tsv")),
+            Language::Es => Some(include_str!("i18n/es.tsv")),
+            Language::Ca => Some(include_str!("i18n/ca.tsv")),
         }
     }
 
@@ -67,9 +75,13 @@ impl Language {
 
     fn catalog(self) -> Option<&'static Catalog> {
         static UK: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Uk.source().unwrap_or_default()));
+        static ES: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Es.source().unwrap_or_default()));
+        static CA: LazyLock<Catalog> = LazyLock::new(|| Catalog::parse(Language::Ca.source().unwrap_or_default()));
         match self {
             Language::En => None,
             Language::Uk => Some(&UK),
+            Language::Es => Some(&ES),
+            Language::Ca => Some(&CA),
         }
     }
 }
@@ -198,6 +210,8 @@ mod tests {
             assert_eq!(Language::from_tag(tag), Some(Language::Uk), "{tag}");
         }
         assert_eq!(Language::from_tag("en-GB"), Some(Language::En));
+        assert_eq!(Language::from_tag("es_ES.UTF-8"), Some(Language::Es));
+        assert_eq!(Language::from_tag("ca-ES-valencia"), Some(Language::Ca));
         assert_eq!(Language::from_tag("ru-RU"), None);
         assert_eq!(Language::from_tag(""), None);
         assert_eq!(resolve(Some("uk")), Language::Uk);
@@ -210,6 +224,9 @@ mod tests {
     fn lookups_translate_and_fall_back_to_english() {
         assert_eq!(tr(Language::Uk, "Reply"), "Відповісти");
         assert_eq!(tr(Language::En, "Reply"), "Reply");
+        assert_eq!(tr(Language::Es, "Reply"), "Responder");
+        assert_eq!(tr(Language::Es, "Inbox"), "Bandeja de entrada");
+        assert_eq!(tr(Language::Ca, "Inbox"), "Safata d'entrada");
         assert_eq!(tr(Language::Uk, "no such string anywhere"), "no such string anywhere");
         set_current(Language::Uk);
         assert_eq!(tl("Inbox"), "Вхідні");

@@ -294,7 +294,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Interface language",
         group: "File/Options",
         shortcut: None,
-        params: "language?: a language code (uk, en, uk-UA) or \"auto\" to follow the computer — default: just say which is chosen",
+        params: "language?: a language code (uk, es, ca, en, es-ES) or \"auto\" to follow the computer — default: just say which is chosen",
         edits: true,
         run: language,
     },

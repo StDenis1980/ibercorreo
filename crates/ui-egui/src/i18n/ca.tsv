@@ -1,0 +1,232 @@
+# Català (ca) interface catalog for Tinta Correo.
+# craft-i18n catalog format. Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(sense destinataris)
+	(no subject)	(sense assumpte)
+	(no title)	(sense títol)
+	(unknown sender)	(remitent desconegut)
+	+ Add account	+ Afegeix compte
+	+ New Appointment	+ Cita nova
+	1 day	1 dia
+	1 hour	1 hora
+	1 minute	1 minut
+	10 minutes	10 minuts
+	15 minutes	15 minuts
+	2 hours	2 hores
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 o 2026-10-22
+	30 minutes	30 minuts
+	5 minutes	5 minuts
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	Un servidor CalDAV i CardDAV, com ara Nextcloud, Radicale o Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	Una adreça de {provider}: ja s'han emplenat els servidors. Introdueix una contrasenya d'aplicació i desa.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Una adreça de {provider}: ja s'han emplenat els servidors. Desa i després inicia la sessió a la pàgina de {provider} al navegador.
+	Account settings	Configuració del compte
+	Account…	Compte…
+	Add	Afegeix
+	Add account	Afegeix un compte
+	Add to Favorites	Afegeix a Preferits
+	Added under new messages, replies and forwards from this account	S'afegeix sota els missatges nous, les respostes i els reenviaments d'aquest compte
+	Address	Adreça
+	Address book	Llibreta d'adreces
+	All	Tot
+	All day	Tot el dia
+	An attendee	Un assistent
+	An attendee proposes a new time	Un assistent proposa una altra hora
+	Another mailbox, with folders of its own	Una altra bústia, amb carpetes pròpies
+	Archive	Arxiu
+	At start time	A l'hora d'inici
+	Automatic (system language)	Automàtic (idioma del sistema)
+	B	B
+	Bcc	C/o
+	Birthday	Aniversari
+	Blind copies: they get the message, the others don't see them	Còpies ocultes: reben el missatge, però els altres destinataris no les veuen
+	Calendar	Calendari
+	Calendar (Ctrl+2)	Calendari (Ctrl+2)
+	Calendars	Calendaris
+	Calendars and contacts	Calendaris i contactes
+	Cancel	Cancel·la
+	Careful: the text names one site, but the link goes to\n{url}	Compte: el text anomena un lloc, però l'enllaç porta a\n{url}
+	Cc	A/c
+	Contact	Contacte
+	Copy the sign-in address	Copia l'adreça d'inici de sessió
+	Day	Dia
+	Delete	Suprimeix
+	Delete appointment	Suprimeix la cita
+	Delete every occurrence	Suprimeix totes les repeticions
+	Delete this occurrence only	Suprimeix només aquesta repetició
+	Discard	Descarta
+	Dismiss	Descarta
+	Dismiss All	Descarta-ho tot
+	Do not send a response	No enviïs cap resposta
+	Drafts	Esborranys
+	Edit the response first	Edita abans la resposta
+	Email	Correu electrònic
+	Email address	Adreça electrònica
+	End	Final
+	Event	Esdeveniment
+	Every day	Cada dia
+	Every month	Cada mes
+	Every week	Cada setmana
+	Every weekday	Cada dia feiner
+	Every year	Cada any
+	Favorites	Preferits
+	Fax	Fax
+	Flag	Marca
+	Forward	Reenvia
+	Fri	dv.
+	Home	Particular
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Les imatges d'altres servidors poden indicar al remitent que has obert el missatge, per això Tinta Correo no les baixa mai.
+	Inbox	Safata d'entrada
+	Incoming (IMAP)	Entrant (IMAP)
+	Interface language	Idioma de la interfície
+	Job title	Càrrec
+	Junk	Correu brossa
+	KB	kB
+	Keep	Conserva
+	Local	Local
+	Location	Ubicació
+	Look up the servers for this address (the provider's published settings, then the usual names)	Cerca els servidors d'aquesta adreça (primer la configuració publicada pel proveïdor, després els noms habituals)
+	MB	MB
+	Mail (Ctrl+1)	Correu (Ctrl+1)
+	Mark as unread	Marca com a no llegit
+	Meeting invitation	Convocatòria de reunió
+	Meeting invitation from {organizer}	Convocatòria de reunió de {organizer}
+	Mobile	Mòbil
+	Mon	dl.
+	Month	Mes
+	Name	Nom
+	Never	Mai
+	New Appointment	Cita nova
+	New contact	Contacte nou
+	No appointments	No hi ha cites
+	No browser opened?	No s'ha obert el navegador?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Encara no hi ha contactes. Afegeix-ne un o obre un fitxer .vcf amb Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	No hi ha configuració publicada: aquests servidors han respost amb els noms habituals. Revisa'ls i desa.
+	No settings found: {error}. Enter the servers by hand.	No s'ha trobat cap configuració: {error}. Introdueix els servidors a mà.
+	Nobody matches.	Ningú no coincideix.
+	None	Cap
+	Notes	Notes
+	Nothing here	Aquí no hi ha res
+	Organization	Organització
+	Other	Altre
+	Outbox	Safata de sortida
+	Outgoing (SMTP)	Sortint (SMTP)
+	Password	Contrasenya
+	People	Persones
+	People (Ctrl+3)	Persones (Ctrl+3)
+	Phone	Telèfon
+	Port	Port
+	Redo	Refés
+	Reminder	Recordatori
+	Remove	Elimina
+	Remove account…	Elimina el compte…
+	Remove from Calendar	Elimina del calendari
+	Remove from Favorites	Elimina de Preferits
+	Remove this phone	Elimina aquest telèfon
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	Vols eliminar {address} i el correu desat aquí? Al servidor no se suprimeix res.
+	Repeat	Repetició
+	Repeats ({rule}), shown once	Es repeteix ({rule}), es mostra una vegada
+	Reply	Respon
+	Reply All	Respon a tots
+	Results for “{query}”	Resultats de «{query}»
+	Right-click a folder: Add to Favorites	Fes clic dret en una carpeta: Afegeix a Preferits
+	Same as this computer ({zone})	Igual que aquest ordinador ({zone})
+	Sat	ds.
+	Save	Desa
+	Save and Send/Receive	Desa i Envia/rep
+	Save and sign in	Desa i inicia la sessió
+	Search mail	Cerca al correu
+	Search people	Cerca persones
+	Search: Lisbon, Kyiv, New York…	Cerca: Lisboa, Kíiv, Nova York…
+	Select a message to read it	Selecciona un missatge per llegir-lo
+	Send	Envia
+	Send the Outbox and get new mail (F9)	Envia la safata de sortida i rep correu nou (F9)
+	Send the response now	Envia la resposta ara
+	Sent	Elements enviats
+	Server	Servidor
+	Set up your account to sync calendars.	Configura el compte per sincronitzar calendaris.
+	Set up your account to sync contacts.	Configura el compte per sincronitzar contactes.
+	Set up your mail server to send and receive.	Configura el servidor de correu per enviar i rebre.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	S'ha trobat la configuració de {found}, però {provider} només admet l'inici de sessió a la seva pàgina (OAuth) i aquesta compilació no té cap identificador de client de {provider}.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	S'ha trobat la configuració de {found}. Revisa-la i desa; després inicia la sessió a la pàgina de {provider} al navegador.
+	Settings for {found} found. Check them, enter the password and save.	S'ha trobat la configuració de {found}. Revisa-la, introdueix la contrasenya i desa.
+	Settings of {account}	Configuració de {account}
+	Show as plain text	Mostra com a text sense format
+	Show formatted	Mostra amb format
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Inicia la sessió a la pàgina de {provider} al navegador (OAuth 2.0): aquí no es desa cap contrasenya
+	Sign in with	Inicia la sessió amb
+	Sign-in name	Nom d'inici de sessió
+	Signature	Signatura
+	Signed in with {name}	Sessió iniciada amb {name}
+	Snooze all 5 minutes	Posposa-ho tot 5 minuts
+	Snooze…	Posposa…
+	Start	Inici
+	Subject	Assumpte
+	Sun	dg.
+	Sync mail, calendars and contacts (F9)	Sincronitza el correu, els calendaris i els contactes (F9)
+	Synced with the CalDAV server at Send/Receive	Es sincronitza amb el servidor CalDAV en enviar i rebre
+	Synced with the CardDAV server at Send/Receive	Es sincronitza amb el servidor CardDAV en enviar i rebre
+	The settings of the account whose folder is open	La configuració del compte de la carpeta oberta
+	The sign-in did not finish: {error}.	L'inici de sessió no ha acabat: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Aquesta compilació no té cap identificador de client de {provider} per iniciar la sessió amb OAuth
+	This link does not go where its text says	Aquest enllaç no porta on diu el seu text
+	This meeting has been cancelled	Aquesta reunió s'ha cancel·lat
+	Thu	dj.
+	Title	Títol
+	To	Per a
+	To: {names}	Per a: {names}
+	Today	Avui
+	Trash	Elements suprimits
+	Tue	dt.
+	Undo	Desfés
+	Unread	No llegit
+	Unread in Inbox: {n}	No llegits a la safata d'entrada: {n}
+	Waiting for you to sign in in your browser…	S'espera que iniciïs la sessió al navegador…
+	Wed	dc.
+	Week	Setmana
+	Work	Feina
+	Work Week	Setmana laboral
+	You have {status} it	L'has {status}
+	Your name	El teu nom
+	Your name\nCompany · phone	El teu nom\nEmpresa · telèfon
+	accepted	acceptada
+	answered	resposta
+	declined	rebutjada
+	delegated	delegada
+	if not the email address	si no és l'adreça electrònica
+	in {span}	d'aquí a {span}
+	kept in the system's credential store	desada al magatzem de credencials del sistema
+	now	ara
+	one or more, comma-separated	una o més, separades per comes
+	optional	opcional
+	repeats	es repeteix
+	shown to recipients	visible per als destinataris
+	tentatively accepted	acceptada provisionalment
+	{date}, all day	{date}, tot el dia
+	{n} Reminders	{n} recordatoris
+	{n} days	{n} dies
+	{n} hours	{n} hores
+	{n} minutes	{n} minuts
+	{n} remote image not loaded	{n} imatge remota sense baixar
+	{n} remote images not loaded	{n} imatges remotes sense baixar
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Ja s'han emplenat els servidors de {provider}. Desa i després inicia la sessió a la pàgina de {provider} al navegador.
+	{span} after the start	{span} després de l'inici
+	{span} before	{span} abans
+	{span} overdue	vençut fa {span}
+	{who} has {status} this meeting	{who} ha {status} aquesta reunió
+	✉ New Email	✉ Correu nou
+	✔ Accept	✔ Accepta
+	✔ In your calendar	✔ Al teu calendari
+	✖ Decline	✖ Rebutja
+	➕ Add phone	➕ Afegeix un telèfon
+	➕ New Contact	➕ Contacte nou
+	⟳ Send/Receive	⟳ Envia/rep
+	⟳ Sending and receiving…	⟳ S'està enviant i rebent…
+	⟳ Syncing…	⟳ S'està sincronitzant…
+	？ Tentative	？ Provisional
+	🔍 Find settings	🔍 Cerca la configuració
+	🔍 Looking…	🔍 S'està cercant…
+	🔔 1 Reminder	🔔 1 recordatori
+	🗑 Delete	🗑 Suprimeix
+	🗑 Series	🗑 Sèrie
