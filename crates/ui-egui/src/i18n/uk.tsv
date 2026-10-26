@@ -1,0 +1,228 @@
+# Українська (uk) interface catalog for Tinta Correo.
+# craft-i18n catalog format. Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(без одержувачів)
+	(no subject)	(без теми)
+	(no title)	(без назви)
+	(unknown sender)	(невідомий відправник)
+	+ Add account	+ Додати акаунт
+	+ New Appointment	+ Нова зустріч
+	1 day	1 день
+	1 hour	1 година
+	10 minutes	10 хвилин
+	15 minutes	15 хвилин
+	2 hours	2 години
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 або 2026-10-22
+	30 minutes	30 хвилин
+	5 minutes	5 хвилин
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	Сервер CalDAV і CardDAV, наприклад Nextcloud, Radicale або Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	Адреса {provider}: сервери заповнено. Введіть пароль застосунку й збережіть.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Адреса {provider}: сервери заповнено. Збережіть, а потім увійдіть на сторінці {provider} у браузері.
+	Account settings	Параметри облікового запису
+	Account…	Акаунт…
+	Add	Додати
+	Add account	Додати обліковий запис
+	Add to Favorites	Додати до вибраного
+	Added under new messages, replies and forwards from this account	Додається під новими листами, відповідями й пересланими листами з цього облікового запису
+	Address	Адреса
+	Address book	Адресна книга
+	All	Усі
+	All day	Увесь день
+	An attendee	Учасник
+	An attendee proposes a new time	Учасник пропонує інший час
+	Another mailbox, with folders of its own	Ще одна поштова скринька з власними папками
+	Archive	Архів
+	At start time	На час початку
+	Automatic (system language)	Автоматично (мова системи)
+	B	Б
+	Bcc	Прихована копія
+	Birthday	День народження
+	Blind copies: they get the message, the others don't see them	Приховані копії: ці люди отримають лист, а інші одержувачі їх не побачать
+	Calendar	Календар
+	Calendar (Ctrl+2)	Календар (Ctrl+2)
+	Calendars	Календарі
+	Calendars and contacts	Календарі й контакти
+	Cancel	Скасувати
+	Careful: the text names one site, but the link goes to\n{url}	Обережно: у тексті вказано один сайт, а посилання веде на\n{url}
+	Cc	Копія
+	Contact	Контакт
+	Copy the sign-in address	Копіювати адресу входу
+	Day	День
+	Delete	Видалити
+	Delete appointment	Видалити зустріч
+	Delete every occurrence	Видалити всі повторення
+	Delete this occurrence only	Видалити лише це повторення
+	Discard	Відкинути
+	Dismiss	Закрити
+	Dismiss All	Закрити всі
+	Do not send a response	Не надсилати відповідь
+	Drafts	Чернетки
+	Edit the response first	Спершу змінити відповідь
+	Email	Ел. пошта
+	Email address	Адреса ел. пошти
+	End	Кінець
+	Event	Подія
+	Every day	Щодня
+	Every month	Щомісяця
+	Every week	Щотижня
+	Every weekday	Щобудня
+	Every year	Щороку
+	Favorites	Вибране
+	Fax	Факс
+	Flag	Позначка
+	Forward	Переслати
+	Fri	Пт
+	Home	Домашній
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Зображення на інших серверах можуть повідомити відправнику, що ви відкрили лист, тому Tinta Correo ніколи їх не завантажує.
+	Inbox	Вхідні
+	Incoming (IMAP)	Вхідна пошта (IMAP)
+	Interface language	Мова інтерфейсу
+	Job title	Посада
+	Junk	Небажана пошта
+	KB	КБ
+	Keep	Залишити
+	Local	Локальні
+	Location	Місце
+	Look up the servers for this address (the provider's published settings, then the usual names)	Знайти сервери для цієї адреси (спершу опубліковані параметри постачальника, потім звичні назви)
+	MB	МБ
+	Mail (Ctrl+1)	Пошта (Ctrl+1)
+	Mark as unread	Позначити як непрочитаний
+	Meeting invitation	Запрошення на зустріч
+	Meeting invitation from {organizer}	Запрошення на зустріч від {organizer}
+	Mobile	Мобільний
+	Mon	Пн
+	Month	Місяць
+	Name	Ім'я
+	Never	Ніколи
+	New Appointment	Нова зустріч
+	New contact	Новий контакт
+	No appointments	Немає зустрічей
+	No browser opened?	Браузер не відкрився?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Контактів поки немає. Додайте контакт або відкрийте файл .vcf у Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	Опублікованих параметрів немає: ці сервери відповіли за звичними назвами. Перевірте їх і збережіть.
+	No settings found: {error}. Enter the servers by hand.	Параметрів не знайдено: {error}. Введіть сервери вручну.
+	Nobody matches.	Нікого не знайдено.
+	None	Немає
+	Notes	Нотатки
+	Nothing here	Тут нічого немає
+	Organization	Організація
+	Other	Інший
+	Outbox	Вихідні
+	Outgoing (SMTP)	Вихідна пошта (SMTP)
+	Password	Пароль
+	People	Люди
+	People (Ctrl+3)	Люди (Ctrl+3)
+	Phone	Телефон
+	Port	Порт
+	Redo	Повторити
+	Reminder	Нагадування
+	Remove	Видалити
+	Remove account…	Видалити обліковий запис…
+	Remove from Calendar	Видалити з календаря
+	Remove from Favorites	Видалити з вибраного
+	Remove this phone	Видалити цей телефон
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	Видалити {address} і пошту, збережену тут? На сервері нічого не видаляється.
+	Repeat	Повторення
+	Repeats ({rule}), shown once	Повторюється ({rule}), показано один раз
+	Reply	Відповісти
+	Reply All	Відповісти всім
+	Results for “{query}”	Результати для «{query}»
+	Right-click a folder: Add to Favorites	Клацніть папку правою кнопкою: Додати до вибраного
+	Same as this computer ({zone})	Як на цьому комп'ютері ({zone})
+	Sat	Сб
+	Save	Зберегти
+	Save and Send/Receive	Зберегти й надіслати/отримати
+	Save and sign in	Зберегти й увійти
+	Search mail	Пошук у пошті
+	Search people	Пошук людей
+	Search: Lisbon, Kyiv, New York…	Пошук: Lisbon, Kyiv, New York…
+	Select a message to read it	Виберіть лист, щоб прочитати його
+	Send	Надіслати
+	Send the Outbox and get new mail (F9)	Надіслати вихідні й отримати нову пошту (F9)
+	Send the response now	Надіслати відповідь зараз
+	Sent	Надіслані
+	Server	Сервер
+	Set up your account to sync calendars.	Налаштуйте обліковий запис, щоб синхронізувати календарі.
+	Set up your account to sync contacts.	Налаштуйте обліковий запис, щоб синхронізувати контакти.
+	Set up your mail server to send and receive.	Налаштуйте поштовий сервер, щоб надсилати й отримувати пошту.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	Параметри для {found} знайдено, але {provider} дозволяє вхід лише на власній сторінці (OAuth), а в цій збірці немає ідентифікатора клієнта {provider}.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	Параметри для {found} знайдено. Перевірте їх і збережіть, а потім увійдіть на сторінці {provider} у браузері.
+	Settings for {found} found. Check them, enter the password and save.	Параметри для {found} знайдено. Перевірте їх, введіть пароль і збережіть.
+	Settings of {account}	Параметри {account}
+	Show as plain text	Показати як звичайний текст
+	Show formatted	Показати з форматуванням
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Вхід на сторінці {provider} у браузері (OAuth 2.0): пароль тут не зберігається
+	Sign in with	Спосіб входу
+	Sign-in name	Ім'я для входу
+	Signature	Підпис
+	Signed in with {name}	Вхід через {name} виконано
+	Snooze all 5 minutes	Відкласти всі на 5 хвилин
+	Snooze…	Відкласти…
+	Start	Початок
+	Subject	Тема
+	Sun	Нд
+	Sync mail, calendars and contacts (F9)	Синхронізувати пошту, календарі й контакти (F9)
+	Synced with the CalDAV server at Send/Receive	Синхронізується із сервером CalDAV під час надсилання/отримання
+	Synced with the CardDAV server at Send/Receive	Синхронізується із сервером CardDAV під час надсилання/отримання
+	The settings of the account whose folder is open	Параметри облікового запису, папку якого відкрито
+	The sign-in did not finish: {error}.	Вхід не завершено: {error}.
+	This build has no {provider} client ID for OAuth sign-in	У цій збірці немає ідентифікатора клієнта {provider} для входу через OAuth
+	This link does not go where its text says	Це посилання веде не туди, куди вказує його текст
+	This meeting has been cancelled	Цю зустріч скасовано
+	Thu	Чт
+	Title	Назва
+	To	Кому
+	To: {names}	Кому: {names}
+	Today	Сьогодні
+	Trash	Кошик
+	Tue	Вт
+	Undo	Скасувати
+	Unread	Непрочитаний
+	Unread in Inbox: {n}	Непрочитаних у вхідних: {n}
+	Waiting for you to sign in in your browser…	Очікування входу в браузері…
+	Wed	Ср
+	Week	Тиждень
+	Work	Робочий
+	Work Week	Робочий тиждень
+	You have {status} it	Ваша відповідь: {status}
+	Your name	Ваше ім'я
+	Your name\nCompany · phone	Ваше ім'я\nКомпанія · телефон
+	accepted	прийнято
+	answered	відповідь надано
+	declined	відхилено
+	delegated	делеговано
+	if not the email address	якщо не адреса ел. пошти
+	in {span}	через {span}
+	kept in the system's credential store	зберігається у сховищі облікових даних системи
+	now	зараз
+	one or more, comma-separated	одна або кілька, через кому
+	optional	необов'язково
+	repeats	повторюється
+	shown to recipients	бачать одержувачі
+	tentatively accepted	прийнято попередньо
+	{date}, all day	{date}, увесь день
+	{n} Reminders	Нагадувань: {n}
+	{n} remote image not loaded	Не завантажено зовнішніх зображень: {n}
+	{n} remote images not loaded	Не завантажено зовнішніх зображень: {n}
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Сервери {provider} заповнено. Збережіть, а потім увійдіть на сторінці {provider} у браузері.
+	{span} after the start	{span} після початку
+	{span} before	за {span}
+	{span} overdue	прострочено на {span}
+	{who} has {status} this meeting	{who}: {status}
+	✉ New Email	✉ Новий лист
+	✔ Accept	✔ Прийняти
+	✔ In your calendar	✔ У вашому календарі
+	✖ Decline	✖ Відхилити
+	➕ Add phone	➕ Додати телефон
+	➕ New Contact	➕ Новий контакт
+	⟳ Send/Receive	⟳ Надіслати/отримати
+	⟳ Sending and receiving…	⟳ Надсилання й отримання…
+	⟳ Syncing…	⟳ Синхронізація…
+	？ Tentative	？ Під питанням
+	🔍 Find settings	🔍 Знайти параметри
+	🔍 Looking…	🔍 Пошук…
+	🔔 1 Reminder	🔔 1 нагадування
+	🗑 Delete	🗑 Видалити
+	🗑 Series	🗑 Серію

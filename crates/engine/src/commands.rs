@@ -290,6 +290,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: time_zone,
     },
     CommandSpec {
+        id: "app.language",
+        label: "Interface language",
+        group: "File/Options",
+        shortcut: None,
+        params: "language?: a language code (uk, en, uk-UA) or \"auto\" to follow the computer — default: just say which is chosen",
+        edits: true,
+        run: language,
+    },
+    CommandSpec {
         id: "calendar.viewDay",
         label: "Day",
         group: "Calendar/Arrange",
@@ -1304,6 +1313,25 @@ fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
         "system": s.system_zone().name(),
         "followsSystem": s.store.time_zone.is_none(),
     }))
+}
+
+/// Show or choose the interface language. The front end decides which languages it can show and
+/// falls back to the computer's for a code it has no translation for; here a code is only checked
+/// for shape and reduced to its primary subtag (`uk-UA`, `uk_UA.UTF-8` → `uk`).
+fn language(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(l) = str_param(p, "language")? {
+        let l = l.trim();
+        s.store.language = if l.eq_ignore_ascii_case("auto") || l.eq_ignore_ascii_case("system") || l.is_empty() {
+            None
+        } else {
+            let primary = l.split(['-', '_', '.', '@']).next().unwrap_or_default().to_ascii_lowercase();
+            if !(2..=3).contains(&primary.len()) || !primary.bytes().all(|b| b.is_ascii_lowercase()) {
+                return Err(Error::invalid("language", format!("not a language code: {}", ibercorreo_core::clamp_text(l, 32))));
+            }
+            Some(primary)
+        };
+    }
+    Ok(json!({ "language": s.store.language.as_deref().unwrap_or("auto"), "followsSystem": s.store.language.is_none() }))
 }
 
 /// One day, week or month forward (`delta` 1) or back (-1), as the calendar mode says.
