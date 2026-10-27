@@ -1,12 +1,12 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-27 · M3 (accounts, search) in progress
+Status: 2026-10-27 · M3 (accounts, search, rules) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 64 |
+| Commands in the registry | 70 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -137,6 +137,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   and Spanish names), `has:attachment`, `is:unread|read|flagged`, `after:`/`before:`/`on:`.
   `search.messages` takes a `scope` (all, mailbox, folder); the window has Outlook's scope list
   beside the search box and a syntax tooltip.
+- 2026-10-27 — M3.5: rules. `store::rules`: a condition in search syntax and actions (mark read,
+  flag, move, delete, stop processing more rules), in order, per account or for all; they run on
+  mail new in an Inbox already synced (sync's `Report::arrived`: newer than the newest UID held,
+  never the first download or older mail fetched later) and on any folder on request.
+  `rule.list`/`add`/`set`/`delete`/`move`/`run` (70 commands); a Rules window (list, on/off,
+  order, edit, Run rules now) and "Create rule…" on a message's right-click menu. "+ Add account"
+  left the ribbon (it is in the folder pane), so the search box has room again.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -157,6 +164,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-26 — M3.3b.
 - 2026-10-26 — M3.3c.
 - 2026-10-27 — M3.4.
+- 2026-10-27 — M3.5.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

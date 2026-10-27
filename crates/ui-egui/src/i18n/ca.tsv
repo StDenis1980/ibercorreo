@@ -234,3 +234,36 @@
 	🔔 1 Reminder	🔔 1 recordatori
 	🗑 Delete	🗑 Suprimeix
 	🗑 Series	🗑 Sèrie
+# Rules (M3.5)
+	Rules…	Regles…
+	Sort, mark or delete mail as it arrives	Ordena, marca o suprimeix el correu tan bon punt arriba
+	Create rule…	Crea una regla…
+	Rules	Regles
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Les regles s'apliquen al correu nou de la Safata d'entrada després d'Envia/rep, en aquest ordre.
+	No rules yet.	Encara no hi ha regles.
+	On	Activada
+	Edit…	Edita…
+	Later	Més tard
+	Earlier	Abans
+	+ New rule	+ Regla nova
+	Run rules now	Executa les regles ara
+	Run the rules that are on over the open folder	Executa les regles activades a la carpeta oberta
+	default: the condition	per defecte: la condició
+	Condition	Condició
+	From	De
+	Sent to	Enviat a
+	Has attachment	Amb adjunts
+	Search syntax; empty: every message.	Sintaxi de cerca; buit: tots els missatges.
+	Do this	Fes això
+	Mark as read	Marca com a llegit
+	Move to	Mou a
+	Delete (move to Deleted Items)	Suprimeix (mou a Elements suprimits)
+	Stop processing more rules	Atura el processament de més regles
+	mark as read	marca com a llegit
+	flag	marca
+	move to {folder}	mou a {folder}
+	delete	suprimeix
+	stop	atura
+	every message	tots els missatges
+	Run this rule later	Aplica aquesta regla més tard
+	Run this rule earlier	Aplica aquesta regla abans

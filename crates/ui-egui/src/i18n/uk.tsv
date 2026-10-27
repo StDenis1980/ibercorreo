@@ -230,3 +230,36 @@
 	🔔 1 Reminder	🔔 1 нагадування
 	🗑 Delete	🗑 Видалити
 	🗑 Series	🗑 Серію
+# Rules (M3.5)
+	Rules…	Правила…
+	Sort, mark or delete mail as it arrives	Сортувати, позначати чи видаляти пошту, щойно вона надходить
+	Create rule…	Створити правило…
+	Rules	Правила
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Правила застосовуються до нових листів у Вхідних після «Надіслати/отримати», у такому порядку.
+	No rules yet.	Правил ще немає.
+	On	Увімкнено
+	Edit…	Змінити…
+	Later	Пізніше
+	Earlier	Раніше
+	+ New rule	+ Нове правило
+	Run rules now	Застосувати правила зараз
+	Run the rules that are on over the open folder	Застосувати увімкнені правила до відкритої папки
+	default: the condition	типово: умова
+	Condition	Умова
+	From	Від
+	Sent to	Кому
+	Has attachment	З вкладенням
+	Search syntax; empty: every message.	Синтаксис пошуку; порожньо — усі листи.
+	Do this	Зробити
+	Mark as read	Позначити прочитаним
+	Move to	Перемістити в
+	Delete (move to Deleted Items)	Видалити (у Кошик)
+	Stop processing more rules	Не застосовувати наступні правила
+	mark as read	позначити прочитаним
+	flag	позначити прапорцем
+	move to {folder}	перемістити в {folder}
+	delete	видалити
+	stop	зупинити
+	every message	усі листи
+	Run this rule later	Застосовувати це правило пізніше
+	Run this rule earlier	Застосовувати це правило раніше

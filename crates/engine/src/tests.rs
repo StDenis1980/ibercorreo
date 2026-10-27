@@ -834,3 +834,70 @@ fn search_finds_folded_words_in_a_scope_and_follows_undo() {
     s.run("edit.redo", &Value::Null).unwrap();
     assert_eq!(s.run("search.messages", &json!({"query": "nandu"})).unwrap().as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn rules_are_made_listed_reordered_and_run_on_a_folder_with_undo() {
+    let mut s = session();
+    let a = s.run("rule.add", &json!({"query": "presupuesto", "flag": true, "markRead": true})).unwrap();
+    assert_eq!(a["name"], "presupuesto");
+    assert_eq!((a["flag"].as_bool(), a["markRead"].as_bool(), a["moveTo"].is_null()), (Some(true), Some(true), true));
+    let b = s.run("rule.add", &json!({"name": "Café", "query": "from:cafe", "moveTo": "archive", "stop": true})).unwrap();
+    assert_eq!(b["moveToName"], "Archive");
+    assert!(b["account"].is_number(), "a move rule takes the folder's account");
+    let (a, b) = (a["id"].as_u64().unwrap(), b["id"].as_u64().unwrap());
+    assert!(s.run("rule.add", &json!({"query": "x"})).is_err(), "no action");
+    assert!(s.run("rule.add", &json!({"query": "x", "moveTo": 99999})).is_err());
+    s.run("rule.move", &json!({"id": b})).unwrap();
+    let order: Vec<u64> = s.run("rule.list", &Value::Null).unwrap().as_array().unwrap().iter().map(|r| r["id"].as_u64().unwrap()).collect();
+    assert_eq!(order, [b, a]);
+    // Run on the Inbox: the Café Azul newsletter is archived, the budget mail flagged and read.
+    s.run("folder.select", &json!({"folder": "inbox"})).unwrap();
+    let report = s.run("rule.run", &Value::Null).unwrap();
+    assert_eq!(report["moved"], 1);
+    assert!(report["flagged"].as_u64().unwrap() >= 1);
+    assert!(s.status.starts_with("Rules matched"), "{}", s.status);
+    let archive = s.store.folder_by_role(s.current_account(), FolderRole::Archive).unwrap();
+    assert!(s.store.messages_in(archive).iter().any(|m| m.subject == "Novidades de outubro"));
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(!s.store.messages_in(archive).iter().any(|m| m.subject == "Novidades de outubro"));
+    // Edit: drop the move, turn it off; then delete.
+    let edited = s.run("rule.set", &json!({"id": b, "moveTo": false, "flag": true, "enabled": false})).unwrap();
+    assert_eq!((edited["moveTo"].is_null(), edited["enabled"].as_bool(), edited["stop"].as_bool()), (true, Some(false), Some(true)));
+    assert!(s.run("rule.set", &json!({"id": b, "flag": false})).is_err(), "a rule needs an action");
+    s.run("rule.delete", &json!({"id": a})).unwrap();
+    assert!(s.run("rule.delete", &json!({"id": a})).is_err());
+    assert_eq!(s.run("rule.list", &Value::Null).unwrap().as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn rules_run_on_mail_that_arrives_by_sync_only() {
+    use ibercorreo_sync::{Batch, FolderSync, NewMessage};
+    let mut s = session();
+    let account = s.current_account();
+    s.run("rule.add", &json!({"query": "from:promo", "delete": true})).unwrap();
+    let raw = |from: &str, subject: &str| {
+        format!("From: {from}\r\nSubject: {subject}\r\nDate: Thu, 22 Oct 2026 09:00:00 +0000\r\n\r\nbody\r\n").into_bytes()
+    };
+    let batch = |uids: &[(u32, &str)]| Batch {
+        mailboxes: vec![ibercorreo_imap::Mailbox { raw: "INBOX".into(), name: "INBOX".into(), delimiter: Some('/'), attributes: Vec::new() }],
+        folders: vec![FolderSync {
+            path: "INBOX".into(),
+            uid_validity: 1,
+            new: uids
+                .iter()
+                .map(|(uid, subject)| NewMessage { uid: *uid, flags: Vec::new(), raw: raw("Promo <promo@spam.test>", subject) })
+                .collect(),
+            ..FolderSync::default()
+        }],
+        ..Batch::default()
+    };
+    let trash = s.store.folder_by_role(account, FolderRole::Trash).unwrap();
+    let in_trash = |s: &Session, subject: &str| s.store.messages_in(trash).iter().any(|m| m.subject == subject);
+    // The first download keeps old mail where it is.
+    s.apply_sync(account, batch(&[(1, "old offer")]));
+    assert!(!in_trash(&s, "old offer"));
+    // New mail after that goes through the rules.
+    s.apply_sync(account, batch(&[(2, "new offer")]));
+    assert!(in_trash(&s, "new offer"));
+    assert!(s.status.contains("Rules matched 1 messages: 1 deleted"), "{}", s.status);
+}

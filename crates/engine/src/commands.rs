@@ -7,6 +7,8 @@ use ibercorreo_core::{
 };
 use serde_json::{Value, json};
 
+use ibercorreo_store::rules::{Rule, RuleAction};
+
 use crate::{CalendarMode, Session, View};
 
 pub struct CommandSpec {
@@ -571,6 +573,44 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: invite_remove,
     },
     CommandSpec {
+        id: "rule.list",
+        label: "Rules",
+        group: "Home/Rules",
+        shortcut: None,
+        params: "(none) — the rules in the order they run",
+        edits: false,
+        run: rule_list,
+    },
+    CommandSpec { id: "rule.add", label: "Create Rule", group: "Home/Rules", shortcut: None, params: RULE_PARAMS, edits: true, run: rule_add },
+    CommandSpec {
+        id: "rule.set",
+        label: "Edit Rule",
+        group: "Home/Rules",
+        shortcut: None,
+        params: "id: number\n(then as rule.add; what is left out stays as it was)",
+        edits: true,
+        run: rule_set,
+    },
+    CommandSpec { id: "rule.delete", label: "Delete Rule", group: "Home/Rules", shortcut: None, params: "id: number", edits: true, run: rule_delete },
+    CommandSpec {
+        id: "rule.move",
+        label: "Move Rule",
+        group: "Home/Rules",
+        shortcut: None,
+        params: "id: number\nup?: boolean — default true; false moves it later in the order",
+        edits: true,
+        run: rule_move,
+    },
+    CommandSpec {
+        id: "rule.run",
+        label: "Run Rules Now",
+        group: "Home/Rules",
+        shortcut: None,
+        params: "folder?: number | role — default the open folder\nid?: number — only this rule (even if turned off); default every rule that is on",
+        edits: true,
+        run: rule_run,
+    },
+    CommandSpec {
         id: "file.save",
         label: "Save",
         group: "File/Save",
@@ -580,6 +620,140 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: file_save,
     },
 ];
+
+// ---- rules ----
+
+const RULE_PARAMS: &str = "name?: string — default: the condition\nquery?: string — the condition, in search syntax (search.messages); blank: every message\naccount?: number — only this account's mail; default: the move target's account, else every account\nmarkRead?: boolean\nflag?: boolean\nmoveTo?: number | role | false — move to this folder; false: no move\ndelete?: boolean — move to Deleted Items\nstop?: boolean — stop processing more rules\nenabled?: boolean — default true";
+
+fn rule_json(s: &Session, r: &Rule) -> Value {
+    let move_to = r.actions.iter().find_map(|a| match a {
+        RuleAction::Move { folder } => Some(*folder),
+        _ => None,
+    });
+    json!({
+        "id": r.id,
+        "name": r.name,
+        "enabled": r.enabled,
+        "account": r.account.map(|a| a.0),
+        "query": r.query,
+        "markRead": r.actions.contains(&RuleAction::MarkRead),
+        "flag": r.actions.contains(&RuleAction::Flag),
+        "moveTo": move_to.map(|f| f.0),
+        "moveToName": move_to.and_then(|f| s.store.folder(f).ok()).map(|f| f.name.clone()),
+        "delete": r.actions.contains(&RuleAction::Delete),
+        "stop": r.stop,
+    })
+}
+
+fn rule_list(s: &mut Session, _: &Value) -> Result<Value> {
+    Ok(Value::Array(s.store.rules().iter().map(|r| rule_json(s, r)).collect()))
+}
+
+/// `base` with the rule parameters in `p` applied.
+fn rule_from_params(s: &Session, p: &Value, mut base: Rule) -> Result<Rule> {
+    if let Some(name) = str_param(p, "name")? {
+        base.name = name.to_string();
+    }
+    if let Some(q) = str_param(p, "query")? {
+        base.query = q.to_string();
+    }
+    if let Some(a) = account_param(s, p)? {
+        base.account = Some(a);
+    }
+    for (key, action) in [("markRead", RuleAction::MarkRead), ("flag", RuleAction::Flag), ("delete", RuleAction::Delete)] {
+        match bool_param(p, key)? {
+            Some(true) if !base.actions.contains(&action) => base.actions.push(action),
+            Some(false) => base.actions.retain(|a| *a != action),
+            _ => {}
+        }
+    }
+    match p.get("moveTo") {
+        None | Some(Value::Null) => {}
+        Some(Value::Bool(false)) => {
+            // Without a move the rule is for every account again, unless one was given.
+            if base.actions.iter().any(|a| matches!(a, RuleAction::Move { .. })) && p.get("account").is_none_or(Value::is_null) {
+                base.account = None;
+            }
+            base.actions.retain(|a| !matches!(a, RuleAction::Move { .. }));
+        }
+        Some(_) => {
+            let folder = folder_param(s, p, "moveTo")?.ok_or_else(|| Error::invalid("params", "moveTo must be a folder"))?;
+            base.actions.retain(|a| !matches!(a, RuleAction::Move { .. }));
+            base.actions.push(RuleAction::Move { folder });
+            // The rule follows the folder's account unless one was given.
+            if p.get("account").is_none_or(Value::is_null) {
+                base.account = None;
+            }
+        }
+    }
+    if let Some(stop) = bool_param(p, "stop")? {
+        base.stop = stop;
+    }
+    if let Some(on) = bool_param(p, "enabled")? {
+        base.enabled = on;
+    }
+    Ok(base)
+}
+
+fn rule_add(s: &mut Session, p: &Value) -> Result<Value> {
+    let rule = rule_from_params(s, p, Rule::new("", "", Vec::new()))?;
+    let id = s.store.add_rule(rule)?;
+    let r = s.store.rule(id)?;
+    s.status = format!("Rule \u{201c}{}\u{201d} created", r.name);
+    Ok(rule_json(s, r))
+}
+
+fn rule_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = u32_param(p, "id")?.ok_or_else(|| Error::invalid("params", "id is required"))?;
+    let rule = rule_from_params(s, p, s.store.rule(id)?.clone())?;
+    s.store.set_rule(rule)?;
+    Ok(rule_json(s, s.store.rule(id)?))
+}
+
+fn rule_delete(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = u32_param(p, "id")?.ok_or_else(|| Error::invalid("params", "id is required"))?;
+    let r = s.store.remove_rule(id)?;
+    s.status = format!("Rule \u{201c}{}\u{201d} deleted", r.name);
+    Ok(json!({ "id": id }))
+}
+
+fn rule_move(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = u32_param(p, "id")?.ok_or_else(|| Error::invalid("params", "id is required"))?;
+    s.store.move_rule(id, bool_param(p, "up")?.unwrap_or(true))?;
+    Ok(Value::Array(s.store.rules().iter().map(|r| json!(r.id)).collect()))
+}
+
+fn rule_run(s: &mut Session, p: &Value) -> Result<Value> {
+    let folder = folder_param(s, p, "folder")?.unwrap_or(s.folder);
+    s.store.folder(folder)?;
+    let only = u32_param(p, "id")?;
+    if let Some(id) = only {
+        s.store.rule(id)?;
+    }
+    let ids: Vec<MessageId> = s.store.messages_in(folder).iter().map(|m| m.id).collect();
+    let report = s.store.run_rules(&ids, only);
+    s.status = rules_status(&report);
+    s.fix_selection();
+    serde_json::to_value(&report).map_err(|e| Error::invalid("rules", e.to_string()))
+}
+
+/// The status line for what rules did.
+pub(crate) fn rules_status(r: &ibercorreo_store::rules::RulesReport) -> String {
+    let mut parts = Vec::new();
+    for (n, what) in [(r.moved, "moved"), (r.deleted, "deleted"), (r.marked_read, "marked read"), (r.flagged, "flagged")] {
+        if n > 0 {
+            parts.push(format!("{n} {what}"));
+        }
+    }
+    let mut line = format!("Rules matched {} messages", r.matched);
+    if !parts.is_empty() {
+        line.push_str(&format!(": {}", parts.join(", ")));
+    }
+    if r.skipped > 0 {
+        line.push_str(&format!(" ({} moves skipped: the folder is gone or in another account)", r.skipped));
+    }
+    line
+}
 
 // ---- parameters ----
 

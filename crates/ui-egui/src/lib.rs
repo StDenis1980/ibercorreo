@@ -52,6 +52,75 @@ struct EventForm {
     calendar: Option<u32>,
 }
 
+/// Rules (Home ▸ Rules…): the list, and the rule being made or edited.
+#[derive(Default)]
+struct RuleForm {
+    open: bool,
+    /// The rule in the form: `Some(None)` a new one, `Some(Some(id))` an existing one.
+    editing: Option<Option<u32>>,
+    name: String,
+    query: String,
+    mark_read: bool,
+    flag: bool,
+    move_on: bool,
+    move_to: Option<u32>,
+    delete: bool,
+    stop: bool,
+    enabled: bool,
+    /// What went wrong with the last save or run.
+    note: String,
+}
+
+impl RuleForm {
+    /// The form for a new rule with `query` as its condition.
+    fn start(&mut self, query: &str) {
+        *self = RuleForm { open: true, editing: Some(None), query: query.into(), enabled: true, ..RuleForm::default() };
+    }
+
+    /// The form for rule `r`, as `rule.list` gives it.
+    fn edit(&mut self, r: &Value) {
+        let flag = |k: &str| r.get(k).and_then(Value::as_bool).unwrap_or(false);
+        let move_to = r.get("moveTo").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok());
+        *self = RuleForm {
+            open: true,
+            editing: Some(r.get("id").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok())),
+            name: r.get("name").and_then(Value::as_str).unwrap_or("").into(),
+            query: r.get("query").and_then(Value::as_str).unwrap_or("").into(),
+            mark_read: flag("markRead"),
+            flag: flag("flag"),
+            move_on: move_to.is_some(),
+            move_to,
+            delete: flag("delete"),
+            stop: flag("stop"),
+            enabled: flag("enabled"),
+            note: String::new(),
+        };
+    }
+
+    /// The form as `rule.add` / `rule.set` parameters.
+    fn params(&self) -> Value {
+        let move_to = match (self.move_on, self.move_to) {
+            (true, Some(f)) => json!(f),
+            _ => json!(false),
+        };
+        let id = match self.editing {
+            Some(Some(id)) => json!(id),
+            _ => Value::Null,
+        };
+        json!({
+            "id": id,
+            "name": self.name,
+            "query": self.query,
+            "markRead": self.mark_read,
+            "flag": self.flag,
+            "moveTo": move_to,
+            "delete": self.delete,
+            "stop": self.stop,
+            "enabled": self.enabled,
+        })
+    }
+}
+
 /// The contact card on the right of People: a new contact (`id` none) or the one selected.
 #[derive(Default)]
 struct ContactForm {
@@ -105,6 +174,29 @@ impl ContactForm {
 /// others as the server names them.
 /// The search box's tooltip: what a query can say.
 const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
+
+/// A rule's condition and actions in one line, for the Rules list.
+fn rule_summary(r: &Value) -> String {
+    let query = r["query"].as_str().unwrap_or("");
+    let mut actions: Vec<String> = Vec::new();
+    if r["markRead"].as_bool() == Some(true) {
+        actions.push(tl("mark as read").into());
+    }
+    if r["flag"].as_bool() == Some(true) {
+        actions.push(tl("flag").into());
+    }
+    if let Some(name) = r["moveToName"].as_str() {
+        actions.push(tf("move to {folder}", &[("folder", tl(name))]));
+    }
+    if r["delete"].as_bool() == Some(true) {
+        actions.push(tl("delete").into());
+    }
+    if r["stop"].as_bool() == Some(true) {
+        actions.push(tl("stop").into());
+    }
+    let when = if query.is_empty() { tl("every message").to_string() } else { query.to_string() };
+    format!("{when} — {}", actions.join(", "))
+}
 
 /// The search scope's name in the list, as Outlook's.
 fn scope_label(scope: SearchScope) -> &'static str {
@@ -246,6 +338,7 @@ pub struct App {
     /// Set by the shell while the browser sign-in runs: the address it opened.
     pub oauth_running: Option<String>,
     account_form: AccountForm,
+    rule_form: RuleForm,
     password: Option<(AccountId, String)>,
     tokens: Tokens,
     draft: Option<Draft>,
@@ -287,6 +380,7 @@ impl App {
             oauth_cancel: false,
             oauth_running: None,
             account_form: AccountForm::default(),
+            rule_form: RuleForm::default(),
             password: None,
             tokens: Tokens::light(),
             draft: None,
@@ -630,7 +724,185 @@ impl App {
             View::Contacts => self.people(ui),
         }
         self.account_window(ui);
+        self.rules_window(ui);
         self.reminder_window(ui);
+    }
+
+    /// Rules: the list in the order they run (on/off, up/down, edit, delete), New rule and Run
+    /// rules now; and the form for one rule.
+    fn rules_window(&mut self, ui: &mut Ui) {
+        if !self.rule_form.open {
+            return;
+        }
+        let t = self.tokens;
+        let rules = self.session.run("rule.list", &Value::Null).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+        let mut open = true;
+        let mut action: Option<(&'static str, Value)> = None;
+        let mut edit: Option<Value> = None;
+        let mut save = false;
+        let mut cancel = false;
+        let account = self.session.current_account();
+        let folders: Vec<(u32, String)> = self.session.store.folders_of(account).iter().map(|f| (f.id.0, folder_label(f))).collect();
+        let archive = self.session.store.folder_by_role(account, FolderRole::Archive).ok().map(|f| f.0);
+        egui::Window::new(tl("Rules"))
+            .id(egui::Id::new("rules"))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                ui.set_width(600.0);
+                let f = &mut self.rule_form;
+                if !f.note.is_empty() {
+                    ui.label(RichText::new(&f.note).color(t.unread));
+                }
+                if f.editing.is_none() {
+                    ui.label(RichText::new(tl("Rules run on new mail in the Inbox after Send/Receive, in this order.")).color(t.text_weak));
+                    ui.add_space(4.0);
+                    if rules.is_empty() {
+                        ui.label(RichText::new(tl("No rules yet.")).color(t.text_weak));
+                    }
+                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        for (i, r) in rules.iter().enumerate() {
+                            let id = r["id"].clone();
+                            ui.horizontal(|ui| {
+                                let mut on = r["enabled"].as_bool().unwrap_or(false);
+                                if ui.checkbox(&mut on, "").on_hover_text(tl("On")).changed() {
+                                    action = Some(("rule.set", json!({ "id": id, "enabled": on })));
+                                }
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(r["name"].as_str().unwrap_or("")).strong().color(t.text));
+                                    ui.label(RichText::new(rule_summary(r)).small().color(t.text_weak));
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.small_button(tl("Delete")).clicked() {
+                                        action = Some(("rule.delete", json!({ "id": id })));
+                                    }
+                                    if ui.small_button(tl("Edit…")).clicked() {
+                                        edit = Some(r.clone());
+                                    }
+                                    if ui
+                                        .add_enabled(i + 1 < rules.len(), egui::Button::new(tl("Later")).small())
+                                        .on_hover_text(tl("Run this rule later"))
+                                        .clicked()
+                                    {
+                                        action = Some(("rule.move", json!({ "id": id, "up": false })));
+                                    }
+                                    if ui
+                                        .add_enabled(i > 0, egui::Button::new(tl("Earlier")).small())
+                                        .on_hover_text(tl("Run this rule earlier"))
+                                        .clicked()
+                                    {
+                                        action = Some(("rule.move", json!({ "id": id, "up": true })));
+                                    }
+                                });
+                            });
+                            ui.separator();
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if ui.button(tl("+ New rule")).clicked() {
+                            f.start("");
+                        }
+                        if ui
+                            .add_enabled(!rules.is_empty(), egui::Button::new(tl("Run rules now")))
+                            .on_hover_text(tl("Run the rules that are on over the open folder"))
+                            .clicked()
+                        {
+                            action = Some(("rule.run", json!({})));
+                        }
+                    });
+                    return;
+                }
+                egui::Grid::new("rule-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                    ui.label(tl("Name"));
+                    ui.add(egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
+                    ui.end_row();
+                    ui.label(tl("Condition"));
+                    ui.vertical(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0))
+                            .on_hover_text(tl(SEARCH_HELP));
+                        ui.horizontal(|ui| {
+                            for (label, key) in [("From", "from:"), ("Subject", "subject:"), ("Sent to", "to:"), ("Has attachment", "has:attachment")]
+                            {
+                                if ui.small_button(tl(label)).clicked() {
+                                    if !f.query.is_empty() && !f.query.ends_with(' ') {
+                                        f.query.push(' ');
+                                    }
+                                    f.query.push_str(key);
+                                }
+                            }
+                        });
+                        ui.label(RichText::new(tl("Search syntax; empty: every message.")).small().color(t.text_weak));
+                    });
+                    ui.end_row();
+                    ui.label(tl("Do this"));
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut f.mark_read, tl("Mark as read"));
+                        ui.checkbox(&mut f.flag, tl("Flag"));
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut f.move_on, tl("Move to")).changed() && f.move_on {
+                                f.delete = false;
+                                if f.move_to.is_none() {
+                                    f.move_to = archive;
+                                }
+                            }
+                            let current =
+                                f.move_to.and_then(|id| folders.iter().find(|(fid, _)| *fid == id)).map(|(_, n)| n.clone()).unwrap_or_default();
+                            ui.add_enabled_ui(f.move_on, |ui| {
+                                egui::ComboBox::from_id_salt("rule-folder").selected_text(current).show_ui(ui, |ui| {
+                                    for (id, name) in &folders {
+                                        ui.selectable_value(&mut f.move_to, Some(*id), name);
+                                    }
+                                });
+                            });
+                        });
+                        if ui.checkbox(&mut f.delete, tl("Delete (move to Deleted Items)")).changed() && f.delete {
+                            f.move_on = false;
+                        }
+                        ui.checkbox(&mut f.stop, tl("Stop processing more rules"));
+                    });
+                    ui.end_row();
+                    ui.label("");
+                    ui.checkbox(&mut f.enabled, tl("On"));
+                    ui.end_row();
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button(RichText::new(tl("Save")).strong()).clicked() {
+                        save = true;
+                    }
+                    if ui.button(tl("Cancel")).clicked() {
+                        cancel = true;
+                    }
+                });
+            });
+        if let Some(r) = edit {
+            self.rule_form.edit(&r);
+        }
+        if cancel {
+            self.rule_form.editing = None;
+            self.rule_form.note.clear();
+        }
+        if save {
+            let id = if matches!(self.rule_form.editing, Some(Some(_))) { "rule.set" } else { "rule.add" };
+            match self.session.run(id, &self.rule_form.params()) {
+                Ok(_) => {
+                    self.rule_form.editing = None;
+                    self.rule_form.note.clear();
+                }
+                Err(e) => self.rule_form.note = e.to_string(),
+            }
+        }
+        if let Some((id, params)) = action {
+            match self.session.run(id, &params) {
+                Ok(_) => self.rule_form.note.clear(),
+                Err(e) => self.rule_form.note = e.to_string(),
+            }
+        }
+        if !open {
+            self.rule_form = RuleForm::default();
+        }
     }
 
     /// How often due reminders are looked for while the window is idle.
@@ -838,8 +1110,8 @@ impl App {
                         let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
                         self.open_account_settings(current, "");
                     }
-                    if ui.button(tl("+ Add account")).clicked() {
-                        self.open_account_settings(None, "");
+                    if ui.button(tl("Rules…")).on_hover_text(tl("Sort, mark or delete mail as it arrives")).clicked() {
+                        self.rule_form = RuleForm { open: true, ..RuleForm::default() };
                     }
                 }
                 View::Calendar => {
@@ -1229,6 +1501,7 @@ impl App {
                 let subject = if m.subject.is_empty() { tl("(no subject)").to_string() } else { m.subject.clone() };
                 let when = m.date.map(|d| short_when(self.session.zone().from_utc(d), self.session.today())).unwrap_or_default();
                 let (seen, flagged, attachment, preview) = (m.seen, m.flagged, !m.attachments.is_empty(), m.preview(80));
+                let sender = m.from.as_ref().map(|a| a.email.clone());
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
                 let painter = ui.painter_at(rect);
                 if selected {
@@ -1257,6 +1530,13 @@ impl App {
                 if resp.clicked() {
                     self.run("message.select", json!({ "id": id.0 }));
                 }
+                resp.context_menu(|ui| {
+                    if ui.button(tl("Create rule…")).clicked() {
+                        let query = sender.as_deref().map(|e| format!("from:{e}")).unwrap_or_default();
+                        self.rule_form.start(&query);
+                        ui.close();
+                    }
+                });
             }
         });
     }

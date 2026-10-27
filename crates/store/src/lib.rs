@@ -7,6 +7,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod rules;
 pub mod search;
 
 use std::path::Path;
@@ -83,6 +84,9 @@ pub struct Store {
     /// The folders shown under Favorites, in the order they were added.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     favorites: Vec<FolderId>,
+    /// Mail rules, in the order they run ([`rules`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rules: Vec<rules::Rule>,
     /// The full-text index ([`search`]), kept in memory only, and which message versions it must
     /// match. Neither counts in comparing two stores.
     #[serde(skip)]
@@ -209,6 +213,7 @@ impl Store {
         self.tombstones.retain(|t| !gone.contains(&t.folder));
         self.folders.retain(|f| f.account != id);
         self.favorites.retain(|f| !gone.contains(f));
+        self.rules.retain(|r| r.account != Some(id));
         if self.folders.is_empty() {
             self.add_standard_folders(AccountId(0));
         }
@@ -980,6 +985,10 @@ impl Store {
         for c in &mut s.contacts {
             c.upgrade();
         }
+        // A hand-edited file: rules past the limit or with a repeated id are dropped.
+        let mut rule_ids = std::collections::HashSet::new();
+        s.rules.retain(|r| rule_ids.insert(r.id));
+        s.rules.truncate(rules::MAX_RULES);
         // Older files read as this format (new fields default) and are written back as it.
         s.version = FORMAT_VERSION;
         Ok(s)
