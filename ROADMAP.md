@@ -144,6 +144,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `rule.list`/`add`/`set`/`delete`/`move`/`run` (70 commands); a Rules window (list, on/off,
   order, edit, Run rules now) and "Create rule…" on a message's right-click menu. "+ Add account"
   left the ribbon (it is in the folder pane), so the search box has room again.
+- 2026-10-27 — `ibercorreo-cli sync` takes the password or OAuth refresh token from the
+  environment, else from the system credential store entry the app keeps
+  (`Account::credential_entry`, shared by both), and writes a rotated refresh token back there.
 
 ## Revision history
 - 2026-10-22 — created.

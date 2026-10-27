@@ -250,8 +250,12 @@ ibercorreo-cli oauth google me@gmail.com
 IBERCORREO_REFRESH_TOKEN='…' ibercorreo-cli sync --store store.json --account 1
 ```
 `sync` без `--account` синхронізує перший запис; номер (`id`) кожного показує `account.list`.
-Refresh token бережіть як пароль. Microsoft замінює його під час оновлення: новий `sync`
-друкує в полі `newRefreshToken`.
+Пароль чи refresh token `sync` бере зі змінної середовища, а якщо її немає — із системного
+сховища облікових даних, куди їх зберігає саме вікно Tinta Correo. Тож для пошти, де ви вже
+увійшли у вікні (той самий файл сховища), змінні не потрібні:
+`ibercorreo-cli sync --store "%APPDATA%\Iber Correo\store.json"`.
+Refresh token бережіть як пароль. Microsoft замінює його під час оновлення: якщо він прийшов зі
+сховища, новий туди й записується, а якщо зі змінної, `sync` друкує його в полі `newRefreshToken`.
 
 ## Revision history
 - 2026-10-22 — created for M0.
@@ -275,3 +279,4 @@ Refresh token бережіть як пароль. Microsoft замінює йо�
 - 2026-10-26 — M3.3c: signatures, Bcc and the sync progress bar.
 - 2026-10-27 — M3.4: full-text search (scopes, query syntax, accents ignored).
 - 2026-10-27 — M3.5: rules.
+- 2026-10-27 — `ibercorreo-cli sync` reads the credential store.

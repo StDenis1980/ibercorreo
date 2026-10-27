@@ -1632,6 +1632,7 @@ dependencies = [
  "ibercorreo-net",
  "ibercorreo-store",
  "ibercorreo-sync",
+ "keyring",
  "serde_json",
 ]
 

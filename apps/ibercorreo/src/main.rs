@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use ibercorreo_core::mail::{KEYRING_SERVICE, OAUTH_KEYRING_SERVICE};
 use ibercorreo_core::{AccountId, Date, DateTime};
 use ibercorreo_engine::Session;
 use ibercorreo_net::oauth::{self, Credential};
@@ -39,12 +40,6 @@ const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 const AUTOSAVE: Duration = Duration::from_secs(20);
 /// How often mail is fetched while the app runs.
 const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
-/// The credential store's service name for account passwords. It keeps the app's first name
-/// ("Iber Correo"), so passwords saved before the rename to Tinta Correo are still found.
-const KEYRING_SERVICE: &str = "Iber Correo";
-/// The credential store's service name for OAuth refresh tokens (`provider:login`), kept like
-/// [`KEYRING_SERVICE`].
-const OAUTH_KEYRING_SERVICE: &str = "Iber Correo OAuth";
 /// The store's folder name on Windows and macOS. Like [`KEYRING_SERVICE`] it keeps the app's
 /// first name, so the mail saved before the rename stays where the app looks for it.
 const DATA_DIR_NAME: &str = "Iber Correo";

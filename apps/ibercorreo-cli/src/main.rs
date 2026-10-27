@@ -9,10 +9,11 @@
 //!                                                 Send/Receive for one of the store's accounts
 //!                                                 (the first, or ID from account.list; set it
 //!                                                 with `run --cmd account.set=...`): send the
-//!                                                 Outbox, then two-way IMAP sync; the password is
-//!                                                 read from IBERCORREO_PASSWORD, never an argument
-//!                                                 (an OAuth account's refresh token from
-//!                                                 IBERCORREO_REFRESH_TOKEN)
+//!                                                 Outbox, then two-way IMAP sync; the password
+//!                                                 (an OAuth account's refresh token) is read from
+//!                                                 IBERCORREO_PASSWORD (IBERCORREO_REFRESH_TOKEN),
+//!                                                 else from the system credential store, where the
+//!                                                 app keeps it; never an argument
 //! ibercorreo-cli autoconfig EMAIL [--ca CERT.der]  find the address's IMAP and SMTP servers; prints
 //!                                                 them with the `account.set` parameters to use
 //! ibercorreo-cli oauth google|microsoft [EMAIL] [--ca CERT.der]
@@ -249,17 +250,8 @@ fn sync(args: &[String]) -> Result<(), String> {
         None => s.store.accounts.first().cloned().ok_or("no account: run --cmd 'account.set={...}' first")?,
     };
     let id = account.id;
-    let credential = match account.oauth() {
-        Some(p) => {
-            let app = ibercorreo_net::oauth::app(p.id).map_err(|e| e.to_string())?;
-            let refresh = std::env::var("IBERCORREO_REFRESH_TOKEN")
-                .map_err(|_| format!("set IBERCORREO_REFRESH_TOKEN (from `ibercorreo-cli oauth {}`)", p.id))?;
-            ibercorreo_net::oauth::Credential::oauth(app, refresh)
-        }
-        None => ibercorreo_net::oauth::Credential::Password(
-            std::env::var("IBERCORREO_PASSWORD").map_err(|_| "set IBERCORREO_PASSWORD to the account password")?,
-        ),
-    };
+    let (credential, from_store) =
+        credential(&account, &|k| std::env::var(k).ok(), &|service, key| keyring::Entry::new(service, key).ok().and_then(|e| e.get_password().ok()))?;
     let job = ibercorreo_net::job::Job {
         account,
         credential: credential.clone(),
@@ -291,12 +283,56 @@ fn sync(args: &[String]) -> Result<(), String> {
         None => Value::Null,
     };
     let mut out = json!({ "sent": finished.sent, "sync": report, "calendar": calendar, "contacts": contacts });
-    // Microsoft replaces the refresh token as it renews; the old one stops working in time.
-    if let (Some(token), Some(obj)) = (credential.take_rotated(), out.as_object_mut()) {
-        obj.insert("newRefreshToken".into(), json!(token));
+    // Microsoft replaces the refresh token as it renews; the old one stops working in time. One
+    // from the credential store goes back there, as the app does; one from the environment is
+    // printed for the caller to keep.
+    if let Some(token) = credential.take_rotated() {
+        let kept = from_store.is_some_and(|(service, key)| keyring::Entry::new(service, &key).is_ok_and(|e| e.set_password(&token).is_ok()));
+        if let (false, Some(obj)) = (kept, out.as_object_mut()) {
+            obj.insert("newRefreshToken".into(), json!(token));
+        }
     }
     print(&out);
     Ok(())
+}
+
+/// A system credential store entry: service name and key.
+type StoreEntry = (&'static str, String);
+
+/// How `account` signs in: from the environment (`IBERCORREO_PASSWORD`, or
+/// `IBERCORREO_REFRESH_TOKEN` for OAuth), else from the system credential store entry the app
+/// keeps ([`ibercorreo_core::Account::credential_entry`]), which is then returned too so a
+/// rotated refresh token can go back there.
+fn credential(
+    account: &ibercorreo_core::Account,
+    env: &dyn Fn(&str) -> Option<String>,
+    store: &dyn Fn(&str, &str) -> Option<String>,
+) -> Result<(ibercorreo_net::oauth::Credential, Option<StoreEntry>), String> {
+    let entry = account.credential_entry().ok_or("this account has no sign-in name")?;
+    let var = if account.oauth().is_some() { "IBERCORREO_REFRESH_TOKEN" } else { "IBERCORREO_PASSWORD" };
+    let (secret, from_store) = match env(var).filter(|v| !v.is_empty()) {
+        Some(v) => (v, None),
+        None => match store(entry.0, &entry.1).filter(|v| !v.is_empty()) {
+            Some(v) => (v, Some(entry)),
+            None => {
+                return Err(match account.oauth() {
+                    Some(p) => format!(
+                        "no sign-in for {}: sign in once in Tinta Correo (Account settings), or set IBERCORREO_REFRESH_TOKEN (from `ibercorreo-cli oauth {}`)",
+                        account.address.email, p.id
+                    ),
+                    None => format!(
+                        "no password for {}: save it once in Tinta Correo (Account settings), or set IBERCORREO_PASSWORD",
+                        account.address.email
+                    ),
+                });
+            }
+        },
+    };
+    let credential = match account.oauth() {
+        Some(p) => ibercorreo_net::oauth::Credential::oauth(ibercorreo_net::oauth::app(p.id).map_err(|e| e.to_string())?, secret),
+        None => ibercorreo_net::oauth::Credential::Password(secret),
+    };
+    Ok((credential, from_store))
 }
 
 fn oauth(args: &[String]) -> Result<(), String> {
@@ -323,4 +359,64 @@ fn oauth(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     print(&json!({ "provider": app.provider.id, "refreshToken": tokens.refresh, "expiresIn": tokens.expires_in }));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use ibercorreo_core::mail::{AccountKind, KEYRING_SERVICE, OAUTH_KEYRING_SERVICE};
+    use ibercorreo_core::{Account, AccountId, Address};
+    use ibercorreo_net::oauth::Credential;
+
+    use super::credential;
+
+    fn account(oauth: &str) -> Account {
+        Account {
+            id: AccountId(0),
+            name: "Ana".into(),
+            address: Address::parse("ana@gmail.com").unwrap(),
+            kind: AccountKind::Imap {
+                imap_host: "imap.gmail.com".into(),
+                imap_port: 993,
+                smtp_host: "smtp.gmail.com".into(),
+                smtp_port: 465,
+                user: String::new(),
+                imap_security: Default::default(),
+                smtp_security: Default::default(),
+                oauth: oauth.into(),
+            },
+            caldav: String::new(),
+            signature: String::new(),
+        }
+    }
+
+    #[test]
+    fn passwords_come_from_the_environment_else_the_apps_credential_store() {
+        let a = account("");
+        let store = |service: &str, key: &str| (service == KEYRING_SERVICE && key == "ana@gmail.com").then(|| "stored".to_string());
+        let (c, from) = credential(&a, &|_| None, &store).unwrap();
+        assert!(matches!(c, Credential::Password(p) if p == "stored"));
+        assert_eq!(from, Some((KEYRING_SERVICE, "ana@gmail.com".to_string())));
+        let env = |k: &str| (k == "IBERCORREO_PASSWORD").then(|| "env".to_string());
+        let (c, from) = credential(&a, &env, &store).unwrap();
+        assert!(matches!(c, Credential::Password(p) if p == "env"));
+        assert_eq!(from, None);
+        let err = credential(&a, &|_| None, &|_, _| None).err().unwrap();
+        assert!(err.contains("Account settings"), "{err}");
+        // An empty variable counts as unset.
+        assert!(credential(&a, &|_| Some(String::new()), &store).unwrap().1.is_some());
+    }
+
+    #[test]
+    fn oauth_refresh_tokens_are_read_where_the_app_keeps_them() {
+        // The client ID comes from the build or the environment; without one there is nothing
+        // to sign in with, which is an error and not a panic.
+        let a = account("google");
+        let store = |service: &str, key: &str| (service == OAUTH_KEYRING_SERVICE && key == "google:ana@gmail.com").then(|| "refresh".to_string());
+        match credential(&a, &|_| None, &store) {
+            Ok((_, from)) => assert_eq!(from, Some((OAUTH_KEYRING_SERVICE, "google:ana@gmail.com".to_string()))),
+            Err(e) => assert!(e.contains("client"), "{e}"),
+        }
+        let err = credential(&a, &|_| None, &|_, _| None).err().unwrap();
+        assert!(err.contains("IBERCORREO_REFRESH_TOKEN"), "{err}");
+    }
 }
