@@ -7,6 +7,8 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod search;
+
 use std::path::Path;
 
 use ibercorreo_core::calendar::When;
@@ -81,6 +83,12 @@ pub struct Store {
     /// The folders shown under Favorites, in the order they were added.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     favorites: Vec<FolderId>,
+    /// The full-text index ([`search`]), kept in memory only, and which message versions it must
+    /// match. Neither counts in comparing two stores.
+    #[serde(skip)]
+    search_cache: search::SearchCache,
+    #[serde(skip)]
+    stamps: search::Stamps,
 }
 
 /// A CalDAV or CardDAV resource deleted here: its collection (`calendar`, also for an address
@@ -326,6 +334,7 @@ impl Store {
         self.folder(m.folder)?;
         m.id = self.next_message_id();
         let id = m.id;
+        self.stamps.touch(id);
         self.messages.push(m);
         Ok(id)
     }
@@ -360,6 +369,7 @@ impl Store {
     /// Remove a message the server already removed: no tombstone is left.
     pub fn drop_message(&mut self, id: MessageId) -> Result<Message> {
         let pos = self.messages.iter().position(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
+        self.stamps.forget(id);
         Ok(self.messages.remove(pos))
     }
 
@@ -370,19 +380,22 @@ impl Store {
         v
     }
 
-    /// Messages whose subject, sender or body contains `query` (case-insensitive), newest first.
+    /// Messages in every folder that match `query` ([`search`] has the syntax), newest first.
     pub fn search(&self, query: &str) -> Vec<&Message> {
-        let q = query.to_lowercase();
-        let mut v: Vec<&Message> = self
-            .messages
-            .iter()
-            .filter(|m| {
-                q.is_empty()
-                    || m.subject.to_lowercase().contains(&q)
-                    || m.body.to_lowercase().contains(&q)
-                    || m.from.as_ref().is_some_and(|a| a.email.to_lowercase().contains(&q) || a.display().to_lowercase().contains(&q))
-            })
-            .collect();
+        self.search_in(query, search::Scope::All)
+    }
+
+    /// Messages in `scope` that match `query` ([`search`] has the syntax), newest first. A blank
+    /// query matches every message in scope; one with nothing to look for (only punctuation)
+    /// matches none.
+    pub fn search_in(&self, query: &str, scope: search::Scope) -> Vec<&Message> {
+        let query = search::Query::parse(query);
+        let allowed = |folder: FolderId| match scope {
+            search::Scope::All => true,
+            search::Scope::Folder(f) => folder == f,
+            search::Scope::Account(a) => self.folder(folder).is_ok_and(|f| f.account == a),
+        };
+        let mut v = search::run(&self.search_cache, &self.stamps, &self.messages, &allowed, &query);
         v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
         v
     }
@@ -391,7 +404,11 @@ impl Store {
         self.messages.iter().find(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))
     }
 
+    /// A message to change; the search index reads it again.
     pub fn message_mut(&mut self, id: MessageId) -> Result<&mut Message> {
+        if self.messages.iter().any(|m| m.id == id) {
+            self.stamps.touch(id);
+        }
         self.messages.iter_mut().find(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))
     }
 
@@ -423,6 +440,7 @@ impl Store {
         if let Some(r) = m.remote {
             self.forget_tombstone(r.folder, r.uid);
         }
+        self.stamps.touch(m.id);
         self.messages.push(m);
         Ok(())
     }
@@ -1050,6 +1068,95 @@ mod tests {
         m.from = Some(Address::parse("Ana <ana@example.org>").unwrap());
         m.date = Some(DateTime::new(Date::new(2026, 10, day).unwrap(), 9, 0, 0).unwrap());
         m
+    }
+
+    #[test]
+    fn search_finds_words_by_prefix_without_accents_in_every_field() {
+        let mut s = Store::new();
+        let mut m = msg(&s, "Factura de octubre", 3);
+        m.body = "El camión llega el lunes. Prou col·lecció!".into();
+        m.to = vec![Address::parse("Олена Коваль <olena@example.com>").unwrap()];
+        m.attachments.push(Attachment { name: "presupuesto-2026.pdf".into(), mime_type: "application/pdf".into(), size: 10 });
+        let a = s.add_message(m).unwrap();
+        let mut other = msg(&s, "Weekly report", 4);
+        other.from = Some(Address::parse("Luis <luis@example.net>").unwrap());
+        other.flagged = true;
+        other.seen = true;
+        let b = s.add_message(other).unwrap();
+        let ids = |q: &str, s: &Store| s.search(q).iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(ids("camion", &s), [a]);
+        assert_eq!(ids("CAMIÓN lun", &s), [a]);
+        assert_eq!(ids("colleccio", &s), [a]);
+        assert_eq!(ids("коваль", &s), [a]);
+        assert_eq!(ids("to:olena", &s), [a]);
+        assert!(ids("from:olena", &s).is_empty());
+        assert_eq!(ids("attachment:presupuesto", &s), [a]);
+        assert_eq!(ids("has:attachment", &s), [a]);
+        assert_eq!(ids("fact", &s), [a]);
+        assert!(ids("actura", &s).is_empty(), "words match from their start, as in Outlook");
+        assert_eq!(ids("from:luis is:flagged", &s), [b]);
+        assert_eq!(ids("is:unread", &s), [a]);
+        assert_eq!(ids("is:read", &s), [b]);
+        assert_eq!(ids("\"weekly report\"", &s), [b]);
+        assert!(ids("\"report weekly\"", &s).is_empty());
+        assert_eq!(ids("example -factura", &s), [b]);
+        assert_eq!(ids("camion OR weekly", &s), [b, a]);
+        assert_eq!(ids("after:2026-10-04", &s), [b]);
+        assert_eq!(ids("before:2026-10-04", &s), [a]);
+        assert_eq!(ids("on:2026-10-03", &s), [a]);
+        assert_eq!(ids("", &s), [b, a]);
+        assert!(ids("!!!", &s).is_empty());
+        assert!(ids("nothing-like-this", &s).is_empty());
+    }
+
+    #[test]
+    fn search_index_follows_every_change() {
+        let mut s = Store::new();
+        let a = s.add_message(msg(&s, "alpha", 1)).unwrap();
+        assert_eq!(s.search("alpha").len(), 1);
+        // Changed in place: the old words go, the new ones are found.
+        s.message_mut(a).unwrap().set_subject("beta");
+        assert!(s.search("alpha").is_empty());
+        assert_eq!(s.search("beta").len(), 1);
+        // A copy (an undo snapshot) shares the index but keeps its own words.
+        let snapshot = s.clone();
+        s.message_mut(a).unwrap().set_subject("gamma");
+        assert_eq!(s.search("gamma").len(), 1);
+        assert_eq!(snapshot.search("beta").len(), 1);
+        assert!(snapshot.search("gamma").is_empty());
+        assert_eq!(s.search("gamma").len(), 1);
+        // Removed and put back.
+        let removed = s.remove_message(a).unwrap();
+        assert!(s.search("gamma").is_empty());
+        s.restore_message(removed).unwrap();
+        assert_eq!(s.search("gamma").len(), 1);
+        // Read back from disk.
+        let back = Store::from_json(&serde_json::to_vec(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(back.search("gamma").len(), 1);
+        assert!(back.search("beta").is_empty());
+    }
+
+    #[test]
+    fn search_scopes_to_a_folder_or_an_account() {
+        let mut s = Store::new();
+        let first = s.add_account(imap("ana@example.org")).unwrap();
+        let second = s.add_account(imap("bob@example.org")).unwrap();
+        let inbox1 = s.folder_by_role(first, FolderRole::Inbox).unwrap();
+        let sent1 = s.folder_by_role(first, FolderRole::Sent).unwrap();
+        let inbox2 = s.folder_by_role(second, FolderRole::Inbox).unwrap();
+        let mut put = |folder: FolderId| {
+            let mut m = Message::new(MessageId(0), folder);
+            m.set_subject("budget");
+            s.add_message(m).unwrap()
+        };
+        let (a, b, c) = (put(inbox1), put(sent1), put(inbox2));
+        let ids = |scope: search::Scope| s.search_in("budget", scope).iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(ids(search::Scope::All), [c, b, a]);
+        assert_eq!(ids(search::Scope::Account(first)), [b, a]);
+        assert_eq!(ids(search::Scope::Account(second)), [c]);
+        assert_eq!(ids(search::Scope::Folder(sent1)), [b]);
+        assert!(ids(search::Scope::Folder(FolderId(9999))).is_empty());
     }
 
     #[test]

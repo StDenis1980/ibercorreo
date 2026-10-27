@@ -137,6 +137,10 @@
 	Save and Send/Receive	Gardar e Enviar/recibir
 	Save and sign in	Gardar e iniciar sesión
 	Search mail	Buscar no correo
+	All mailboxes	Todas as caixas de correo
+	Current mailbox	Caixa de correo actual
+	Current folder	Cartafol actual
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	As palabras búscanse desde o seu inicio, sen ter en conta os acentos. "frase exacta", -palabra para excluír, OR para calquera das dúas. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
 	Search people	Buscar persoas
 	Search: Lisbon, Kyiv, New York…	Buscar: Lisboa, Kiev, Nova York…
 	Select a message to read it	Selecciona unha mensaxe para lela

@@ -231,7 +231,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Search",
         group: "Home/Find",
         shortcut: Some("Ctrl+E"),
-        params: "query: string",
+        params: "query: string — words (all must match, each from its start, accents ignored), \"a phrase\", -word, OR, from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:read, is:flagged, after: before: on: YYYY-MM-DD\nscope?: \"all\" | \"mailbox\" | \"folder\" — every account, the selected folder's account or the selected folder; default: the last scope set (all at first)",
         edits: false,
         run: search,
     },
@@ -1049,8 +1049,11 @@ fn import_eml(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn search(s: &mut Session, p: &Value) -> Result<Value> {
     let q = required_str(p, "query")?;
+    if let Some(scope) = str_param(p, "scope")? {
+        s.search_scope = crate::SearchScope::from_id(scope).ok_or_else(|| Error::invalid("params", "scope must be all, mailbox or folder"))?;
+    }
     s.search = ibercorreo_core::clamp_text(q, 1024).to_string();
-    Ok(Value::Array(s.store.search(&s.search).into_iter().take(500).map(summary).collect()))
+    Ok(Value::Array(s.search_results(&s.search).into_iter().take(500).map(summary).collect()))
 }
 
 // ---- meeting invitations (iTIP, RFC 5546, by mail: iMIP, RFC 6047) ----

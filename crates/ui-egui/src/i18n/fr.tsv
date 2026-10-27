@@ -139,6 +139,10 @@
 	Save and Send/Receive	Enregistrer et envoyer/recevoir
 	Save and sign in	Enregistrer et se connecter
 	Search mail	Rechercher dans le courrier
+	All mailboxes	Toutes les boîtes aux lettres
+	Current mailbox	Boîte aux lettres actuelle
+	Current folder	Dossier actuel
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Les mots sont cherchés depuis leur début, sans tenir compte des accents. "phrase exacte", -mot pour exclure, OR pour l'un ou l'autre. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
 	Search people	Rechercher des contacts
 	Search: Lisbon, Kyiv, New York…	Rechercher : Lisbonne, Kyiv, New York…
 	Select a message to read it	Sélectionnez un message pour le lire
