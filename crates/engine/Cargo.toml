@@ -16,5 +16,8 @@ ibercorreo-vcard.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+ibercorreo-imap.workspace = true
+
 [lints]
 workspace = true

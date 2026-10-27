@@ -371,3 +371,33 @@ fn two_accounts_sync_into_their_own_folders() {
     assert!(store.messages_in(ia).is_empty());
     assert_eq!(store.messages_in(ib).len(), 2);
 }
+
+#[test]
+fn only_mail_newer_than_an_inbox_already_synced_counts_as_arrived() {
+    let mut store = Store::new();
+    let first = apply(&mut store, A, first_sync());
+    assert!(first.arrived.is_empty(), "the first download is not new mail");
+    let next = |uids: &[u32]| Batch {
+        mailboxes: vec![mailbox("INBOX", &[]), mailbox("Sent Items", &["\\Sent"])],
+        folders: vec![
+            FolderSync {
+                path: "INBOX".into(),
+                uid_validity: 7,
+                new: uids.iter().map(|&uid| NewMessage { uid, flags: vec![], raw: raw(&format!("uid {uid}")) }).collect(),
+                ..FolderSync::default()
+            },
+            FolderSync {
+                path: "Sent Items".into(),
+                uid_validity: 9,
+                new: vec![NewMessage { uid: 6, flags: vec![], raw: raw("sent 6") }],
+                ..FolderSync::default()
+            },
+        ],
+        ..Batch::default()
+    };
+    // UID 3 is new mail; UID 0 is older mail still being fetched; Sent is not an Inbox.
+    let report = apply(&mut store, A, next(&[3, 0]));
+    assert_eq!(report.added, 3);
+    let subjects: Vec<String> = report.arrived.iter().map(|id| store.message(*id).unwrap().subject.clone()).collect();
+    assert_eq!(subjects, ["uid 3"]);
+}

@@ -234,3 +234,36 @@
 	🔔 1 Reminder	🔔 Abisu 1
 	🗑 Delete	🗑 Ezabatu
 	🗑 Series	🗑 Seriea
+# Rules (M3.5)
+	Rules…	Arauak…
+	Sort, mark or delete mail as it arrives	Ordenatu, markatu edo ezabatu posta iristen den unean
+	Create rule…	Sortu araua…
+	Rules	Arauak
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Arauak Sarrera-ontziko posta berriari aplikatzen zaizkio Bidali/jaso ondoren, ordena honetan.
+	No rules yet.	Ez dago araurik oraindik.
+	On	Aktibatuta
+	Edit…	Editatu…
+	Later	Geroago
+	Earlier	Lehenago
+	+ New rule	+ Arau berria
+	Run rules now	Exekutatu arauak orain
+	Run the rules that are on over the open folder	Exekutatu aktibatutako arauak irekitako karpetan
+	default: the condition	lehenetsia: baldintza
+	Condition	Baldintza
+	From	Nork
+	Sent to	Nori
+	Has attachment	Eranskinekin
+	Search syntax; empty: every message.	Bilaketa-sintaxia; hutsik: mezu guztiak.
+	Do this	Egin hau
+	Mark as read	Markatu irakurritako gisa
+	Move to	Eraman hona
+	Delete (move to Deleted Items)	Ezabatu (eraman Zakarrontzira)
+	Stop processing more rules	Gelditu beste arauen prozesatzea
+	mark as read	markatu irakurritako gisa
+	flag	markatu
+	move to {folder}	eraman hona: {folder}
+	delete	ezabatu
+	stop	gelditu
+	every message	mezu guztiak
+	Run this rule later	Aplikatu arau hau geroago
+	Run this rule earlier	Aplikatu arau hau lehenago

@@ -236,3 +236,36 @@
 	🔔 1 Reminder	🔔 1 Erinnerung
 	🗑 Delete	🗑 Löschen
 	🗑 Series	🗑 Serie
+# Rules (M3.5)
+	Rules…	Regeln…
+	Sort, mark or delete mail as it arrives	E-Mails beim Eintreffen sortieren, markieren oder löschen
+	Create rule…	Regel erstellen…
+	Rules	Regeln
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Regeln gelten für neue E-Mails im Posteingang nach Senden/Empfangen, in dieser Reihenfolge.
+	No rules yet.	Noch keine Regeln.
+	On	Aktiv
+	Edit…	Bearbeiten…
+	Later	Später
+	Earlier	Früher
+	+ New rule	+ Neue Regel
+	Run rules now	Regeln jetzt anwenden
+	Run the rules that are on over the open folder	Aktive Regeln auf den geöffneten Ordner anwenden
+	default: the condition	Standard: die Bedingung
+	Condition	Bedingung
+	From	Von
+	Sent to	Gesendet an
+	Has attachment	Mit Anlagen
+	Search syntax; empty: every message.	Suchsyntax; leer: alle Nachrichten.
+	Do this	Aktion
+	Mark as read	Als gelesen markieren
+	Move to	Verschieben nach
+	Delete (move to Deleted Items)	Löschen (in den Papierkorb)
+	Stop processing more rules	Keine weiteren Regeln anwenden
+	mark as read	als gelesen markieren
+	flag	kennzeichnen
+	move to {folder}	nach {folder} verschieben
+	delete	löschen
+	stop	anhalten
+	every message	alle Nachrichten
+	Run this rule later	Diese Regel später anwenden
+	Run this rule earlier	Diese Regel früher anwenden

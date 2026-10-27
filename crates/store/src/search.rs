@@ -254,6 +254,26 @@ struct Entry {
 }
 
 impl Entry {
+    /// `m`'s words, read now.
+    fn read(m: &Message, stamp: u64) -> Entry {
+        let mut keys = BTreeSet::new();
+        for field in Field::ALL {
+            let mut n = 0usize;
+            for text in field.texts(m) {
+                let w = words(text);
+                for word in w.parts.into_iter().chain(w.joined) {
+                    if n >= MAX_WORDS_PER_FIELD {
+                        break;
+                    }
+                    if keys.insert((field, word)) {
+                        n = n.saturating_add(1);
+                    }
+                }
+            }
+        }
+        Entry { stamp, keys: keys.into_iter().collect() }
+    }
+
     /// Whether a word in `field` starts with `prefix`.
     fn has_prefix(&self, field: Field, prefix: &str) -> bool {
         let at = self.keys.partition_point(|(f, w)| (*f, w.as_str()) < (field, prefix));
@@ -290,25 +310,11 @@ impl Index {
     }
 
     fn add(&mut self, m: &Message, stamp: u64) {
-        let mut keys = BTreeSet::new();
-        for field in Field::ALL {
-            let mut n = 0usize;
-            for text in field.texts(m) {
-                let w = words(text);
-                for word in w.parts.into_iter().chain(w.joined) {
-                    if n >= MAX_WORDS_PER_FIELD {
-                        break;
-                    }
-                    if keys.insert((field, word)) {
-                        n = n.saturating_add(1);
-                    }
-                }
-            }
-        }
-        for key in &keys {
+        let entry = Entry::read(m, stamp);
+        for key in &entry.keys {
             self.postings.entry(key.clone()).or_default().insert(m.id);
         }
-        self.entries.insert(m.id, Entry { stamp, keys: keys.into_iter().collect() });
+        self.entries.insert(m.id, entry);
     }
 
     fn remove(&mut self, id: MessageId) {
@@ -512,6 +518,16 @@ impl Query {
     /// Whether the query text was blank (everything matches).
     pub fn is_blank(&self) -> bool {
         self.blank
+    }
+
+    /// Whether `m` matches, read on its own (no index): for rules, which look at one message at
+    /// a time as it arrives.
+    pub fn matches(&self, m: &Message) -> bool {
+        if self.blank {
+            return true;
+        }
+        let entry = Entry::read(m, 0);
+        self.groups.iter().any(|g| g.iter().all(|c| matches(&c.cond, m, Some(&entry)) != c.not))
     }
 }
 

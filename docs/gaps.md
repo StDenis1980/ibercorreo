@@ -95,7 +95,13 @@ Status: 2026-10-27 · Pick from the top.
     attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
     the words found, a Search ribbon tab with filter buttons, search history and saved searches
     (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
-    date words (`yesterday`, `last week`).
+    date words (`yesterday`, `last week`).16. **Rules (M3.5).** Client-side rules on new Inbox mail and on demand: a search-syntax
+    condition; mark read, flag, move, delete, stop. Missing: server-side rules (Sieve,
+    ManageSieve RFC 5804; Exchange inbox rules with M4) so mail is sorted while the app is closed,
+    forward/redirect and auto-reply actions, categories, "except if" conditions as their own
+    field (`-word` covers simple cases), rules on sent mail, rules on mail arriving in folders
+    other than the Inbox, import of Outlook rules (`.rwz`), and moves pushed to the server at
+    once (they go at the next Send/Receive).
 ## Revision history
 - 2026-10-22 — created with M0.
 - 2026-10-22 — gap 1 narrowed: IMAP protocol core.
@@ -119,3 +125,4 @@ Status: 2026-10-27 · Pick from the top.
 - 2026-10-26 — gap 1 narrowed: Favorites and folding accounts in the folder pane (M3.3b).
 - 2026-10-26 — gap 1 narrowed: signatures, Bcc and a sync progress bar (M3.3c).
 - 2026-10-27 — gap 15 added: search (M3.4).
+- 2026-10-27 — gap 16 added: rules (M3.5).

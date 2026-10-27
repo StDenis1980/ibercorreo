@@ -319,6 +319,10 @@ pub struct Report {
     /// Messages on the server still to download.
     pub remaining: usize,
     pub errors: Vec<String>,
+    /// Mail new in an Inbox that was synced before (newer than everything it held), for the
+    /// rules to run on; not the first download of a folder, nor older mail fetched later.
+    #[serde(skip)]
+    pub arrived: Vec<MessageId>,
 }
 
 /// The local folder for a server mailbox: the one that already mirrors it, else a standard folder
@@ -374,6 +378,8 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
 
     for f in batch.folders {
         let Some(&folder) = folder_ids.get(&f.path) else { continue };
+        let inbox_seen_before = store.folder(folder).is_ok_and(|l| l.role == FolderRole::Inbox && l.remote.is_some()) && !f.reset;
+        let newest_known = store.all_messages().iter().filter_map(|m| m.remote.filter(|r| r.folder == folder).map(|r| r.uid)).max();
         if let Ok(local) = store.folder_mut(folder) {
             local.remote = Some(RemoteFolder { path: f.path.clone(), uid_validity: f.uid_validity });
         }
@@ -432,8 +438,11 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             m.seen = seen;
             m.flagged = flagged;
             m.remote = Some(RemoteRef { folder, uid: n.uid, seen, flagged });
-            if store.add_message(m).is_ok() {
+            if let Ok(id) = store.add_message(m) {
                 report.added = report.added.saturating_add(1);
+                if inbox_seen_before && newest_known.is_none_or(|top| n.uid > top) {
+                    report.arrived.push(id);
+                }
             }
         }
     }

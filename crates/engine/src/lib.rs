@@ -308,6 +308,7 @@ impl Session {
     /// this; `docs/gaps.md`.)
     pub fn apply_sync(&mut self, account: AccountId, batch: ibercorreo_sync::Batch) -> ibercorreo_sync::Report {
         let report = ibercorreo_sync::apply(&mut self.store, account, batch);
+        let rules = self.store.run_rules(&report.arrived, None);
         self.undo.clear();
         self.redo.clear();
         self.dirty = true;
@@ -323,6 +324,9 @@ impl Session {
         }
         if !report.errors.is_empty() {
             self.status.push_str(&format!(" ({} problems)", report.errors.len()));
+        }
+        if rules.matched > 0 {
+            self.status.push_str(&format!("; {}", commands::rules_status(&rules)));
         }
         report
     }
