@@ -208,6 +208,18 @@ impl Account {
             AccountKind::Local => None,
         }
     }
+
+    /// Where this account's secret lives in the system credential store: the service name and
+    /// the entry's key (a password under the sign-in name; an OAuth refresh token under
+    /// `provider:login`). The app and `ibercorreo-cli` both read it here, so they find the same
+    /// entry. `None` for an account with no sign-in.
+    pub fn credential_entry(&self) -> Option<(&'static str, String)> {
+        let login = self.login()?;
+        Some(match self.oauth() {
+            Some(p) => (OAUTH_KEYRING_SERVICE, format!("{}:{login}", p.id)),
+            None => (KEYRING_SERVICE, login.to_string()),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -226,6 +238,13 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub signature: String,
 }
+
+/// The credential store's service name for account passwords. It keeps the app's first name
+/// ("Iber Correo"), so passwords saved before the rename to Tinta Correo are still found.
+pub const KEYRING_SERVICE: &str = "Iber Correo";
+/// The credential store's service name for OAuth refresh tokens (`provider:login`), kept like
+/// [`KEYRING_SERVICE`].
+pub const OAUTH_KEYRING_SERVICE: &str = "Iber Correo OAuth";
 
 /// The longest signature kept.
 pub const MAX_SIGNATURE_LEN: usize = 8 * 1024;
@@ -397,6 +416,34 @@ impl Message {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_entries_are_where_the_app_keeps_them() {
+        let mut a = Account {
+            id: AccountId(0),
+            name: String::new(),
+            address: Address::parse("ana@gmail.com").unwrap(),
+            kind: AccountKind::Local,
+            caldav: String::new(),
+            signature: String::new(),
+        };
+        assert_eq!(a.credential_entry(), None);
+        a.kind = AccountKind::Imap {
+            imap_host: "imap.gmail.com".into(),
+            imap_port: 993,
+            smtp_host: "smtp.gmail.com".into(),
+            smtp_port: 465,
+            user: "login".into(),
+            imap_security: Default::default(),
+            smtp_security: Default::default(),
+            oauth: String::new(),
+        };
+        assert_eq!(a.credential_entry(), Some((KEYRING_SERVICE, "login".to_string())));
+        if let AccountKind::Imap { oauth, .. } = &mut a.kind {
+            *oauth = "google".into();
+        }
+        assert_eq!(a.credential_entry(), Some((OAUTH_KEYRING_SERVICE, "google:login".to_string())));
+    }
 
     #[test]
     fn oauth_providers_by_server_name() {
