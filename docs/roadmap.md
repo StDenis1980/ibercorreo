@@ -1,6 +1,6 @@
 # Tinta Correo — milestones
 
-Status: 2026-10-26 · Current focus: M3
+Status: 2026-10-27 · Current focus: M3
 
 | Milestone | Scope | State |
 |---|---|---|
@@ -9,11 +9,18 @@ Status: 2026-10-26 · Current focus: M3
 | M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | done: recurrence (M2.1), day and week views (M2.2), time zones (M2.3), reminders (M2.4), two-way CalDAV sync (M2.5), meeting invitations (M2.6), contact cards and vCard (M2.7a), two-way CardDAV sync (M2.7b). Organizing meetings (sending invitations) stays in gap 13 |
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | in progress: autoconfiguration and IDLE (M3.1), OAuth2 for Gmail and Microsoft 365 (M3.2), several accounts (M3.3) done |
 | M4 | Exchange: EWS mail (Thunderbird's MPL-2.0 `ews` crate, unmodified), then EWS calendar and contacts, then Microsoft Graph | |
-| M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | |
-| M6 | MCP server (agent control), PGP/S-MIME, accessibility pass, translations (uk, es, pt, en) | |
+| M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | Windows MSI done early (#20); `.pst`/`.msg`, macOS and Linux installers and the full guide open |
+| M6 | MCP server (agent control), PGP/S-MIME (including signing mail with an FNMT certificate), accessibility pass, translations | translations done early (uk, es, ca, gl, eu, it, fr, de, pl: #24–#27; native review pending); the rest open |
 
 ## Current focus
-M3: OAuth2 sign-in for Gmail and Microsoft 365, autodiscovery, IMAP IDLE, a full-text search index, rules, signatures and several accounts. Autoconfiguration and IDLE (M3.1) and OAuth2 sign-in (M3.2, needs registered client IDs: `docs/oauth.md`) landed, and so did several accounts (M3.3); next: the full-text search index (M3.4), then rules and signatures.
+M3: autoconfiguration and IDLE (M3.1), OAuth2 sign-in for Gmail and Microsoft 365 (M3.2) and several accounts with Favorites, signatures and Bcc (M3.3) landed. Next, in order:
+
+1. M3.4 — the full-text search index.
+2. M3.5 — rules and filters.
+3. Check Outlook.com sign-in on a real account; make `ibercorreo-cli sync` use the refresh token from the credential store.
+4. Before a public beta: the Google OAuth app is in testing mode (up to 100 testers, sign in again every 7 days). Publishing needs Google's verification, and the full Gmail scope also a paid security assessment (CASA); the alternative is Gmail with an app password. Owner decision.
+
+Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (December 2026 – January 2027), M6 in 2027. The suite-wide work (releases, Linux, signing, tests, user guides) is in the Tinta Office roadmaps of the sibling repos (`docs/tinta-roadmap.md`).
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -37,3 +44,4 @@ M3: OAuth2 sign-in for Gmail and Microsoft 365, autodiscovery, IMAP IDLE, a full
 - 2026-10-26 — M3.3 (several accounts) landed.
 - 2026-10-26 — M3.3b (Favorites in the folder pane) landed.
 - 2026-10-26 — M3.3c (signatures, Bcc, sync progress) landed.
+- 2026-10-27 — Tinta Office roadmap review: M5 Windows MSI and M6 translations marked done early; Current focus lists M3.4, M3.5, the Outlook.com check and the Google verification decision.
