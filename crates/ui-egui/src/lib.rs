@@ -16,7 +16,7 @@ use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
 use ibercorreo_core::{AccountId, Date, FolderId, FolderRole, MessageId};
-use ibercorreo_engine::{CalendarMode, Session, View};
+use ibercorreo_engine::{CalendarMode, SearchScope, Session, View};
 use serde_json::{Value, json};
 
 use icons::Icon;
@@ -103,6 +103,18 @@ impl ContactForm {
 
 /// A folder's name as shown: folders with a role (Inbox, Sent…) in the interface language,
 /// others as the server names them.
+/// The search box's tooltip: what a query can say.
+const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
+
+/// The search scope's name in the list, as Outlook's.
+fn scope_label(scope: SearchScope) -> &'static str {
+    match scope {
+        SearchScope::All => "All mailboxes",
+        SearchScope::Mailbox => "Current mailbox",
+        SearchScope::Folder => "Current folder",
+    }
+}
+
 fn folder_label(folder: &ibercorreo_core::Folder) -> String {
     if folder.role == FolderRole::Other { folder.name.clone() } else { tl(&folder.name).to_string() }
 }
@@ -868,7 +880,9 @@ impl App {
                 self.button(ui, "Redo", "edit.redo", self.session.can_redo());
                 self.button(ui, "Undo", "edit.undo", self.session.can_undo());
                 if self.session.view == View::Mail {
-                    let r = ui.add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(220.0));
+                    let r = ui
+                        .add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(220.0))
+                        .on_hover_text(tl(SEARCH_HELP));
                     if r.changed() {
                         let q = self.search.clone();
                         self.run("search.messages", json!({ "query": q }));
@@ -1173,7 +1187,7 @@ impl App {
         let ids: Vec<MessageId> = if self.search.is_empty() {
             self.session.store.messages_in(self.session.folder).iter().map(|m| m.id).collect()
         } else {
-            self.session.store.search(&self.search).iter().map(|m| m.id).collect()
+            self.session.search_results(&self.search).iter().map(|m| m.id).collect()
         };
         let title = if self.search.is_empty() {
             self.session.store.folder(self.session.folder).map(folder_label).unwrap_or_default()
@@ -1182,6 +1196,20 @@ impl App {
         };
         Frame::NONE.inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.label(RichText::new(title).heading().color(t.text));
+            if !self.search.is_empty() {
+                // Where to look, as Outlook's scope list; shown while searching.
+                let scope = self.session.search_scope;
+                let mut chosen = scope;
+                egui::ComboBox::from_id_salt("search-scope").selected_text(tl(scope_label(scope))).show_ui(ui, |ui| {
+                    for option in SearchScope::ALL {
+                        ui.selectable_value(&mut chosen, option, tl(scope_label(option)));
+                    }
+                });
+                if chosen != scope {
+                    let q = self.search.clone();
+                    self.run("search.messages", json!({ "query": q, "scope": chosen.id() }));
+                }
+            }
         });
         if ids.is_empty() {
             ui.add_space(24.0);

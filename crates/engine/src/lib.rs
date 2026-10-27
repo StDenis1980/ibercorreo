@@ -47,6 +47,33 @@ impl CalendarMode {
     }
 }
 
+/// Which mail a search looks through, as Outlook's search scope; the mailbox and the folder are
+/// the selected folder's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchScope {
+    #[default]
+    All,
+    Mailbox,
+    Folder,
+}
+
+impl SearchScope {
+    pub const ALL: [SearchScope; 3] = [SearchScope::All, SearchScope::Mailbox, SearchScope::Folder];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            SearchScope::All => "all",
+            SearchScope::Mailbox => "mailbox",
+            SearchScope::Folder => "folder",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<SearchScope> {
+        SearchScope::ALL.into_iter().find(|s| s.id().eq_ignore_ascii_case(id.trim()))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Session {
     pub store: Store,
@@ -61,6 +88,8 @@ pub struct Session {
     /// Day, work week, week or month.
     pub calendar_mode: CalendarMode,
     pub search: String,
+    /// Where `search` looks.
+    pub search_scope: SearchScope,
     /// Set by commands that change the store; cleared by `file.save`.
     pub dirty: bool,
     /// The last status line (what the last command did), for the status bar.
@@ -94,6 +123,7 @@ impl Session {
             day: today,
             calendar_mode: CalendarMode::Month,
             search: String::new(),
+            search_scope: SearchScope::All,
             dirty: false,
             status: String::new(),
             sync_requested: false,
@@ -215,6 +245,19 @@ impl Session {
     /// Set the clock (UTC). Front ends call this before running commands.
     pub fn set_now(&mut self, now: DateTime) {
         self.now = now;
+    }
+
+    /// The messages `query` finds in the current scope, newest first.
+    pub fn search_results(&self, query: &str) -> Vec<&ibercorreo_core::Message> {
+        let scope = match self.search_scope {
+            SearchScope::All => ibercorreo_store::search::Scope::All,
+            SearchScope::Mailbox => match self.store.account_of(self.folder) {
+                Ok(a) => ibercorreo_store::search::Scope::Account(a),
+                Err(_) => ibercorreo_store::search::Scope::All,
+            },
+            SearchScope::Folder => ibercorreo_store::search::Scope::Folder(self.folder),
+        };
+        self.store.search_in(query, scope)
     }
 
     pub fn can_undo(&self) -> bool {

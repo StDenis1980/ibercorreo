@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-26 · M3 (accounts) in progress
+Status: 2026-10-27 · M3 (accounts, search) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -129,6 +129,14 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `signature:false`), a Bcc field (the **Bcc** button in compose; blind copies go into the SMTP
   envelope and never into the headers; checked against Postfix and Dovecot), and a progress bar in
   the status bar while syncing (account, folder, "N of M"). 64 commands.
+- 2026-10-27 — M3.4: full-text search. `store::search`: an in-memory index of every message's
+  words (subject, sender, recipients, body, attachment names), folded (case, Latin accents, the
+  Catalan middle dot; Cyrillic letters kept apart) and read again only for messages that changed
+  (process-unique stamps, so undo snapshots and copies stay right); queries with prefix words,
+  `"phrases"`, `-word`, `OR`, `from:`/`to:`/`cc:`/`subject:`/`body:`/`attachment:` (with Ukrainian
+  and Spanish names), `has:attachment`, `is:unread|read|flagged`, `after:`/`before:`/`on:`.
+  `search.messages` takes a `scope` (all, mailbox, folder); the window has Outlook's scope list
+  beside the search box and a syntax tooltip.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -148,6 +156,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-26 — M3.3.
 - 2026-10-26 — M3.3b.
 - 2026-10-26 — M3.3c.
+- 2026-10-27 — M3.4.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

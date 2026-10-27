@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-10-26 · Pick from the top.
+Status: 2026-10-27 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -88,7 +88,14 @@ Status: 2026-10-26 · Pick from the top.
     "add sender to contacts" action, birthdays in the calendar, and an export button in the
     window (export is a command). A multi-part organization (`ORG:Company;Department`) is kept
     as one text ("Company, Department").
-
+15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
+    ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
+    dates) and the All mailboxes / Current mailbox / Current folder scope. Missing: an index kept
+    on disk (it is rebuilt at start, fine for tens of thousands of messages; gap 7), searching
+    attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
+    the words found, a Search ribbon tab with filter buttons, search history and saved searches
+    (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
+    date words (`yesterday`, `last week`).
 ## Revision history
 - 2026-10-22 — created with M0.
 - 2026-10-22 — gap 1 narrowed: IMAP protocol core.
@@ -111,3 +118,4 @@ Status: 2026-10-26 · Pick from the top.
 - 2026-10-26 — gap 1 narrowed: several accounts, servers filled in for Google and Microsoft, downloads past 500 (M3.3).
 - 2026-10-26 — gap 1 narrowed: Favorites and folding accounts in the folder pane (M3.3b).
 - 2026-10-26 — gap 1 narrowed: signatures, Bcc and a sync progress bar (M3.3c).
+- 2026-10-27 — gap 15 added: search (M3.4).

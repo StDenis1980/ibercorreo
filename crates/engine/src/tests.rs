@@ -807,3 +807,30 @@ fn only_one_account_syncs_calendars() {
     second["caldav"] = json!("");
     s.run("account.add", &second).unwrap();
 }
+
+#[test]
+fn search_finds_folded_words_in_a_scope_and_follows_undo() {
+    let mut s = session();
+    let subjects = |v: Value| v.as_array().unwrap().iter().map(|m| m["subject"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    // Accents and case are ignored; words match from their start.
+    assert_eq!(subjects(s.run("search.messages", &json!({"query": "\"PRESUPUESTO del segun\""})).unwrap()), ["Presupuesto del segundo trimestre"]);
+    assert_eq!(subjects(s.run("search.messages", &json!({"query": "formacao"})).unwrap()), ["Formação Tinta Texto: datas"]);
+    assert_eq!(subjects(s.run("search.messages", &json!({"query": "звіт"})).unwrap()), ["Звіт за жовтень"]);
+    assert_eq!(s.search_scope, SearchScope::All);
+    // A new draft is found at once, and gone again after undo.
+    let id = s.run("message.compose", &json!({"to": "ana@example.org", "subject": "Ñandú quarterly"})).unwrap()["id"].as_u64().unwrap();
+    assert_eq!(subjects(s.run("search.messages", &json!({"query": "nandu"})).unwrap()), ["Ñandú quarterly"]);
+    // Scopes: the Inbox does not hold the draft; Drafts does.
+    s.run("folder.select", &json!({"folder": "inbox"})).unwrap();
+    assert!(s.run("search.messages", &json!({"query": "nandu", "scope": "folder"})).unwrap().as_array().unwrap().is_empty());
+    assert_eq!(s.search_scope, SearchScope::Folder);
+    let drafts = s.store.message(MessageId(id)).unwrap().folder;
+    s.run("folder.select", &json!({"folder": drafts.0})).unwrap();
+    assert_eq!(s.run("search.messages", &json!({"query": "nandu"})).unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(s.run("search.messages", &json!({"query": "nandu", "scope": "MAILBOX"})).unwrap().as_array().unwrap().len(), 1);
+    assert!(s.run("search.messages", &json!({"query": "nandu", "scope": "everywhere"})).is_err());
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(s.run("search.messages", &json!({"query": "nandu", "scope": "all"})).unwrap().as_array().unwrap().is_empty());
+    s.run("edit.redo", &Value::Null).unwrap();
+    assert_eq!(s.run("search.messages", &json!({"query": "nandu"})).unwrap().as_array().unwrap().len(), 1);
+}

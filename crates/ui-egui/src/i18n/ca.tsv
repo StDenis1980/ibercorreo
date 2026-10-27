@@ -137,6 +137,10 @@
 	Save and Send/Receive	Desa i Envia/rep
 	Save and sign in	Desa i inicia la sessió
 	Search mail	Cerca al correu
+	All mailboxes	Totes les bústies
+	Current mailbox	Bústia actual
+	Current folder	Carpeta actual
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Les paraules es cerquen des del principi, sense tenir en compte els accents. "frase exacta", -paraula per excloure, OR per a qualsevol de les dues. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
 	Search people	Cerca persones
 	Search: Lisbon, Kyiv, New York…	Cerca: Lisboa, Kíiv, Nova York…
 	Select a message to read it	Selecciona un missatge per llegir-lo
