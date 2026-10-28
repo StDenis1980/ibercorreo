@@ -148,6 +148,9 @@ pub struct OAuthProvider {
     pub smtp_starttls: bool,
     /// Address domains whose mail it serves, so choosing it can fill in the servers.
     pub mail_domains: &'static [&'static str],
+    /// Where a person makes an app password for it, when that is the way in offered first: no
+    /// browser sign-in, so no OAuth app review by the provider is needed.
+    pub app_password_url: Option<&'static str>,
 }
 
 pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
@@ -160,6 +163,7 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
         smtp_host: "smtp.gmail.com",
         smtp_starttls: false,
         mail_domains: &["gmail.com", "googlemail.com"],
+        app_password_url: Some("https://myaccount.google.com/apppasswords"),
     },
     OAuthProvider {
         id: "microsoft",
@@ -170,6 +174,8 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
         smtp_host: "smtp.office365.com",
         smtp_starttls: true,
         mail_domains: &["outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.es", "hotmail.es"],
+        // Outlook.com no longer takes passwords over IMAP: browser sign-in only.
+        app_password_url: None,
     },
 ];
 

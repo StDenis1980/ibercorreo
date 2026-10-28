@@ -285,7 +285,13 @@ impl AccountForm {
             return;
         }
         self.fill_provider(p);
-        if ready.iter().any(|r| r == p.id) {
+        if p.app_password_url.is_some() {
+            self.oauth.clear();
+            self.note = tf(
+                "A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.",
+                &[("provider", p.name)],
+            );
+        } else if ready.iter().any(|r| r == p.id) {
             self.oauth = p.id.to_string();
             self.note = tf(
                 "A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.",
@@ -462,12 +468,18 @@ impl App {
                 f.smtp_starttls = d.smtp_starttls;
                 f.user = if d.user.eq_ignore_ascii_case(f.email.trim()) { String::new() } else { d.user };
                 let provider = OAuthProvider::for_host(&f.imap_host);
-                let ready = provider.filter(|p| self.oauth_ready.iter().any(|r| r == p.id));
+                // A provider with app passwords offers them first.
+                let ready = provider.filter(|p| p.app_password_url.is_none() && self.oauth_ready.iter().any(|r| r == p.id));
                 f.oauth = ready.map(|p| p.id.to_string()).unwrap_or_default();
                 f.note = match (ready, provider, d.source) {
                     (Some(p), _, _) => tf(
                         "Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.",
                         &[("found", &d.provider), ("provider", p.name)],
+                    ),
+                    // Even where only OAuth is published: the provider takes app passwords too.
+                    (None, Some(p), _) if p.app_password_url.is_some() => tf(
+                        "Settings for {found} found. Enter an app password (the link below the password makes one) and save.",
+                        &[("found", &d.provider)],
                     ),
                     (None, Some(p), _) if d.oauth_only => tf(
                         "Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.",
@@ -565,6 +577,15 @@ impl App {
                                 .desired_width(280.0),
                         );
                         ui.end_row();
+                        let provider = OAuthProvider::for_host(&f.imap_host).or_else(|| OAuthProvider::for_address(&f.email));
+                        if let Some((p, url)) = provider.and_then(|p| p.app_password_url.map(|u| (p, u))) {
+                            ui.label("");
+                            ui.hyperlink_to(tf("Make a {provider} app password…", &[("provider", p.name)]), url).on_hover_text(tf(
+                                "{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.",
+                                &[("provider", p.name)],
+                            ));
+                            ui.end_row();
+                        }
                     }
                     ui.label(tl("Sign-in name"));
                     ui.add(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
@@ -3276,18 +3297,18 @@ mod tests {
     }
 
     #[test]
-    fn found_settings_pick_oauth_when_this_build_can_sign_in() {
+    fn found_settings_pick_oauth_or_an_app_password() {
         let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
         app.open_account_settings(None, "");
         app.account_form.email = "ana@gmail.com".into();
         app.apply_autoconfig(Ok(gmail()));
         assert_eq!(app.account_form.oauth, "", "no client ID: a password it stays");
-        assert!(app.account_form.note.contains("no Google client ID"), "{}", app.account_form.note);
+        assert!(app.account_form.note.contains("app password"), "{}", app.account_form.note);
 
         app.oauth_ready = vec!["google".into()];
         app.apply_autoconfig(Ok(gmail()));
-        assert_eq!(app.account_form.oauth, "google");
-        assert!(app.account_form.note.contains("sign in on Google's own page"), "{}", app.account_form.note);
+        assert_eq!(app.account_form.oauth, "", "Gmail offers an app password first, even with a client ID");
+        assert!(app.account_form.note.contains("app password"), "{}", app.account_form.note);
 
         let mut other = gmail();
         other.imap_host = "imap.example.org".into();
@@ -3331,9 +3352,10 @@ mod tests {
         let ready = ["google".to_string(), "microsoft".to_string()];
         let mut f = AccountForm { email: "ana@gmail.com".into(), ..AccountForm::default() };
         f.follow_provider("", "ana@gmail.co", &ready);
-        assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("imap.gmail.com", "google"));
+        assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("imap.gmail.com", ""), "Gmail: an app password first");
+        assert!(f.note.contains("app password"), "{}", f.note);
         f.email = "ana@hotmail.com".into();
-        f.follow_provider("google", "ana@gmail.com", &ready);
+        f.follow_provider("", "ana@gmail.com", &ready);
         assert_eq!((f.imap_host.as_str(), f.oauth.as_str()), ("outlook.office365.com", "microsoft"), "another provider's servers give way");
 
         // Without a client ID it is a password (an app password), with the same servers.

@@ -268,3 +268,7 @@
 	Run this rule later	Aplicar esta regra despois
 	Run this rule earlier	Aplicar esta regra antes
 	{email} is already set up: here it is	{email} xa está configurada: aquí a tes
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Un enderezo de {provider}: os servidores están cubertos. Escriba un contrasinal de aplicación (a ligazón baixo o contrasinal créao) e garde.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Atopouse a configuración de {found}. Escriba un contrasinal de aplicación (a ligazón baixo o contrasinal créao) e garde.
+	Make a {provider} app password…	Crear un contrasinal de aplicación de {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Conta de {provider} → Seguranza → Contrasinais de aplicacións (precisa a verificación en dous pasos). Pegue aquí as 16 letras.

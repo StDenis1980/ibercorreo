@@ -270,3 +270,7 @@
 	Run this rule later	Diese Regel später anwenden
 	Run this rule earlier	Diese Regel früher anwenden
 	{email} is already set up: here it is	{email} ist bereits eingerichtet: hier ist es
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Eine {provider}-Adresse: die Server sind eingetragen. Geben Sie ein App-Passwort ein (der Link unter dem Passwort erstellt eines) und speichern Sie.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Einstellungen für {found} gefunden. Geben Sie ein App-Passwort ein (der Link unter dem Passwort erstellt eines) und speichern Sie.
+	Make a {provider} app password…	{provider}-App-Passwort erstellen…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	{provider}-Konto → Sicherheit → App-Passwörter (Bestätigung in zwei Schritten nötig). Fügen Sie hier die 16 Buchstaben ein.

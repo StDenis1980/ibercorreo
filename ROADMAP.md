@@ -150,6 +150,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-28 — Folder pane: with several accounts, all but the one in use open folded, so a
   second account is not lost under the first one's folders (seen with 76 Outlook folders above
   Gmail). Adding an address that is already set up closes the dialog and opens that account.
+- 2026-10-28 — Gmail: Account settings offer an app password first (`OAuthProvider::app_password_url`,
+  link to Google's page under the password); browser sign-in stays as a choice. Google's OAuth
+  verification and CASA are deferred until after the public release (owner decision).
 
 ## Revision history
 - 2026-10-22 — created.

@@ -264,3 +264,7 @@
 	Run this rule later	Застосовувати це правило пізніше
 	Run this rule earlier	Застосовувати це правило раніше
 	{email} is already set up: here it is	{email} вже налаштовано: ось цей акаунт
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Адреса {provider}: сервери заповнено. Введіть пароль застосунку (його створює посилання під полем пароля) і збережіть.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Знайдено налаштування для {found}. Введіть пароль застосунку (його створює посилання під полем пароля) і збережіть.
+	Make a {provider} app password…	Створити пароль застосунку {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Акаунт {provider} → Безпека → Паролі застосунків (потрібна двоетапна перевірка). Вставте сюди 16 літер.
