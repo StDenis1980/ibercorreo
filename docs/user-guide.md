@@ -159,9 +159,15 @@
   перемагає версія сервера. Книга «Contacts» лишається лише в програмі.
 
 ## Де зберігаються дані
-Один файл `store.json`: Windows `%APPDATA%\Iber Correo`, macOS `~/Library/Application Support/Iber Correo`,
-Linux `~/.local/share/ibercorreo`. Зберігається автоматично кожні 20 секунд і при закритті.
-Якщо файл пошкоджено, програма не перезаписує його, а відкладає як `store.unreadable.json`.
+Файл `store.json` (облікові записи, папки, календарі, контакти) і поруч папка `store.mail` із
+листами (файли `m000000.json`, `m000001.json`…, по тисячі листів у кожному): Windows
+`%APPDATA%\Iber Correo`, macOS `~/Library/Application Support/Iber Correo`, Linux
+`~/.local/share/ibercorreo`. Зберігається автоматично у фоні кожні 20 секунд і при закритті;
+переписуються тільки ті файли листів, що змінилися. Для резервної копії копіюйте обидва разом.
+Якщо дані пошкоджено, програма не перезаписує їх, а відкладає як `store.unreadable.json` і
+`store.unreadable.mail`. Пошта з версій до 28.10.2026 (усе в одному `store.json`) переноситься в
+`store.mail` сама під час першого збереження; стара версія файлу лишається поруч як
+`store.before-shards.json`. Коли переконаєтеся, що все на місці, її можна видалити.
 
 ## Підключення пошти
 1. На вкладці «Пошта» натисніть **+ Add account** внизу панелі папок. Якщо ця адреса вже додана,
@@ -300,3 +306,4 @@ Refresh token бережіть як пароль. Microsoft замінює йо�
 - 2026-10-28 — other accounts start folded; adding an address that is already set up shows it.
 - 2026-10-28 — Gmail: an app password is offered first, with a link to make one.
 - 2026-10-28 — Gmail browser sign-in without the 7-day limit; how to pass Google's unverified-app page.
+- 2026-10-28 — Where data is kept: messages in `store.mail` beside `store.json`.

@@ -756,17 +756,32 @@ fn main() -> eframe::Result {
     let today = zone.from_utc(now()).date;
     let store_path = store_path.or_else(|| data_dir().map(|d| d.join("store.json")));
     let mut status = String::new();
+    // Off when a mailbox that could not be read could not be moved aside either: never save over it.
+    let mut writable = true;
     let store = if sample {
         ibercorreo_engine::sample::store(today).unwrap_or_default()
     } else {
         match store_path.as_ref().filter(|p| p.exists()) {
             Some(p) => match Store::load(p) {
-                Ok(s) => s,
+                Ok(s) => {
+                    let n = s.repaired_on_load();
+                    if n > 0 {
+                        status = format!(
+                            "{n} messages in folders the mailbox did not list were left out (the last save was cut short); synced ones come back at the next Send/Receive"
+                        );
+                    }
+                    s
+                }
                 Err(e) => {
-                    // Never overwrite a store we could not read: keep it aside and start fresh.
-                    let aside = p.with_extension("unreadable.json");
-                    let _ = std::fs::rename(p, &aside);
-                    status = format!("Could not read the mailbox ({e}); it was kept as {}", aside.display());
+                    // Never overwrite a store we could not read: keep it aside (with its message
+                    // shards) and start fresh.
+                    status = match Store::set_aside(p) {
+                        Ok(aside) => format!("Could not read the mailbox ({e}); it was kept as {}", aside.display()),
+                        Err(moved) => {
+                            writable = false;
+                            format!("Could not read the mailbox ({e}), nor keep it aside ({moved}); nothing is saved over it")
+                        }
+                    };
                     Store::new()
                 }
             },
@@ -778,9 +793,16 @@ fn main() -> eframe::Result {
     session.set_system_zone(zone);
     // The store may name another zone than the computer's; open on today there.
     session.day = session.today();
-    if !sample && let Some(p) = &store_path {
+    if !sample
+        && writable
+        && let Some(p) = &store_path
+    {
         if let Some(dir) = p.parent() {
             let _ = std::fs::create_dir_all(dir);
+        }
+        // The first save of a store from before shards rewrites it: keep the old file once.
+        if let Err(e) = Store::keep_unsharded_copy(p) {
+            status = format!("Could not keep a copy of the mailbox before converting it: {e}");
         }
         session.path = Some(p.clone());
     }

@@ -3,15 +3,17 @@
 //! interface only ever reads it.
 //!
 //! Saving writes a temporary file and renames it over the old one, so a crash mid-save never
-//! leaves a half-written store.
+//! leaves a half-written store. Messages go to shard files beside it ([`shards`]), and a save
+//! rewrites only the shards that changed.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod rules;
 pub mod search;
+pub mod shards;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ibercorreo_core::calendar::When;
@@ -31,7 +33,9 @@ pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// and live in address books (`books`), which may mirror CardDAV servers.
 /// 4: several accounts: accounts have an `id`, folders the `account` they belong to (files from
 /// before give everything account 0).
-pub const FORMAT_VERSION: u32 = 4;
+/// 5: messages are in shard files beside the store file (`message_shards`, [`shards`]); files
+/// from before hold them inline and are written back sharded.
+pub const FORMAT_VERSION: u32 = 5;
 /// The most accounts a store holds.
 pub const MAX_ACCOUNTS: usize = 50;
 
@@ -97,7 +101,28 @@ pub struct Store {
     search_cache: search::SearchCache,
     #[serde(skip)]
     stamps: search::Stamps,
+    /// Set in a written store file whose messages are in shard files; never set in memory.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    message_shards: bool,
+    /// The shards the last save wrote, so the next one writes only what changed.
+    #[serde(skip)]
+    saved: shards::Saved,
+    /// Messages the last load left out ([`Store::repaired_on_load`]).
+    #[serde(skip)]
+    repaired: Repaired,
 }
+
+/// How many messages a load left out; not part of the store's value.
+#[derive(Debug, Clone, Copy, Default)]
+struct Repaired(usize);
+
+impl PartialEq for Repaired {
+    fn eq(&self, _: &Repaired) -> bool {
+        true
+    }
+}
+
+impl Eq for Repaired {}
 
 /// A CalDAV or CardDAV resource deleted here: its collection (`calendar`, also for an address
 /// book), path and last known version.
@@ -973,11 +998,16 @@ impl Store {
 
     // ---- disk ----
 
+    /// Write the store to `path`: the messages that changed to their shards, then the rest.
     pub fn save(&self, path: &Path) -> Result<()> {
-        let json = serde_json::to_vec_pretty(self).map_err(|e| Error::Storage(e.to_string()))?;
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, json).map_err(|e| Error::Storage(format!("{}: {e}", tmp.display())))?;
-        std::fs::rename(&tmp, path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))
+        let pending = shards::write(&self.saved, path, &self.messages)?;
+        let mut rest = self.clone();
+        rest.messages = Vec::new();
+        rest.message_shards = true;
+        let json = serde_json::to_vec_pretty(&rest).map_err(|e| Error::Storage(e.to_string()))?;
+        shards::write_file(path, &json)?;
+        shards::finish(&self.saved, path, pending);
+        Ok(())
     }
 
     pub fn load(path: &Path) -> Result<Store> {
@@ -990,14 +1020,82 @@ impl Store {
             });
         }
         let bytes = std::fs::read(path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
-        Store::from_json(&bytes)
+        let mut s = Store::parse(&bytes)?;
+        if !s.message_shards {
+            return s.finish_load();
+        }
+        s.message_shards = false;
+        s.messages.extend(shards::read(path)?.into_iter().map(Arc::new));
+        // Past the ids of messages left out too, so none is taken again while its copy is on disk.
+        if let Some(top) = s.messages.iter().map(|m| m.id.0.saturating_add(1)).max() {
+            s.next_message = s.next_message.max(top);
+        }
+        s.repaired = Repaired(s.drop_strays());
+        let s = s.finish_load()?;
+        s.saved.remember(path, &s.messages);
+        Ok(s)
     }
 
+    /// Read a store file whose messages are inline (one written before shards, or by a test).
     pub fn from_json(bytes: &[u8]) -> Result<Store> {
-        let mut s: Store = serde_json::from_slice(bytes).map_err(|e| Error::invalid("store file", e.to_string()))?;
+        let s = Store::parse(bytes)?;
+        if s.message_shards {
+            return Err(Error::invalid("store file", "its messages are in shard files beside it: open it with Store::load"));
+        }
+        s.finish_load()
+    }
+
+    /// Move a store file that could not be read out of the way, with its shards, so a fresh store
+    /// can start without touching them. Returns where the file went.
+    pub fn set_aside(path: &Path) -> Result<PathBuf> {
+        let aside = path.with_extension("unreadable.json");
+        std::fs::rename(path, &aside).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
+        let dir = shards::dir(path);
+        if dir.exists() {
+            std::fs::rename(&dir, shards::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
+        }
+        Ok(aside)
+    }
+
+    /// Before the first save of a store file from before shards: copy it aside once
+    /// (`store.before-shards.json`), so the move to shards can be undone by hand. Returns the copy
+    /// made, if one was.
+    pub fn keep_unsharded_copy(path: &Path) -> Result<Option<PathBuf>> {
+        let copy = path.with_extension("before-shards.json");
+        if !path.exists() || shards::dir(path).exists() || copy.exists() {
+            return Ok(None);
+        }
+        std::fs::copy(path, &copy).map_err(|e| Error::Storage(format!("{}: {e}", copy.display())))?;
+        Ok(Some(copy))
+    }
+
+    /// How many messages the last load left out: ones in a folder the store file no longer has,
+    /// or a second copy of one id. Only a save cut short (shards written, the store file not)
+    /// leaves them; a synced one comes back with the folder at the next Send/Receive.
+    pub fn repaired_on_load(&self) -> usize {
+        self.repaired.0
+    }
+
+    /// Drop messages whose folder (or server folder) is gone, and repeated ids; returns how many.
+    fn drop_strays(&mut self) -> usize {
+        let folders: std::collections::HashSet<FolderId> = self.folders.iter().map(|f| f.id).collect();
+        let mut ids = std::collections::HashSet::new();
+        let before = self.messages.len();
+        self.messages.retain(|m| folders.contains(&m.folder) && m.remote.is_none_or(|r| folders.contains(&r.folder)) && ids.insert(m.id));
+        before.saturating_sub(self.messages.len())
+    }
+
+    fn parse(bytes: &[u8]) -> Result<Store> {
+        let s: Store = serde_json::from_slice(bytes).map_err(|e| Error::invalid("store file", e.to_string()))?;
         if s.version > FORMAT_VERSION {
             return Err(Error::invalid("store file", format!("format {} is newer than this build ({FORMAT_VERSION})", s.version)));
         }
+        Ok(s)
+    }
+
+    /// Check a store just read and bring it up to this format.
+    fn finish_load(mut self) -> Result<Store> {
+        let s = &mut self;
         // Stores from before address books: one local book holds every contact.
         if s.books.is_empty() {
             s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
@@ -1021,6 +1119,10 @@ impl Store {
         if let Some(top) = s.accounts.iter().map(|a| a.id.0.saturating_add(1)).max() {
             s.next_account = s.next_account.max(top);
         }
+        // Past every id held, so a new message never takes one a shard already has.
+        if let Some(top) = s.messages.iter().map(|m| m.id.0.saturating_add(1)).max() {
+            s.next_message = s.next_message.max(top);
+        }
         for c in &mut s.contacts {
             c.upgrade();
         }
@@ -1030,7 +1132,7 @@ impl Store {
         s.rules.truncate(rules::MAX_RULES);
         // Older files read as this format (new fields default) and are written back as it.
         s.version = FORMAT_VERSION;
-        Ok(s)
+        Ok(self)
     }
 
     /// Ids unique and every reference resolvable, so a hand-edited file can't confuse the app.
@@ -1365,6 +1467,139 @@ END:VCALENDAR\r\n";
         let out = s.export_ics(None);
         assert!(out.contains("DTSTART:20261022T223000Z"), "{out}");
         assert!(out.contains("DTSTART;TZID=Europe/Lisbon:20261019T090000"), "{out}");
+    }
+
+    fn temp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ibercorreo-store-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("store.json")
+    }
+
+    fn shard_files(path: &Path) -> Vec<String> {
+        let mut v: Vec<String> =
+            std::fs::read_dir(shards::dir(path)).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        v.sort();
+        v
+    }
+
+    fn modified(path: &Path, shard: &str) -> std::time::SystemTime {
+        std::fs::metadata(shards::dir(path).join(shard)).unwrap().modified().unwrap()
+    }
+
+    /// Messages go to shard files beside the store file, a save rewrites only the shards that
+    /// changed, and the store file stays small however big the mailbox grows.
+    #[test]
+    fn messages_are_saved_in_shards_and_only_changed_ones_are_rewritten() {
+        let path = temp("shards");
+        let mut s = Store::new();
+        for d in 1..=3 {
+            s.add_message(msg(&s, "early", d)).unwrap();
+        }
+        s.next_message = 2500;
+        let late = s.add_message(msg(&s, "late", 4)).unwrap();
+        s.save(&path).unwrap();
+        assert_eq!(shard_files(&path), ["m000000.json", "m000002.json"]);
+        let inline = std::fs::read_to_string(&path).unwrap();
+        assert!(!inline.contains("early") && inline.contains("\"message_shards\": true"), "{inline}");
+        let back = Store::load(&path).unwrap();
+        assert_eq!(back, s);
+        assert_eq!(back.repaired_on_load(), 0);
+        // Change the late message only: its shard is written again, the other one is not.
+        let (first, second) = (modified(&path, "m000000.json"), modified(&path, "m000002.json"));
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let mut back = back;
+        back.message_mut(late).unwrap().seen = true;
+        back.save(&path).unwrap();
+        assert_eq!(modified(&path, "m000000.json"), first, "an unchanged shard is not rewritten");
+        assert_ne!(modified(&path, "m000002.json"), second);
+        // The late message gone, its shard goes too.
+        back.remove_message(late).unwrap();
+        back.save(&path).unwrap();
+        assert_eq!(shard_files(&path), ["m000000.json"]);
+        let again = Store::load(&path).unwrap();
+        assert_eq!(again, back);
+        assert!(again.message(late).is_err());
+        // A file with shards is opened with its path, never as bare JSON missing its mail.
+        assert!(Store::from_json(&std::fs::read(&path).unwrap()).is_err());
+    }
+
+    /// A store from before shards (messages inline) opens as it is and is written back sharded.
+    #[test]
+    fn an_inline_store_is_written_back_sharded() {
+        let path = temp("inline");
+        let mut s = Store::new();
+        let id = s.add_message(msg(&s, "old", 1)).unwrap();
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["version"] = serde_json::json!(4);
+        std::fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+        let back = Store::load(&path).unwrap();
+        assert_eq!(back.message(id).unwrap().subject, "old");
+        let copy = Store::keep_unsharded_copy(&path).unwrap().unwrap();
+        assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(&path).unwrap());
+        back.save(&path).unwrap();
+        assert_eq!(Store::keep_unsharded_copy(&path).unwrap(), None, "once only");
+        assert_eq!(shard_files(&path), ["m000000.json"]);
+        assert_eq!(Store::load(&path).unwrap().message(id).unwrap().subject, "old");
+    }
+
+    /// A save cut short (shards written, the store file not) leaves messages in a folder the
+    /// store file does not know yet: the load leaves them out and says how many, instead of
+    /// refusing the whole mailbox.
+    #[test]
+    fn a_save_cut_short_still_opens() {
+        let path = temp("cut");
+        let mut s = Store::new();
+        let kept = s.add_message(msg(&s, "kept", 1)).unwrap();
+        s.save(&path).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let folder = s.add_folder(AccountId(0), "New on the server", FolderRole::Other);
+        let mut m = msg(&s, "stray", 2);
+        m.folder = folder;
+        s.add_message(m).unwrap();
+        s.save(&path).unwrap();
+        std::fs::write(&path, before).unwrap();
+        let back = Store::load(&path).unwrap();
+        assert_eq!(back.repaired_on_load(), 1);
+        assert_eq!(back.all_messages().map(|m| m.id).collect::<Vec<_>>(), [kept]);
+        // A new message never takes an id a shard already used.
+        let mut back = back;
+        assert!(back.add_message(msg(&back, "next", 3)).unwrap().0 > kept.0 + 1);
+    }
+
+    /// A store that cannot be read is set aside with its shards, so a fresh one starts clean.
+    #[test]
+    fn an_unreadable_store_is_set_aside_with_its_shards() {
+        let path = temp("aside");
+        let mut s = Store::new();
+        s.add_message(msg(&s, "kept", 1)).unwrap();
+        s.save(&path).unwrap();
+        std::fs::write(shards::dir(&path).join("m000000.json"), b"not json").unwrap();
+        assert!(Store::load(&path).is_err());
+        let aside = Store::set_aside(&path).unwrap();
+        assert!(!path.exists() && !shards::dir(&path).exists());
+        assert!(aside.exists() && shards::dir(&aside).join("m000000.json").exists());
+        // A fresh store saved in its place does not see the old shards.
+        let fresh = Store::new();
+        fresh.save(&path).unwrap();
+        assert!(Store::load(&path).unwrap().all_messages().len() == 0);
+    }
+
+    /// Saved somewhere new, a store clears shard files it does not have, so a later load does
+    /// not read someone else's messages back.
+    #[test]
+    fn saving_over_another_store_clears_its_shards() {
+        let path = temp("over");
+        let mut big = Store::new();
+        big.next_message = 5000;
+        big.add_message(msg(&big, "other", 1)).unwrap();
+        big.save(&path).unwrap();
+        let mut small = Store::new();
+        small.add_message(msg(&small, "mine", 1)).unwrap();
+        small.save(&path).unwrap();
+        assert_eq!(shard_files(&path), ["m000000.json"]);
+        let back = Store::load(&path).unwrap();
+        assert_eq!(back.all_messages().map(|m| m.subject.as_str()).collect::<Vec<_>>(), ["mine"]);
     }
 
     #[test]
