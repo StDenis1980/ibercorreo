@@ -267,3 +267,4 @@
 	every message	todos los mensajes
 	Run this rule later	Aplicar esta regla más tarde
 	Run this rule earlier	Aplicar esta regla antes
+	{email} is already set up: here it is	{email} ya está configurada: aquí la tiene
