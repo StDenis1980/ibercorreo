@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-27 · M3 (accounts, search, rules) in progress
+Status: 2026-10-28 · M3 (accounts, search, rules) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -156,6 +156,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-28 — Gmail users choose: app password, or Google sign-in with the OAuth app published
   unverified (no 7-day expiry, ≤100 users). `OAuthProvider::unverified` makes Account settings
   explain Google's "hasn't verified this app" page (Advanced → Go to Tinta Correo).
+- 2026-10-28 — Big mailboxes (43,000 messages) no longer freeze the window: the message list lays
+  out only the rows in view, a message is found by binary search, unread counts take one pass a
+  frame, messages are shared (`Arc`) between the store, its undo steps and the copy a save writes,
+  and the autosave and the search index run on background threads. A frame went from 3 s to
+  ~25 ms, a command from 0.5 s to ~10 ms.
 
 ## Revision history
 - 2026-10-22 — created.

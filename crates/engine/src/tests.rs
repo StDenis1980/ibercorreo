@@ -434,7 +434,7 @@ fn repeating_appointments_and_deleting_one_occurrence() {
 
 /// The sample invitation's message id.
 fn invitation(s: &Session) -> MessageId {
-    s.store.all_messages().iter().find(|m| m.invite.is_some()).map(|m| m.id).unwrap()
+    s.store.all_messages().find(|m| m.invite.is_some()).map(|m| m.id).unwrap()
 }
 
 #[test]
@@ -523,7 +523,7 @@ fn declining_removes_the_meeting_and_can_be_edited_first() {
     for bad in [json!({"id": id.0}), json!({"id": id.0, "response": "maybe later"}), json!({"id": id.0, "response": "accept", "reply": "fax"})] {
         assert!(s.run("invite.respond", &bad).is_err(), "{bad}");
     }
-    let plain = s.store.all_messages().iter().find(|m| m.invite.is_none()).unwrap().id;
+    let plain = s.store.all_messages().find(|m| m.invite.is_none()).unwrap().id;
     assert!(s.run("invite.respond", &json!({"id": plain.0, "response": "accept"})).is_err());
 }
 
@@ -900,4 +900,21 @@ fn rules_run_on_mail_that_arrives_by_sync_only() {
     s.apply_sync(account, batch(&[(2, "new offer")]));
     assert!(in_trash(&s, "new offer"));
     assert!(s.status.contains("Rules matched 1 messages: 1 deleted"), "{}", s.status);
+}
+
+/// An undo step keeps the store as it was without copying its mail: messages a command did not
+/// change are shared with the step, so with a big mailbox each command stays quick.
+#[test]
+fn undo_steps_share_the_messages_a_command_left_alone() {
+    let mut s = session();
+    let a = s.run("message.compose", &json!({"subject": "one"})).unwrap()["id"].as_u64().unwrap();
+    let b = s.run("message.compose", &json!({"subject": "two"})).unwrap()["id"].as_u64().unwrap();
+    s.run("message.flag", &json!({"id": a})).unwrap();
+    let step = s.undo.last().unwrap();
+    assert!(std::ptr::eq(step.message(MessageId(b)).unwrap(), s.store.message(MessageId(b)).unwrap()));
+    assert!(!step.message(MessageId(a)).unwrap().flagged);
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(!s.store.message(MessageId(a)).unwrap().flagged);
+    s.run("edit.redo", &Value::Null).unwrap();
+    assert!(s.store.message(MessageId(a)).unwrap().flagged);
 }

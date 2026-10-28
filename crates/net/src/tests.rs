@@ -221,7 +221,7 @@ fn real_server_sync_when_configured() {
     assert_eq!((r.added, r.errors.len()), (3, 0), "{r:?}");
     let inbox = store.folder_by_role(ibercorreo_core::AccountId(0), FolderRole::Inbox).unwrap();
     let trash = store.folder_by_role(ibercorreo_core::AccountId(0), FolderRole::Trash).unwrap();
-    let id = |store: &ibercorreo_store::Store, subject: &str| store.all_messages().iter().find(|m| m.subject == subject).map(|m| m.id);
+    let id = |store: &ibercorreo_store::Store, subject: &str| store.all_messages().find(|m| m.subject == subject).map(|m| m.id);
     let m1 = id(&store, "m1").unwrap();
     let m2 = id(&store, "m2").unwrap();
     store.message_mut(m1).unwrap().seen = true;

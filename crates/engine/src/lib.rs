@@ -10,6 +10,7 @@ pub mod sample;
 
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use ibercorreo_core::{AccountId, Date, DateTime, Error, EventId, FolderId, FolderRole, MessageId, Result, Zone};
 use ibercorreo_store::Store;
@@ -106,8 +107,9 @@ pub struct Session {
     /// The zone times are shown in: the store's choice, else the computer's. Kept in step with
     /// the store after every command.
     zone: Zone,
-    undo: Vec<Store>,
-    redo: Vec<Store>,
+    /// Shared, so the copy of the session each command starts from does not copy the history.
+    undo: Vec<Arc<Store>>,
+    redo: Vec<Arc<Store>>,
 }
 
 impl Session {
@@ -160,7 +162,7 @@ impl Session {
         match outcome {
             Ok(Ok(v)) => {
                 if spec.edits && self.store != before.store {
-                    self.undo.push(before.store);
+                    self.undo.push(Arc::new(before.store));
                     if self.undo.len() > UNDO_DEPTH {
                         self.undo.remove(0);
                     }
@@ -270,8 +272,8 @@ impl Session {
 
     fn undo(&mut self) -> Result<()> {
         let prev = self.undo.pop().ok_or_else(|| Error::invalid("undo", "nothing to undo"))?;
-        let cur = std::mem::replace(&mut self.store, prev);
-        self.redo.push(cur);
+        let cur = std::mem::replace(&mut self.store, Arc::unwrap_or_clone(prev));
+        self.redo.push(Arc::new(cur));
         self.fix_selection();
         self.dirty = true;
         Ok(())
@@ -279,8 +281,8 @@ impl Session {
 
     fn redo(&mut self) -> Result<()> {
         let next = self.redo.pop().ok_or_else(|| Error::invalid("redo", "nothing to redo"))?;
-        let cur = std::mem::replace(&mut self.store, next);
-        self.undo.push(cur);
+        let cur = std::mem::replace(&mut self.store, Arc::unwrap_or_clone(next));
+        self.undo.push(Arc::new(cur));
         self.fix_selection();
         self.dirty = true;
         Ok(())

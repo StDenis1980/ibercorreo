@@ -379,13 +379,13 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
     for f in batch.folders {
         let Some(&folder) = folder_ids.get(&f.path) else { continue };
         let inbox_seen_before = store.folder(folder).is_ok_and(|l| l.role == FolderRole::Inbox && l.remote.is_some()) && !f.reset;
-        let newest_known = store.all_messages().iter().filter_map(|m| m.remote.filter(|r| r.folder == folder).map(|r| r.uid)).max();
+        let newest_known = store.all_messages().filter_map(|m| m.remote.filter(|r| r.folder == folder).map(|r| r.uid)).max();
         if let Ok(local) = store.folder_mut(folder) {
             local.remote = Some(RemoteFolder { path: f.path.clone(), uid_validity: f.uid_validity });
         }
         report.remaining = report.remaining.saturating_add(f.remaining);
         if f.reset {
-            let void: Vec<MessageId> = store.all_messages().iter().filter(|m| m.remote.is_some_and(|r| r.folder == folder)).map(|m| m.id).collect();
+            let void: Vec<MessageId> = store.all_messages().filter(|m| m.remote.is_some_and(|r| r.folder == folder)).map(|m| m.id).collect();
             for id in void {
                 if store.drop_message(id).is_ok() {
                     report.removed = report.removed.saturating_add(1);

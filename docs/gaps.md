@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-10-27 · Pick from the top.
+Status: 2026-10-28 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -42,10 +42,13 @@ Status: 2026-10-27 · Pick from the top.
    Zone", shows as written), writing `VTIMEZONE` for repeating events (one-off ones are exported in
    UTC; the IANA id is enough for Google, Apple and Thunderbird), a second zone column in the day
    view, and choosing an appointment's zone in the form (it takes the calendar's).
-6. **Undo** snapshots the whole store (50 steps), and a sync clears the history (stepping back past
+6. **Undo** snapshots the whole store (50 steps; the messages are shared between the steps, so
+   only the ones a command changed are copied), and a sync clears the history (stepping back past
    a sync would resurrect stale server state). Replace with operation-level undo.
-7. **Store** is one JSON file loaded in memory. Move to an on-disk index (per-folder files or an
-   embedded database) before IMAP sync of large mailboxes.
+7. **Store** is one JSON file loaded in memory, saved on a background thread. A mailbox of 43,000
+   messages is about 500 MB of JSON and takes seconds to write; a file over 1 GB
+   (`MAX_STORE_BYTES`) is not opened (it is set aside). Move to an on-disk index (per-folder files
+   or an embedded database) with bodies stored apart, before mailboxes grow past that.
 8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Tinta PDF,
    Tinta Texto, Tinta Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
@@ -91,7 +94,8 @@ Status: 2026-10-27 · Pick from the top.
 15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
     ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
     dates) and the All mailboxes / Current mailbox / Current folder scope. Missing: an index kept
-    on disk (it is rebuilt at start, fine for tens of thousands of messages; gap 7), searching
+    on disk (it is rebuilt on a background thread at start and after each Send/Receive, about 15 s
+    for 43,000 messages; a search before then waits for it; gap 7), searching
     attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
     the words found, a Search ribbon tab with filter buttons, search history and saved searches
     (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
@@ -126,3 +130,4 @@ Status: 2026-10-27 · Pick from the top.
 - 2026-10-26 — gap 1 narrowed: signatures, Bcc and a sync progress bar (M3.3c).
 - 2026-10-27 — gap 15 added: search (M3.4).
 - 2026-10-27 — gap 16 added: rules (M3.5).
+- 2026-10-28 — gaps 6, 7 and 15 updated: big mailboxes (shared messages, background save and index).
