@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=Tinta Correo
+GenericName=Mail and Calendar
+Comment=Read and send mail, keep your calendar and contacts
+Exec=ibercorreo %F
+TryExec=ibercorreo
+Icon=io.github.stdenis1980.ibercorreo
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.stdenis1980.ibercorreo
+Categories=Office;Network;Email;Calendar;ContactManagement;
+Keywords=mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;
+MimeType=message/rfc822;text/calendar;text/vcard;text/x-vcard;

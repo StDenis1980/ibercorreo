@@ -1,0 +1,70 @@
+# .deb and .rpm packages (nfpm: https://nfpm.goreleaser.com). Run by package.sh, which stages
+# the file tree, substitutes its path for ${STAGE} (nfpm doesn't expand env vars in `src`) and
+# exports VERSION, RELEASE and NFPM_ARCH.
+name: tinta-correo
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: ${RELEASE}
+section: mail
+priority: optional
+maintainer: Tinta Office <hola@tintaoffice.com>
+vendor: Tinta Office
+homepage: https://tintaoffice.com
+license: MIT OR Apache-2.0
+description: |-
+  Tinta Correo: mail (IMAP/SMTP, Gmail and Microsoft 365 sign-in), calendar
+  (CalDAV, invitations) and contacts (CardDAV). Part of Tinta Office.
+  Includes ibercorreo-cli, a headless command runner.
+
+# The binaries link only glibc and libgcc_s directly. Windowing (X11/Wayland, xkbcommon) and
+# OpenGL are loaded at runtime. Saved passwords and sign-in tokens go to the Secret Service
+# (GNOME Keyring, KWallet), reached over D-Bus, so a keyring is a recommendation.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libxkbcommon0
+      - libegl1 | libgl1
+    recommends:
+      - gnome-keyring | kwalletmanager | keepassxc
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxkbcommon-x11-0
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - xdg-utils
+  rpm:
+    depends:
+      - libc.so.6()(64bit)
+      - libgcc_s.so.1()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - (libEGL.so.1()(64bit) or libGL.so.1()(64bit))
+    recommends:
+      - gnome-keyring
+      - libwayland-client
+      - libX11
+      - libXcursor
+      - libxkbcommon-x11
+      - libXi
+      - libXrandr
+      - xdg-utils
+
+contents:
+  - src: ${STAGE}/usr/bin/ibercorreo
+    dst: /usr/bin/ibercorreo
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/bin/ibercorreo-cli
+    dst: /usr/bin/ibercorreo-cli
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh

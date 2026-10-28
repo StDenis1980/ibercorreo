@@ -23,3 +23,6 @@ Generated-in-code art is original and has no file to list: the UI icons (`crates
 | `assets/app-icon/ibercorreo.icns` | Tinta Office contributors | original Tinta Office artwork, drawn in code by `packaging/tinta-icons.py` | MIT OR Apache-2.0 | macOS bundle icon |
 | `assets/app-icon/ibercorreo.ico` | Tinta Office contributors | original Tinta Office artwork, drawn in code by `packaging/tinta-icons.py` | MIT OR Apache-2.0 | Windows exe icon, 16–256 px |
 | `assets/app-icon/ibercorreo.svg` | Tinta Office contributors | original Tinta Office artwork, drawn in code by `packaging/tinta-icons.py` | MIT OR Apache-2.0 | App icon master: the Tinta Office azulejo tile in the Tinta Correo teal |
+| `packaging/linux/io.github.stdenis1980.ibercorreo.desktop` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux desktop entry |
+| `packaging/linux/io.github.stdenis1980.ibercorreo.metainfo.xml.in` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux AppStream metadata (template) |
+| `packaging/linux/nfpm.yaml` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux .deb/.rpm package description |
