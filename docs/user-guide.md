@@ -187,9 +187,14 @@ Linux `~/.local/share/ibercorreo`. Зберігається автоматичн
 **Make a Google app password…**. Воно відкриває сторінку Google (потрібна двоетапна перевірка
 акаунта): назвіть пароль, наприклад «Tinta Correo», скопіюйте 16 літер, вставте їх у поле пароля і
 натисніть **Save and Send/Receive**. Пароль застосунку відкриває лише пошту, його можна будь-коли
-відкликати на тій самій сторінці, і він зберігається в системному сховищі паролів. Вхід через
-браузер (**Google** у рядку **Sign in with**) теж лишається, але поки програма не пройшла
-перевірку Google, такий вхід треба повторювати кожні 7 днів.
+відкликати на тій самій сторінці, і він зберігається в системному сховищі паролів.
+
+Або виберіть **Google** у рядку **Sign in with**: тоді пароль не потрібен, ви входите на сторінці
+Google (див. нижче). Google ще не перевірив Tinta Correo, тому на його сторінці з'явиться
+попередження «Google hasn't verified this app»: натисніть **Advanced**, потім **Go to Tinta
+Correo**. Вхід від цього не менш безпечний: пароль від Google програма не бачить, а доступ можна
+відкликати в налаштуваннях акаунта Google. Поки перевірки немає, так можуть увійти до 100 людей;
+решті підходить пароль застосунку.
 
 ### Outlook.com і Microsoft 365 (і Gmail за бажанням): вхід через браузер (OAuth)
 Ці провайдери не приймають звичайний пароль від поштових програм. У рядку **Sign in with**
@@ -294,3 +299,4 @@ Refresh token бережіть як пароль. Microsoft замінює йо�
 - 2026-10-27 — `ibercorreo-cli sync` reads the credential store.
 - 2026-10-28 — other accounts start folded; adding an address that is already set up shows it.
 - 2026-10-28 — Gmail: an app password is offered first, with a link to make one.
+- 2026-10-28 — Gmail browser sign-in without the 7-day limit; how to pass Google's unverified-app page.

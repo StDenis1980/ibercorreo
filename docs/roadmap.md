@@ -15,7 +15,7 @@ Status: 2026-10-27 · Current focus: M3 (follow-ups), then M4
 ## Current focus
 M3: autoconfiguration and IDLE (M3.1), OAuth2 sign-in for Gmail and Microsoft 365 (M3.2) and several accounts with Favorites, signatures and Bcc (M3.3) landed, and so did the full-text search index with Outlook-style queries and scopes (M3.4) and mail rules (M3.5). Next, in order:
 
-1. Google verification, decided 2026-10-28: Gmail signs in with an app password for now (offered first in Account settings, with a link to make one); browser sign-in stays, in testing mode (sign in again every 7 days). Google's verification and the paid CASA assessment wait until after the public release and the first support sales. Outlook.com browser sign-in works on a real account (checked 2026-10-28).
+1. Google verification, decided 2026-10-28: Gmail signs in with an app password for now (offered first in Account settings, with a link to make one); browser sign-in stays as the second choice: the Google OAuth app is published unverified (2026-10-28, owner's step in the Cloud Console), so no 7-day re-sign-in, an "unverified app" page the app explains, and at most 100 Google users. Google's verification and the paid CASA assessment wait until after the public release and the first support sales. Outlook.com browser sign-in works on a real account (checked 2026-10-28).
 
 Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (December 2026 – January 2027), M6 in 2027. The suite-wide work (releases, Linux, signing, tests, user guides) is in the Tinta Office roadmaps of the sibling repos (`docs/tinta-roadmap.md`).
 
@@ -46,3 +46,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-10-27 — M3.5 (rules) landed.
 - 2026-10-27 — `ibercorreo-cli sync` reads the credential store.
 - 2026-10-28 — Gmail by app password first; Google verification deferred until after the public release and first sales; Outlook.com sign-in checked.
+- 2026-10-28 — Gmail browser sign-in published unverified (choice between app password and Google sign-in).

@@ -274,3 +274,4 @@
 	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Paramètres de {found} trouvés. Saisissez un mot de passe d'application (le lien sous le mot de passe en crée un) et enregistrez.
 	Make a {provider} app password…	Créer un mot de passe d'application {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Compte {provider} → Sécurité → Mots de passe des applications (validation en deux étapes requise). Collez ici les 16 lettres.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Si {provider} indique ne pas avoir validé l'application, choisissez Paramètres avancés, puis Accéder à Tinta Correo : la vérification de {provider} viendra plus tard et la connexion est tout aussi sûre.
