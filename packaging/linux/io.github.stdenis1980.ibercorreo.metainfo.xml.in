@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.stdenis1980.ibercorreo</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Tinta Correo</name>
+  <summary>Mail, calendar and contacts</summary>
+  <developer id="io.github.stdenis1980">
+    <name>Tinta Office</name>
+  </developer>
+  <description>
+    <p>
+      Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with
+      Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and
+      contacts with CardDAV sync. It is free and open source.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.stdenis1980.ibercorreo.desktop</launchable>
+  <url type="homepage">https://tintaoffice.com</url>
+  <url type="bugtracker">https://github.com/StDenis1980/ibercorreo/issues</url>
+  <url type="vcs-browser">https://github.com/StDenis1980/ibercorreo</url>
+  <content_rating type="oars-1.1"/>
+  <provides>
+    <binary>ibercorreo</binary>
+    <binary>ibercorreo-cli</binary>
+  </provides>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>
