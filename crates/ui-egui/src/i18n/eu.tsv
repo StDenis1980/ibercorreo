@@ -268,3 +268,7 @@
 	Run this rule later	Aplikatu arau hau geroago
 	Run this rule earlier	Aplikatu arau hau lehenago
 	{email} is already set up: here it is	{email} konfiguratuta dago jada: hemen duzu
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	{provider} helbide bat: zerbitzariak beteta daude. Idatzi aplikazio-pasahitz bat (pasahitzaren azpiko estekak sortzen du) eta gorde.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	{found}(r)en ezarpenak aurkitu dira. Idatzi aplikazio-pasahitz bat (pasahitzaren azpiko estekak sortzen du) eta gorde.
+	Make a {provider} app password…	Sortu {provider} aplikazio-pasahitz bat…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	{provider} kontua → Segurtasuna → Aplikazio-pasahitzak (bi urratseko egiaztapena behar da). Itsatsi hemen 16 letrak.

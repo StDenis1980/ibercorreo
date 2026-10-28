@@ -268,3 +268,7 @@
 	Run this rule later	Aplicar esta regla más tarde
 	Run this rule earlier	Aplicar esta regla antes
 	{email} is already set up: here it is	{email} ya está configurada: aquí la tiene
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Una dirección de {provider}: los servidores están rellenados. Escriba una contraseña de aplicación (el enlace bajo la contraseña la crea) y guarde.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Configuración de {found} encontrada. Escriba una contraseña de aplicación (el enlace bajo la contraseña la crea) y guarde.
+	Make a {provider} app password…	Crear una contraseña de aplicación de {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Cuenta de {provider} → Seguridad → Contraseñas de aplicaciones (requiere verificación en dos pasos). Pegue aquí las 16 letras.

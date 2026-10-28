@@ -268,3 +268,7 @@
 	Run this rule later	Aplica aquesta regla més tard
 	Run this rule earlier	Aplica aquesta regla abans
 	{email} is already set up: here it is	{email} ja està configurat: aquí el teniu
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Una adreça de {provider}: els servidors s'han omplert. Escriviu una contrasenya d'aplicació (l'enllaç sota la contrasenya en crea una) i deseu.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	S'ha trobat la configuració de {found}. Escriviu una contrasenya d'aplicació (l'enllaç sota la contrasenya en crea una) i deseu.
+	Make a {provider} app password…	Crea una contrasenya d'aplicació de {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Compte de {provider} → Seguretat → Contrasenyes d'aplicacions (cal la verificació en dos passos). Enganxeu-hi les 16 lletres.
