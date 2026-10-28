@@ -337,6 +337,8 @@ pub struct Discovered {
 
 pub struct App {
     pub session: Session,
+    /// Unread messages per folder, counted once a frame for the folder pane and status bar.
+    unread: std::collections::HashMap<FolderId, usize>,
     /// The calendar the last appointment went into, the default for the next.
     last_calendar: Option<u32>,
     /// Set by the shell while a Send/Receive runs in the background.
@@ -384,6 +386,8 @@ pub struct App {
 
 /// The Favorites heading's key among [`App::folded`] (account ids are far below it).
 const FOLD_FAVORITES: u32 = u32::MAX;
+/// The height of a row in the message list.
+const ROW_HEIGHT: f32 = 64.0;
 
 impl App {
     pub fn new(session: Session) -> App {
@@ -397,6 +401,7 @@ impl App {
         };
         App {
             session,
+            unread: std::collections::HashMap::new(),
             syncing: false,
             sync_progress: None,
             autoconfig_request: None,
@@ -785,6 +790,7 @@ impl App {
         self.tokens = if ui.visuals().dark_mode { Tokens::dark() } else { Tokens::light() };
         self.shortcuts(ui);
         self.sync_draft();
+        self.unread = self.session.store.unread_counts();
         let t = self.tokens;
         egui::Panel::left("rail").exact_size(56.0).resizable(false).frame(Frame::NONE.fill(t.rail)).show(ui, |ui| self.rail(ui));
         egui::Panel::top("ribbon").frame(Frame::NONE.fill(t.pane).inner_margin(Margin::symmetric(10, 6))).show(ui, |ui| self.ribbon(ui));
@@ -1292,7 +1298,7 @@ impl App {
     fn status_bar(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             let inbox = self.session.store.folder_by_role(self.session.current_account(), FolderRole::Inbox).ok();
-            let unread = inbox.map(|f| self.session.store.unread_count(f)).unwrap_or(0);
+            let unread = inbox.and_then(|f| self.unread.get(&f).copied()).unwrap_or(0);
             ui.label(RichText::new(tf("Unread in Inbox: {n}", &[("n", &unread.to_string())])).small().color(self.tokens.text_weak));
             ui.separator();
             if self.syncing
@@ -1460,7 +1466,7 @@ impl App {
         let Ok(folder) = store.folder(id) else { return };
         let (name, role) = (folder_label(folder), folder.role);
         let email = if with_account { store.account(folder.account).map(|a| a.address.email.clone()).ok() } else { None };
-        let unread = store.unread_count(id);
+        let unread = self.unread.get(&id).copied().unwrap_or(0);
         let favorite = store.is_favorite(id);
         let selected = self.session.folder == id && self.search.is_empty();
         let height = if email.is_some() { 38.0 } else { 28.0 };
@@ -1559,8 +1565,9 @@ impl App {
             ui.vertical_centered(|ui| ui.label(RichText::new(tl("Nothing here")).color(t.text_weak)));
             return;
         }
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            for id in ids {
+        // Only the rows in view are laid out: a folder can hold tens of thousands of messages.
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_HEIGHT, ids.len(), |ui, rows| {
+            for &id in ids.get(rows).unwrap_or_default() {
                 let Ok(m) = self.session.store.message(id) else { continue };
                 let selected = self.session.message == Some(id);
                 let role = self.session.store.folder(m.folder).map(|f| f.role).ok();
@@ -1573,7 +1580,7 @@ impl App {
                 let when = m.date.map(|d| short_when(self.session.zone().from_utc(d), self.session.today())).unwrap_or_default();
                 let (seen, flagged, attachment, preview) = (m.seen, m.flagged, !m.attachments.is_empty(), m.preview(80));
                 let sender = m.from.as_ref().map(|a| a.email.clone());
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 64.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
                 let painter = ui.painter_at(rect);
                 if selected {
                     painter.rect_filled(rect, 0.0, t.accent_soft);
@@ -3475,5 +3482,32 @@ mod tests {
         assert_eq!(due_in(119), "in 1 hour");
         assert_eq!(due_in(-1440), "1 day overdue");
         assert_eq!(due_in(i64::MIN), format!("{} days overdue", i64::MIN.unsigned_abs() / 1440));
+    }
+
+    /// A big folder (tens of thousands of messages in a real Inbox) lays out only the rows in
+    /// view: painting every row took seconds a frame and froze the window.
+    #[test]
+    fn a_big_folder_paints_only_the_rows_in_view() {
+        let mut s = Session::new(ibercorreo_store::Store::new(), Date::EPOCH);
+        s.run("account.add", &json!({ "email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org" })).unwrap();
+        let inbox = s.store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        for i in 0..3000u32 {
+            let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+            m.set_subject(&format!("Row subject {i}"));
+            m.seen = i % 3 == 0;
+            s.store.add_message(m).unwrap();
+        }
+        s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1360.0, 860.0))), ..Default::default() };
+        // The second frame, once fonts and sizes are known.
+        ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+        let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let rows = out.shapes.iter().filter(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.job.text.starts_with("Row subject"))).count();
+        assert!((1..=30).contains(&rows), "{rows} rows painted for a window 860 px high");
+        // The unread count of the folder pane and status bar is right, counted once a frame.
+        assert_eq!(app.unread.get(&inbox), Some(&2000));
     }
 }

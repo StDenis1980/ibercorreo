@@ -65,6 +65,9 @@ fn data_dir() -> Option<PathBuf> {
 struct Shell {
     app: App,
     last_save: Instant,
+    /// The running save, if any: the store is written on another thread, as a big mailbox takes
+    /// seconds to write and the window would stop for that long.
+    saving: Option<Receiver<Result<(), String>>>,
     /// The sample mailbox is never written to disk.
     persist: bool,
     /// The running Send/Receive, if any.
@@ -459,6 +462,7 @@ impl Shell {
                     if !self.outcome.is_empty() {
                         self.app.session.status = self.outcome.join("; ");
                     }
+                    warm_search(&self.app.session.store);
                     // Mail still on the server: the next part comes at once.
                     if self.more {
                         self.app.session.sync_requested = true;
@@ -640,12 +644,47 @@ impl Shell {
         self.app.autoconfig_running = self.finder.is_some();
     }
 
+    /// Write the store if it changed, on another thread; one save runs at a time.
     fn save_if_dirty(&mut self) {
-        if self.persist && self.app.session.dirty {
-            // A failed save stays dirty and is shown in the status bar; the next attempt retries.
-            let _ = self.app.session.run("file.save", &serde_json::Value::Null);
-        }
         self.last_save = Instant::now();
+        let session = &mut self.app.session;
+        if !self.persist || !session.dirty || self.saving.is_some() {
+            return;
+        }
+        let Some(path) = session.path.clone() else { return };
+        // A copy shares the messages with the session, so it is quick to make.
+        let store = session.store.clone();
+        let (tx, rx) = mpsc::channel();
+        let spawned = std::thread::Builder::new().name("save".into()).spawn(move || {
+            let _ = tx.send(store.save(&path).map_err(|e| e.to_string()));
+        });
+        match spawned {
+            Ok(_) => {
+                session.dirty = false;
+                self.saving = Some(rx);
+            }
+            // No thread: save here, as before.
+            Err(_) => {
+                let _ = session.run("file.save", &serde_json::Value::Null);
+            }
+        }
+    }
+
+    /// Take the result of the running save: a failed one leaves the store to be saved again.
+    fn finish_save(&mut self, wait: bool) {
+        let Some(rx) = &self.saving else { return };
+        let result = if wait { rx.recv().map_err(|_| TryRecvError::Disconnected) } else { rx.try_recv() };
+        let failed = match result {
+            Ok(Ok(())) => None,
+            Ok(Err(e)) => Some(e),
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Some("the save stopped unexpectedly".to_string()),
+        };
+        self.saving = None;
+        if let Some(e) = failed {
+            self.app.session.dirty = true;
+            self.app.session.status = format!("Could not save the mailbox: {e}");
+        }
     }
 }
 
@@ -655,6 +694,7 @@ impl eframe::App for Shell {
         if self.ctx.is_none() {
             self.ctx = Some(ui.ctx().clone());
         }
+        self.finish_save(false);
         self.finish_sync();
         self.watched();
         self.app.syncing = self.worker.is_some();
@@ -670,7 +710,7 @@ impl eframe::App for Shell {
             self.save_if_dirty();
         }
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
-        let busy = self.worker.is_some() || self.finder.is_some() || self.sign_in.is_some();
+        let busy = self.worker.is_some() || self.finder.is_some() || self.sign_in.is_some() || self.saving.is_some();
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
     }
 
@@ -678,8 +718,17 @@ impl eframe::App for Shell {
         self.watchers.clear();
         self.sign_in = None;
         self.keep_rotated();
+        // The last save waits for the one running, then writes what changed since.
+        self.finish_save(true);
         self.save_if_dirty();
+        self.finish_save(true);
     }
+}
+
+/// Read the mail into the search index on another thread, so a search does not wait for it.
+fn warm_search(store: &Store) {
+    let job = store.search_warmup();
+    let _ = std::thread::Builder::new().name("search index".into()).spawn(job);
 }
 
 fn main() -> eframe::Result {
@@ -786,11 +835,13 @@ fn main() -> eframe::Result {
         NAME,
         options,
         Box::new(move |_cc| {
+            warm_search(&session.store);
             let mut app = App::new(session);
             app.oauth_ready = oauth::configured().iter().map(|p| p.id.to_string()).collect();
             Ok(Box::new(Shell {
                 app,
                 last_save: Instant::now(),
+                saving: None,
                 persist,
                 worker: None,
                 outcome: Vec::new(),

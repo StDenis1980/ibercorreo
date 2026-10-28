@@ -10,7 +10,9 @@
 pub mod rules;
 pub mod search;
 
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
@@ -49,7 +51,9 @@ pub struct Store {
     pub version: u32,
     pub accounts: Vec<Account>,
     folders: Vec<Folder>,
-    messages: Vec<Message>,
+    /// Shared, so an undo snapshot copies pointers, not mail: only a message that changes is
+    /// copied ([`Store::message_mut`]). Kept in id order, so a lookup is a binary search.
+    messages: Vec<Arc<Message>>,
     calendars: Vec<Calendar>,
     events: Vec<Event>,
     contacts: Vec<Contact>,
@@ -326,6 +330,16 @@ impl Store {
         self.messages.iter().filter(|m| m.folder == folder && !m.seen).count()
     }
 
+    /// Unread messages per folder, in one pass over the mail (folders with none are left out).
+    pub fn unread_counts(&self) -> HashMap<FolderId, usize> {
+        let mut counts = HashMap::new();
+        for m in self.messages.iter().filter(|m| !m.seen) {
+            let n: &mut usize = counts.entry(m.folder).or_default();
+            *n = n.saturating_add(1);
+        }
+        counts
+    }
+
     // ---- messages ----
 
     pub fn next_message_id(&mut self) -> MessageId {
@@ -337,10 +351,14 @@ impl Store {
     /// Add a message; its id is replaced with a fresh one and returned.
     pub fn add_message(&mut self, mut m: Message) -> Result<MessageId> {
         self.folder(m.folder)?;
+        // Past every id held, so pushing keeps the id order even after a hand-edited file.
+        if let Some(last) = self.messages.last() {
+            self.next_message = self.next_message.max(last.id.0.saturating_add(1));
+        }
         m.id = self.next_message_id();
         let id = m.id;
         self.stamps.touch(id);
-        self.messages.push(m);
+        self.messages.push(Arc::new(m));
         Ok(id)
     }
 
@@ -352,8 +370,17 @@ impl Store {
     }
 
     /// Every message, in no particular order (for sync).
-    pub fn all_messages(&self) -> &[Message] {
-        &self.messages
+    pub fn all_messages(&self) -> impl ExactSizeIterator<Item = &Message> + Clone {
+        self.messages.iter().map(|m| &**m)
+    }
+
+    /// Where message `id` is in `messages`: a binary search, as they are kept in id order, with
+    /// a scan as the fallback should that order ever be broken.
+    fn position(&self, id: MessageId) -> Option<usize> {
+        match self.messages.binary_search_by_key(&id, |m| m.id) {
+            Ok(pos) => Some(pos),
+            Err(_) => self.messages.iter().position(|m| m.id == id),
+        }
     }
 
     /// The message whose server copy is `uid` in `folder`'s mailbox.
@@ -373,16 +400,24 @@ impl Store {
 
     /// Remove a message the server already removed: no tombstone is left.
     pub fn drop_message(&mut self, id: MessageId) -> Result<Message> {
-        let pos = self.messages.iter().position(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
+        let pos = self.position(id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
         self.stamps.forget(id);
-        Ok(self.messages.remove(pos))
+        Ok(Arc::unwrap_or_clone(self.messages.remove(pos)))
     }
 
     /// Messages in `folder`, newest first (undated last).
     pub fn messages_in(&self, folder: FolderId) -> Vec<&Message> {
-        let mut v: Vec<&Message> = self.messages.iter().filter(|m| m.folder == folder).collect();
+        let mut v: Vec<&Message> = self.messages.iter().filter(|m| m.folder == folder).map(|m| &**m).collect();
         v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
         v
+    }
+
+    /// A job that reads every message into the full-text index, to run on another thread when
+    /// the store opens or mail arrives: the first search of a big mailbox then has nothing to
+    /// read. The index is shared with this store and its copies.
+    pub fn search_warmup(&self) -> impl FnOnce() + Send + 'static {
+        let (cache, stamps, messages) = (self.search_cache.clone(), self.stamps.clone(), self.messages.clone());
+        move || search::warm(&cache, &stamps, &messages)
     }
 
     /// Messages in every folder that match `query` ([`search`] has the syntax), newest first.
@@ -406,15 +441,14 @@ impl Store {
     }
 
     pub fn message(&self, id: MessageId) -> Result<&Message> {
-        self.messages.iter().find(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))
+        self.position(id).and_then(|pos| self.messages.get(pos)).map(|m| &**m).ok_or_else(|| Error::not_found("message", id.0.to_string()))
     }
 
     /// A message to change; the search index reads it again.
     pub fn message_mut(&mut self, id: MessageId) -> Result<&mut Message> {
-        if self.messages.iter().any(|m| m.id == id) {
-            self.stamps.touch(id);
-        }
-        self.messages.iter_mut().find(|m| m.id == id).ok_or_else(|| Error::not_found("message", id.0.to_string()))
+        let pos = self.position(id).ok_or_else(|| Error::not_found("message", id.0.to_string()))?;
+        self.stamps.touch(id);
+        self.messages.get_mut(pos).map(Arc::make_mut).ok_or_else(|| Error::not_found("message", id.0.to_string()))
     }
 
     pub fn move_message(&mut self, id: MessageId, to: FolderId) -> Result<FolderId> {
@@ -438,7 +472,7 @@ impl Store {
     /// Put back a message removed by [`Store::remove_message`], keeping its id.
     pub fn restore_message(&mut self, m: Message) -> Result<()> {
         self.folder(m.folder)?;
-        if self.messages.iter().any(|x| x.id == m.id) {
+        if self.position(m.id).is_some() {
             return Err(Error::invalid("message", format!("id {} already present", m.id.0)));
         }
         self.next_message = self.next_message.max(m.id.0.saturating_add(1));
@@ -446,7 +480,8 @@ impl Store {
             self.forget_tombstone(r.folder, r.uid);
         }
         self.stamps.touch(m.id);
-        self.messages.push(m);
+        let at = self.messages.partition_point(|x| x.id < m.id);
+        self.messages.insert(at, Arc::new(m));
         Ok(())
     }
 
@@ -968,6 +1003,10 @@ impl Store {
             s.books.push(AddressBook { id: 0, name: "Contacts".into(), remote: None });
         }
         s.check()?;
+        // Ids in order, for the binary search in `position` (`check` made them unique).
+        if !s.messages.is_sorted_by_key(|m| m.id) {
+            s.messages.sort_by_key(|m| m.id);
+        }
         let accounts: Vec<AccountId> = s.accounts.iter().map(|a| a.id).collect();
         for a in accounts {
             s.add_standard_folders(a);
@@ -1144,6 +1183,57 @@ mod tests {
         assert_eq!(back, s);
         assert_eq!(back.search("gamma").len(), 1);
         assert!(back.search("beta").is_empty());
+    }
+
+    /// A copy of the store (an undo step, the copy a save writes) shares the messages: only a
+    /// message changed after is copied, so a big mailbox costs no more to copy than a small one.
+    #[test]
+    fn copies_share_messages_until_one_changes() {
+        let mut s = Store::new();
+        let a = s.add_message(msg(&s, "alpha", 1)).unwrap();
+        let b = s.add_message(msg(&s, "beta", 2)).unwrap();
+        let copy = s.clone();
+        assert!(std::ptr::eq(s.message(a).unwrap(), copy.message(a).unwrap()));
+        s.message_mut(a).unwrap().seen = true;
+        assert!(!copy.message(a).unwrap().seen, "the copy keeps the message as it was");
+        assert!(!std::ptr::eq(s.message(a).unwrap(), copy.message(a).unwrap()));
+        assert!(std::ptr::eq(s.message(b).unwrap(), copy.message(b).unwrap()), "an unchanged message stays shared");
+        assert_ne!(s, copy);
+    }
+
+    /// Messages are found by id in any order the file has them, and after one is put back.
+    #[test]
+    fn messages_are_found_by_id_in_any_order() {
+        let mut s = Store::new();
+        let ids: Vec<MessageId> = (1..=5).map(|d| s.add_message(msg(&s, "m", d)).unwrap()).collect();
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["messages"].as_array_mut().unwrap().reverse();
+        let mut back = Store::from_json(&serde_json::to_vec(&v).unwrap()).unwrap();
+        for &id in &ids {
+            assert_eq!(back.message(id).unwrap().id, id);
+        }
+        let removed = back.remove_message(ids[2]).unwrap();
+        let fresh = back.add_message(msg(&back, "new", 9)).unwrap();
+        assert!(fresh.0 > ids[4].0);
+        back.restore_message(removed).unwrap();
+        for id in ids.iter().copied().chain([fresh]) {
+            assert_eq!(back.message(id).unwrap().id, id);
+        }
+        assert!(back.message(MessageId(999)).is_err());
+    }
+
+    /// The index can be read on another thread ahead of a search, which then reads only what
+    /// changed after.
+    #[test]
+    fn the_search_index_warms_up_ahead_of_a_search() {
+        let mut s = Store::new();
+        let a = s.add_message(msg(&s, "quarterly budget", 1)).unwrap();
+        let job = s.search_warmup();
+        std::thread::spawn(job).join().unwrap();
+        assert_eq!(s.search_cache.indexed(), 1);
+        let b = s.add_message(msg(&s, "budget review", 2)).unwrap();
+        assert_eq!(s.search("budget").iter().map(|m| m.id).collect::<Vec<_>>(), [b, a]);
+        assert_eq!(s.search_cache.indexed(), 2);
     }
 
     #[test]
@@ -1472,7 +1562,7 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
         s.remove_account(a).unwrap();
         assert!(s.accounts.is_empty());
         assert_eq!(s.folders().len(), 7, "a store without accounts keeps empty standard folders");
-        assert!(s.all_messages().is_empty());
+        assert!(s.all_messages().len() == 0);
         assert_eq!(s.add_account(imap("di@example.org")).unwrap(), AccountId(0));
     }
 

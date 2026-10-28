@@ -290,7 +290,7 @@ pub struct Index {
 
 impl Index {
     /// Read the messages that changed since the last call; drop the ones that are gone.
-    fn refresh(&mut self, messages: &[Message], stamps: &Stamps) {
+    fn refresh(&mut self, messages: &[Arc<Message>], stamps: &Stamps) {
         for m in messages {
             let stamp = stamps.of(m.id);
             if self.entries.get(&m.id).is_some_and(|e| e.stamp == stamp) {
@@ -361,6 +361,25 @@ pub struct SearchCache(Arc<Mutex<Index>>);
 impl std::fmt::Debug for SearchCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("SearchCache")
+    }
+}
+
+impl SearchCache {
+    /// The index, locked. A poisoned lock means a search panicked half way: start it again.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Index> {
+        let guard = self.0.lock().unwrap_or_else(|poisoned| {
+            let mut guard = poisoned.into_inner();
+            *guard = Index::default();
+            guard
+        });
+        self.0.clear_poison();
+        guard
+    }
+
+    /// How many messages the index has read.
+    #[cfg(test)]
+    pub(crate) fn indexed(&self) -> usize {
+        self.lock().len()
     }
 }
 
@@ -573,28 +592,27 @@ fn matches(cond: &Cond, m: &Message, entry: Option<&Entry>) -> bool {
     }
 }
 
+/// Bring the index up to date with `messages`, so the next search only reads what changed after.
+pub(crate) fn warm(cache: &SearchCache, stamps: &Stamps, messages: &[Arc<Message>]) {
+    cache.lock().refresh(messages, stamps);
+}
+
 /// The messages of `messages` in `allowed` folders that match `query`, in no particular order.
 pub(crate) fn run<'a>(
     cache: &SearchCache,
     stamps: &Stamps,
-    messages: &'a [Message],
+    messages: &'a [Arc<Message>],
     allowed: &dyn Fn(FolderId) -> bool,
     query: &Query,
 ) -> Vec<&'a Message> {
-    let in_scope = messages.iter().filter(|m| allowed(m.folder));
+    let in_scope = messages.iter().map(|m| &**m).filter(|m| allowed(m.folder));
     if query.blank {
         return in_scope.collect();
     }
     if query.groups.is_empty() {
         return Vec::new();
     }
-    // A poisoned lock means a search panicked half way: start the index again.
-    let mut index = cache.0.lock().unwrap_or_else(|poisoned| {
-        let mut guard = poisoned.into_inner();
-        *guard = Index::default();
-        guard
-    });
-    cache.0.clear_poison();
+    let mut index = cache.lock();
     index.refresh(messages, stamps);
     let mut hits: BTreeSet<MessageId> = BTreeSet::new();
     for group in &query.groups {
@@ -622,7 +640,7 @@ pub(crate) fn run<'a>(
         }
     }
     drop(index);
-    messages.iter().filter(|m| hits.contains(&m.id)).collect()
+    messages.iter().map(|m| &**m).filter(|m| hits.contains(&m.id)).collect()
 }
 
 #[cfg(test)]

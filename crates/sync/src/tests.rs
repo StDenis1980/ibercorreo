@@ -71,7 +71,7 @@ fn first_sync() -> Batch {
 }
 
 fn by_subject(store: &Store, subject: &str) -> Message {
-    store.all_messages().iter().find(|m| m.subject == subject).cloned().unwrap()
+    store.all_messages().find(|m| m.subject == subject).cloned().unwrap()
 }
 
 #[test]
