@@ -45,10 +45,11 @@ Status: 2026-10-28 · Pick from the top.
 6. **Undo** snapshots the whole store (50 steps; the messages are shared between the steps, so
    only the ones a command changed are copied), and a sync clears the history (stepping back past
    a sync would resurrect stale server state). Replace with operation-level undo.
-7. **Store** is one JSON file loaded in memory, saved on a background thread. A mailbox of 43,000
-   messages is about 500 MB of JSON and takes seconds to write; a file over 1 GB
-   (`MAX_STORE_BYTES`) is not opened (it is set aside). Move to an on-disk index (per-folder files
-   or an embedded database) with bodies stored apart, before mailboxes grow past that.
+7. **Store**: `store.json` with the messages in shard files beside it (`store.mail/`, a thousand
+   ids each); a background save rewrites only the shards that changed, and no file grows with the
+   mailbox. Still all loaded in memory at start (a 43,000-message mailbox is about 500 MB of
+   JSON): next, keep message bodies on disk and read them when shown, then an on-disk search
+   index.
 8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Tinta PDF,
    Tinta Texto, Tinta Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
@@ -131,3 +132,4 @@ Status: 2026-10-28 · Pick from the top.
 - 2026-10-27 — gap 15 added: search (M3.4).
 - 2026-10-27 — gap 16 added: rules (M3.5).
 - 2026-10-28 — gaps 6, 7 and 15 updated: big mailboxes (shared messages, background save and index).
+- 2026-10-28 — gap 7 narrowed: messages saved in shards (M3.7).

@@ -161,6 +161,10 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   frame, messages are shared (`Arc`) between the store, its undo steps and the copy a save writes,
   and the autosave and the search index run on background threads. A frame went from 3 s to
   ~25 ms, a command from 0.5 s to ~10 ms.
+- 2026-10-28 — Messages are saved in shard files beside the store file (`store.mail/m000042.json`,
+  a thousand ids each, format 5); a save rewrites only the shards whose messages changed (found by
+  `Arc` identity against the last save), so the 1 GB single-file limit is gone. Older stores open
+  as before and are written back sharded; a save cut short opens with the stray messages left out.
 
 ## Revision history
 - 2026-10-22 — created.
