@@ -267,3 +267,4 @@
 	every message	mezu guztiak
 	Run this rule later	Aplikatu arau hau geroago
 	Run this rule earlier	Aplikatu arau hau lehenago
+	{email} is already set up: here it is	{email} konfiguratuta dago jada: hemen duzu

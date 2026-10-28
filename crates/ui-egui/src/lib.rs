@@ -369,6 +369,14 @@ const FOLD_FAVORITES: u32 = u32::MAX;
 
 impl App {
     pub fn new(session: Session) -> App {
+        // With several accounts, each but the one open starts folded, so every account's
+        // heading is in sight, however many folders the others have.
+        let folded = if session.store.accounts.len() > 1 {
+            let open = session.current_account();
+            session.store.accounts.iter().map(|a| a.id).filter(|id| *id != open).map(|id| id.0).collect()
+        } else {
+            std::collections::HashSet::new()
+        };
         App {
             session,
             syncing: false,
@@ -397,7 +405,7 @@ impl App {
             last_calendar: None,
             invite: None,
             invite_reply: 0,
-            folded: std::collections::HashSet::new(),
+            folded,
         }
     }
 
@@ -696,8 +704,30 @@ impl App {
                 self.run("account.sync", json!({}));
                 return true;
             }
+        } else if self.account_form.id.is_none()
+            && let Some(id) = self.existing_account(&self.account_form.email)
+        {
+            // Already set up: show it rather than leave the person wondering where it went.
+            self.show_account(id);
+            self.session.status = tf("{email} is already set up: here it is", &[("email", self.account_form.email.trim())]);
+            return true;
         }
         false
+    }
+
+    /// The account set up for `email`, compared without case.
+    fn existing_account(&self, email: &str) -> Option<AccountId> {
+        let email = email.trim();
+        let accounts = &self.session.store.accounts;
+        accounts.iter().find(|a| !email.is_empty() && a.address.email.trim().eq_ignore_ascii_case(email)).map(|a| a.id)
+    }
+
+    /// Unfold `account` in the folder pane and open its Inbox.
+    fn show_account(&mut self, account: AccountId) {
+        self.folded.remove(&account.0);
+        if let Ok(inbox) = self.session.store.folder_by_role(account, FolderRole::Inbox) {
+            self.run("folder.select", json!({ "folder": inbox.0 }));
+        }
     }
 
     /// Run a command; a failure is shown in the status bar (the session records it).
@@ -3357,6 +3387,39 @@ mod tests {
         assert!(!app.save_account(), "stays open for the browser");
         let third = app.oauth_request.unwrap();
         assert!(third != first && third != second);
+    }
+
+    /// Every account's heading is in sight when the app opens, and adding one that is already
+    /// set up shows it instead.
+    #[test]
+    fn several_accounts_open_folded_and_a_second_add_shows_the_first() {
+        let mut session = Session::new(ibercorreo_store::Store::new(), Date::EPOCH);
+        let mut add = |email: &str, host: &str| {
+            let p = json!({ "email": email, "imapHost": format!("imap.{host}"), "smtpHost": format!("smtp.{host}") });
+            let id = session.run("account.add", &p).unwrap()["id"].as_u64().unwrap();
+            AccountId(u32::try_from(id).unwrap())
+        };
+        let outlook = add("ana@outlook.com", "outlook.com");
+        let gmail = add("ana@gmail.com", "gmail.com");
+        for i in 0..80 {
+            session.store.add_folder(outlook, &format!("Folder {i}"), FolderRole::Other);
+        }
+        session.run("folder.select", &json!({ "folder": session.store.folder_by_role(outlook, FolderRole::Inbox).unwrap().0 })).unwrap();
+        let mut app = App::new(session);
+        assert!(!app.folded.contains(&outlook.0), "the account in use stays open");
+        assert!(app.folded.contains(&gmail.0), "the other one is folded to its heading");
+
+        app.open_account_settings(None, "");
+        app.account_form.email = " Ana@Gmail.com ".into();
+        app.account_form.imap_host = "imap.gmail.com".into();
+        app.account_form.smtp_host = "smtp.gmail.com".into();
+        app.account_form.password = "secret".into();
+        assert!(app.save_account(), "the dialog closes");
+        assert_eq!(app.session.store.accounts.len(), 2, "no second copy");
+        assert_eq!(app.session.current_account(), gmail, "its Inbox opens");
+        assert!(!app.folded.contains(&gmail.0));
+        assert!(app.session.status.contains("already set up"), "{}", app.session.status);
+        assert!(app.take_password().is_none(), "nothing to store");
     }
 
     #[test]

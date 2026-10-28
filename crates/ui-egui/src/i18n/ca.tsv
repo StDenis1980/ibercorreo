@@ -267,3 +267,4 @@
 	every message	tots els missatges
 	Run this rule later	Aplica aquesta regla més tard
 	Run this rule earlier	Aplica aquesta regla abans
+	{email} is already set up: here it is	{email} ja està configurat: aquí el teniu

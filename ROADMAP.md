@@ -147,6 +147,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-27 — `ibercorreo-cli sync` takes the password or OAuth refresh token from the
   environment, else from the system credential store entry the app keeps
   (`Account::credential_entry`, shared by both), and writes a rotated refresh token back there.
+- 2026-10-28 — Folder pane: with several accounts, all but the one in use open folded, so a
+  second account is not lost under the first one's folders (seen with 76 Outlook folders above
+  Gmail). Adding an address that is already set up closes the dialog and opens that account.
 
 ## Revision history
 - 2026-10-22 — created.
