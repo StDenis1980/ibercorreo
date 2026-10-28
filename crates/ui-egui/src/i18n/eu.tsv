@@ -272,3 +272,4 @@
 	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	{found}(r)en ezarpenak aurkitu dira. Idatzi aplikazio-pasahitz bat (pasahitzaren azpiko estekak sortzen du) eta gorde.
 	Make a {provider} app password…	Sortu {provider} aplikazio-pasahitz bat…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	{provider} kontua → Segurtasuna → Aplikazio-pasahitzak (bi urratseko egiaztapena behar da). Itsatsi hemen 16 letrak.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	{provider}(e)k aplikazioa egiaztatu ez duela esaten badu, aukeratu Aurreratua eta gero Joan Tinta Correo-ra: {provider}(r)en berrikuspena geroago dator, eta saio-hasiera berdin segurua da.

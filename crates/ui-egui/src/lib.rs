@@ -249,6 +249,14 @@ struct AccountForm {
     note: String,
 }
 
+/// What to do when `p`'s sign-in page warns that it has not reviewed the app.
+fn unverified_note(p: &OAuthProvider) -> String {
+    tf(
+        "If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.",
+        &[("provider", p.name)],
+    )
+}
+
 impl AccountForm {
     /// Fill in a provider's own servers: choosing Google or Microsoft needs nothing looked up.
     fn fill_provider(&mut self, p: &OAuthProvider) {
@@ -271,6 +279,10 @@ impl AccountForm {
                     "{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.",
                     &[("provider", p.name)],
                 );
+                if p.unverified {
+                    self.note.push(' ');
+                    self.note.push_str(&unverified_note(p));
+                }
             }
             return;
         }
@@ -557,7 +569,15 @@ impl App {
                         for p in OAUTH_PROVIDERS {
                             let ready = self.oauth_ready.iter().any(|r| r == p.id);
                             let hover = if ready {
-                                tf("Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here", &[("provider", p.name)])
+                                let mut h = tf(
+                                    "Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here",
+                                    &[("provider", p.name)],
+                                );
+                                if p.unverified {
+                                    h.push_str(".\n");
+                                    h.push_str(&unverified_note(p));
+                                }
+                                h
                             } else {
                                 tf("This build has no {provider} client ID for OAuth sign-in", &[("provider", p.name)])
                             };
@@ -3335,10 +3355,12 @@ mod tests {
         let mut f = AccountForm { email: "ana@example.org".into(), ..AccountForm::default() };
         f.oauth = "google".into();
         f.follow_provider("", "ana@example.org", &[]);
+        assert!(f.note.contains("Go to Tinta Correo"), "how to pass Google's unverified-app page: {}", f.note);
         assert_eq!((f.imap_host.as_str(), f.imap_port.as_str(), f.imap_starttls), ("imap.gmail.com", "993", false));
         assert_eq!((f.smtp_host.as_str(), f.smtp_port.as_str(), f.smtp_starttls), ("smtp.gmail.com", "465", false));
         f.oauth = "microsoft".into();
         f.follow_provider("google", "ana@example.org", &[]);
+        assert!(!f.note.contains("Go to Tinta Correo"), "{}", f.note);
         assert_eq!((f.imap_host.as_str(), f.smtp_host.as_str()), ("outlook.office365.com", "smtp.office365.com"));
         assert_eq!((f.smtp_port.as_str(), f.smtp_starttls), ("587", true));
         // Back to a password: the servers stay (an app password signs in to the same ones).

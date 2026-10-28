@@ -272,3 +272,4 @@
 	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Configuración de {found} encontrada. Escriba una contraseña de aplicación (el enlace bajo la contraseña la crea) y guarde.
 	Make a {provider} app password…	Crear una contraseña de aplicación de {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Cuenta de {provider} → Seguridad → Contraseñas de aplicaciones (requiere verificación en dos pasos). Pegue aquí las 16 letras.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Si {provider} dice que no ha verificado la aplicación, elija Configuración avanzada y luego Ir a Tinta Correo: la revisión de {provider} llegará más tarde y el inicio de sesión es igual de seguro.

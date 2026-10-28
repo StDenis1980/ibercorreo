@@ -153,6 +153,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-28 — Gmail: Account settings offer an app password first (`OAuthProvider::app_password_url`,
   link to Google's page under the password); browser sign-in stays as a choice. Google's OAuth
   verification and CASA are deferred until after the public release (owner decision).
+- 2026-10-28 — Gmail users choose: app password, or Google sign-in with the OAuth app published
+  unverified (no 7-day expiry, ≤100 users). `OAuthProvider::unverified` makes Account settings
+  explain Google's "hasn't verified this app" page (Advanced → Go to Tinta Correo).
 
 ## Revision history
 - 2026-10-22 — created.

@@ -151,6 +151,8 @@ pub struct OAuthProvider {
     /// Where a person makes an app password for it, when that is the way in offered first: no
     /// browser sign-in, so no OAuth app review by the provider is needed.
     pub app_password_url: Option<&'static str>,
+    /// The provider has not reviewed this app's sign-in yet, so its page warns before it goes on.
+    pub unverified: bool,
 }
 
 pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
@@ -164,6 +166,8 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
         smtp_starttls: false,
         mail_domains: &["gmail.com", "googlemail.com"],
         app_password_url: Some("https://myaccount.google.com/apppasswords"),
+        // Google's review of full mail access waits until after the public release.
+        unverified: true,
     },
     OAuthProvider {
         id: "microsoft",
@@ -176,6 +180,7 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
         mail_domains: &["outlook.com", "hotmail.com", "live.com", "msn.com", "outlook.es", "hotmail.es"],
         // Outlook.com no longer takes passwords over IMAP: browser sign-in only.
         app_password_url: None,
+        unverified: false,
     },
 ];
 
