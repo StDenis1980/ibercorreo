@@ -246,32 +246,44 @@ impl Stamps {
 
 // ---- the index ----
 
-/// One message's indexed words, sorted, and the stamp they were read at.
+/// One message's words, read on its own (for rules): sorted, so a prefix is a binary search.
 #[derive(Debug, Default)]
-struct Entry {
-    stamp: u64,
+struct MessageWords {
     keys: Vec<(Field, String)>,
 }
 
-impl Entry {
-    /// `m`'s words, read now.
-    fn read(m: &Message, stamp: u64) -> Entry {
-        let mut keys = BTreeSet::new();
-        for field in Field::ALL {
-            let mut n = 0usize;
-            for text in field.texts(m) {
-                let w = words(text);
-                for word in w.parts.into_iter().chain(w.joined) {
-                    if n >= MAX_WORDS_PER_FIELD {
-                        break;
-                    }
-                    if keys.insert((field, word)) {
-                        n = n.saturating_add(1);
-                    }
+/// The distinct words of `m` and the fields each is in, at most [`MAX_WORDS_PER_FIELD`] per field.
+fn read_words(m: &Message) -> BTreeMap<String, u8> {
+    let mut found: BTreeMap<String, u8> = BTreeMap::new();
+    for field in Field::ALL {
+        let mut n = 0usize;
+        for text in field.texts(m) {
+            let w = words(text);
+            for word in w.parts.into_iter().chain(w.joined) {
+                if n >= MAX_WORDS_PER_FIELD {
+                    break;
+                }
+                let mask = found.entry(word).or_default();
+                if *mask & field.bit() == 0 {
+                    *mask |= field.bit();
+                    n = n.saturating_add(1);
                 }
             }
         }
-        Entry { stamp, keys: keys.into_iter().collect() }
+    }
+    found
+}
+
+impl MessageWords {
+    fn read(m: &Message) -> MessageWords {
+        let mut keys: Vec<(Field, String)> = Vec::new();
+        for (word, mask) in read_words(m) {
+            for field in Field::ALL.into_iter().filter(|f| mask & f.bit() != 0) {
+                keys.push((field, word.clone()));
+            }
+        }
+        keys.sort();
+        MessageWords { keys }
     }
 
     /// Whether a word in `field` starts with `prefix`.
@@ -281,11 +293,50 @@ impl Entry {
     }
 }
 
-/// Words to messages, and each message's words.
+impl Field {
+    /// The field's bit in a posting's field mask.
+    fn bit(self) -> u8 {
+        match self {
+            Field::Subject => 1,
+            Field::From => 2,
+            Field::To => 4,
+            Field::Cc => 8,
+            Field::Body => 16,
+            Field::Attachment => 32,
+        }
+    }
+}
+
+/// Bits a posting keeps for the field mask, below the message id.
+const MASK_BITS: u32 = 6;
+
+/// A posting: the message id and the fields the word is in, in one number. `None` for an id too
+/// big to pack (only a hand-edited store has one): that message is not found by its words.
+fn pack(id: MessageId, mask: u8) -> Option<u64> {
+    let shifted = id.0.checked_shl(MASK_BITS)?;
+    (shifted >> MASK_BITS == id.0).then_some(shifted | u64::from(mask))
+}
+
+fn posting_id(p: u64) -> u64 {
+    p >> MASK_BITS
+}
+
+/// One message's indexed words (as word numbers) and the stamp they were read at.
+#[derive(Debug, Default)]
+struct Entry {
+    stamp: u64,
+    words: Box<[u32]>,
+}
+
+/// Words to messages, and each message's words. Each distinct word is kept once (`dict`), and a
+/// word's postings are packed numbers in id order, so the index stays a fraction of the mail's
+/// size: a mailbox of 60,000 messages took gigabytes when every message kept its own copy of
+/// its words.
 #[derive(Debug, Default)]
 pub struct Index {
     entries: HashMap<MessageId, Entry>,
-    postings: BTreeMap<(Field, String), BTreeSet<MessageId>>,
+    dict: HashMap<Box<str>, u32>,
+    postings: Vec<Vec<u64>>,
 }
 
 impl Index {
@@ -309,21 +360,42 @@ impl Index {
         }
     }
 
-    fn add(&mut self, m: &Message, stamp: u64) {
-        let entry = Entry::read(m, stamp);
-        for key in &entry.keys {
-            self.postings.entry(key.clone()).or_default().insert(m.id);
+    /// The number of `word`, given one if it is new; `None` once `u32` numbers run out.
+    fn word_number(&mut self, word: String) -> Option<u32> {
+        if let Some(&n) = self.dict.get(word.as_str()) {
+            return Some(n);
         }
-        self.entries.insert(m.id, entry);
+        let n = u32::try_from(self.postings.len()).ok()?;
+        self.postings.push(Vec::new());
+        self.dict.insert(word.into_boxed_str(), n);
+        Some(n)
+    }
+
+    fn add(&mut self, m: &Message, stamp: u64) {
+        let mut numbers = Vec::new();
+        for (word, mask) in read_words(m) {
+            let Some(p) = pack(m.id, mask) else { break };
+            let Some(n) = self.word_number(word) else { break };
+            let Some(list) = self.postings.get_mut(n as usize) else { continue };
+            // New mail has the highest ids, so this is nearly always a push.
+            if list.last().is_none_or(|&q| posting_id(q) < m.id.0) {
+                list.push(p);
+            } else {
+                let at = list.partition_point(|&q| posting_id(q) < m.id.0);
+                list.insert(at, p);
+            }
+            numbers.push(n);
+        }
+        self.entries.insert(m.id, Entry { stamp, words: numbers.into_boxed_slice() });
     }
 
     fn remove(&mut self, id: MessageId) {
         let Some(entry) = self.entries.remove(&id) else { return };
-        for key in entry.keys {
-            if let Some(set) = self.postings.get_mut(&key) {
-                set.remove(&id);
-                if set.is_empty() {
-                    self.postings.remove(&key);
+        for &n in entry.words.iter() {
+            if let Some(list) = self.postings.get_mut(n as usize) {
+                let at = list.partition_point(|&q| posting_id(q) < id.0);
+                if list.get(at).is_some_and(|&q| posting_id(q) == id.0) {
+                    list.remove(at);
                 }
             }
         }
@@ -331,13 +403,15 @@ impl Index {
 
     /// Messages with a word in one of `fields` that starts with `prefix`.
     fn lookup(&self, fields: &[Field], prefix: &str) -> BTreeSet<MessageId> {
+        let mask = fields.iter().fold(0u8, |m, f| m | f.bit());
         let mut out = BTreeSet::new();
-        for &field in fields {
-            for ((f, w), ids) in self.postings.range((field, prefix.to_string())..) {
-                if *f != field || !w.starts_with(prefix) {
-                    break;
+        // A scan of the distinct words: a few milliseconds even for a big mailbox, and it keeps
+        // adding a word to the index a hash lookup.
+        for (_, &n) in self.dict.iter().filter(|(word, _)| word.starts_with(prefix)) {
+            for &p in self.postings.get(n as usize).map(Vec::as_slice).unwrap_or_default() {
+                if p & u64::from(mask) != 0 {
+                    out.insert(MessageId(posting_id(p)));
                 }
-                out.extend(ids.iter().copied());
             }
         }
         out
@@ -545,8 +619,8 @@ impl Query {
         if self.blank {
             return true;
         }
-        let entry = Entry::read(m, 0);
-        self.groups.iter().any(|g| g.iter().all(|c| matches(&c.cond, m, Some(&entry)) != c.not))
+        let own = MessageWords::read(m);
+        self.groups.iter().any(|g| g.iter().all(|c| matches(&c.cond, m, &|fields, w| fields.iter().any(|f| own.has_prefix(*f, w))) != c.not))
     }
 }
 
@@ -572,11 +646,12 @@ fn has_phrase(text: &str, phrase: &[String]) -> bool {
         .any(|w| w.split_last().is_some_and(|(wl, wf)| wl.starts_with(last.as_str()) && wf.iter().zip(first).all(|(a, b)| a == b)))
 }
 
-fn matches(cond: &Cond, m: &Message, entry: Option<&Entry>) -> bool {
+/// Whether `m` meets `cond`; `has` says whether `m` has a word in one of the fields that starts
+/// with the given one.
+fn matches(cond: &Cond, m: &Message, has: &dyn Fn(&[Field], &str) -> bool) -> bool {
     match cond {
         Cond::Words { fields, words, phrase } => {
-            let Some(entry) = entry else { return false };
-            let all = words.iter().all(|w| fields.iter().any(|f| entry.has_prefix(*f, w)));
+            let all = words.iter().all(|w| has(fields, w));
             if !all {
                 return false;
             }
@@ -616,16 +691,20 @@ pub(crate) fn run<'a>(
     index.refresh(messages, stamps);
     let mut hits: BTreeSet<MessageId> = BTreeSet::new();
     for group in &query.groups {
+        // Each word of the group looked up once: the messages that have it in its fields.
+        let mut found: HashMap<(Vec<Field>, String), BTreeSet<MessageId>> = HashMap::new();
         // Narrow down with the index: every positive word must be somewhere.
         let mut candidates: Option<BTreeSet<MessageId>> = None;
-        for clause in group.iter().filter(|c| !c.not) {
+        for clause in group {
             if let Cond::Words { fields, words, .. } = &clause.cond {
                 for w in words {
-                    let found = index.lookup(fields, w);
-                    candidates = Some(match candidates {
-                        None => found,
-                        Some(c) => c.intersection(&found).copied().collect(),
-                    });
+                    let set = found.entry((fields.clone(), w.clone())).or_insert_with(|| index.lookup(fields, w));
+                    if !clause.not {
+                        candidates = Some(match candidates {
+                            None => set.clone(),
+                            Some(c) => c.intersection(set).copied().collect(),
+                        });
+                    }
                 }
             }
         }
@@ -633,8 +712,8 @@ pub(crate) fn run<'a>(
             if hits.contains(&m.id) || candidates.as_ref().is_some_and(|c| !c.contains(&m.id)) {
                 continue;
             }
-            let entry = index.entries.get(&m.id);
-            if group.iter().all(|c| matches(&c.cond, m, entry) != c.not) {
+            let has = |fields: &[Field], w: &str| found.get(&(fields.to_vec(), w.to_string())).is_some_and(|set| set.contains(&m.id));
+            if group.iter().all(|c| matches(&c.cond, m, &has) != c.not) {
                 hits.insert(m.id);
             }
         }
@@ -646,6 +725,37 @@ pub(crate) fn run<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each distinct word is kept once however many messages have it, and a message's postings
+    /// say which fields the word is in, so the index stays small next to the mail.
+    #[test]
+    fn the_index_keeps_each_word_once() {
+        let mut ix = Index::default();
+        let mut a = Message::new(MessageId(1), FolderId(0));
+        a.set_subject("Budget");
+        a.body = "budget budget review".into();
+        let mut b = Message::new(MessageId(2), FolderId(0));
+        b.body = "budget".into();
+        ix.add(&a, 1);
+        ix.add(&b, 1);
+        assert_eq!(ix.dict.len(), 2, "budget and review");
+        assert_eq!(ix.lookup(&[Field::Subject], "bud").into_iter().collect::<Vec<_>>(), [MessageId(1)]);
+        assert_eq!(ix.lookup(&[Field::Body], "bud").len(), 2);
+        assert_eq!(ix.lookup(&Field::ALL, "rev").into_iter().collect::<Vec<_>>(), [MessageId(1)]);
+        // A message changed out of order goes back in its place, and its old words go.
+        ix.remove(MessageId(1));
+        assert_eq!(ix.lookup(&Field::ALL, "rev").len(), 0);
+        a.body = "review".into();
+        ix.add(&a, 2);
+        assert_eq!(ix.postings.iter().map(Vec::len).sum::<usize>(), 3);
+        assert!(ix.postings.iter().all(|l| l.is_sorted_by_key(|&p| posting_id(p))));
+        // An id too big to pack (a hand-edited store) is not found by its words, and nothing breaks.
+        let mut huge = Message::new(MessageId(u64::MAX), FolderId(0));
+        huge.body = "budget".into();
+        ix.add(&huge, 1);
+        assert_eq!(ix.lookup(&Field::ALL, "budget").len(), 2);
+        ix.remove(MessageId(u64::MAX));
+    }
 
     #[test]
     fn folding_drops_accents_and_case_but_keeps_cyrillic_letters() {
