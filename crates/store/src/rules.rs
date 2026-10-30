@@ -188,7 +188,9 @@ impl Store {
             for (rule, query) in &rules {
                 let Ok(m) = self.message(id) else { break };
                 let Ok(account) = self.account_of(m.folder) else { break };
-                if rule.account.is_some_and(|a| a != account) || !query.matches(m) {
+                // The body is read from disk only for a rule that looks at it.
+                let content = if query.reads_body() { self.content(id).ok() } else { None };
+                if rule.account.is_some_and(|a| a != account) || !query.matches(m, content.as_deref()) {
                     continue;
                 }
                 matched = true;

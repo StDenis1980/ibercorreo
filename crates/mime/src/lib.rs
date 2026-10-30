@@ -10,8 +10,10 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+use std::sync::Arc;
+
 use ibercorreo_core::mail::{Attachment, MAX_INVITE_BYTES};
-use ibercorreo_core::{Address, Date, DateTime, Error, FolderId, MAX_FIELD_LEN, Message, MessageId, Result, clamp_text};
+use ibercorreo_core::{Address, Content, Date, DateTime, Error, FolderId, MAX_FIELD_LEN, Message, MessageId, Result, clamp_text};
 use mail_parser::{MessageParser, MimeHeaders, PartType};
 
 pub mod html;
@@ -39,14 +41,14 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
         PartType::Html(h) => Some(h.as_ref()),
         _ => None,
     });
-    m.rich = html.map(html::to_rich);
+    let rich = html.map(html::to_rich);
     // HTML-only mail: the plain text comes from the same safe reading, without hidden preheaders.
     let text_is_html = parsed.text_part(0).is_some_and(|p| matches!(p.body, PartType::Html(_)));
-    let body = match (&m.rich, text_is_html) {
+    let body = match (&rich, text_is_html) {
         (Some(rich), true) => rich.to_text(),
         _ => parsed.body_text(0).map(|b| b.into_owned()).unwrap_or_default(),
     };
-    m.body = clamp_text(&body.replace("\r\n", "\n"), MAX_BODY_BYTES).to_string();
+    let body = clamp_text(&body.replace("\r\n", "\n"), MAX_BODY_BYTES).to_string();
     m.attachments = parsed
         .attachments()
         // An invitation's calendar sent as an alternative to the text is not a file (it is kept
@@ -65,7 +67,7 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
             size: part.contents().len(),
         })
         .collect();
-    m.invite = invite(&parsed);
+    m.set_content(Arc::new(Content { body, rich, invite: invite(&parsed) }));
     Ok(m)
 }
 
@@ -116,8 +118,9 @@ pub struct Outgoing<'a> {
     pub message_id: &'a str,
 }
 
-/// RFC 5322 text for `m`, ready for SMTP `DATA` or saving as `.eml`. Lines end in CRLF.
-pub fn write(m: &Message, out: &Outgoing<'_>) -> Result<String> {
+/// RFC 5322 text for `m`, which says `content`, ready for SMTP `DATA` or saving as `.eml`. Lines
+/// end in CRLF.
+pub fn write(m: &Message, content: &Content, out: &Outgoing<'_>) -> Result<String> {
     // Bcc is never written: blind copies go only in the SMTP envelope.
     if m.to.is_empty() && m.cc.is_empty() && m.bcc.is_empty() {
         return Err(Error::invalid("message", "no recipients"));
@@ -135,7 +138,7 @@ pub fn write(m: &Message, out: &Outgoing<'_>) -> Result<String> {
     header(&mut s, "Date", &single_line(out.date));
     header(&mut s, "Message-ID", &format!("<{}@{}>", single_line(out.message_id).replace(['<', '>', '@', ' '], ""), domain));
     header(&mut s, "MIME-Version", "1.0");
-    match &m.invite {
+    match &content.invite {
         // An invitation or a reply to one: the text and the calendar as alternatives (RFC 6047
         // §2.4), the calendar last as the richest. The boundary comes from the Message-ID, so the
         // same message always renders to the same bytes.
@@ -146,12 +149,12 @@ pub fn write(m: &Message, out: &Outgoing<'_>) -> Result<String> {
             header(&mut s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
             s.push_str("\r\n");
             s.push_str(&format!("--{boundary}\r\n"));
-            text_part(&mut s, "text/plain; charset=utf-8", &m.body, Some(&boundary));
+            text_part(&mut s, "text/plain; charset=utf-8", &content.body, Some(&boundary));
             s.push_str(&format!("--{boundary}\r\n"));
             text_part(&mut s, &format!("text/calendar; charset=utf-8; method={method}"), clamp_text(cal, MAX_INVITE_BYTES), Some(&boundary));
             s.push_str(&format!("--{boundary}--\r\n"));
         }
-        None => text_part(&mut s, "text/plain; charset=utf-8", &m.body, None),
+        None => text_part(&mut s, "text/plain; charset=utf-8", &content.body, None),
     }
     Ok(s)
 }
@@ -296,8 +299,8 @@ BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\
         assert_eq!(m.subject, "Reunião de segunda");
         let date = m.date.unwrap();
         assert_eq!((date.date.day(), date.hour(), date.minute()), (22, 8, 30), "09:30 +0100 is 08:30 UTC");
-        assert!(m.body.contains("Olá!"), "{:?}", m.body);
-        assert!(!m.body.contains("tracker.example"), "remote image URL leaked into text: {:?}", m.body);
+        assert!(m.content().unwrap().body.contains("Olá!"), "{:?}", m.content().unwrap().body);
+        assert!(!m.content().unwrap().body.contains("tracker.example"), "remote image URL leaked into text: {:?}", m.content().unwrap().body);
         assert_eq!(m.attachments.len(), 1);
         assert_eq!(m.attachments.first().map(|a| a.name.as_str()), Some("agenda.ics"));
     }
@@ -305,17 +308,17 @@ BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\
     #[test]
     fn html_is_kept_safe_and_plain_text_preferred() {
         let m = parse(SAMPLE.as_bytes(), MessageId(7), FolderId(0)).unwrap();
-        let rich = m.rich.as_ref().unwrap();
+        let rich = m.content().unwrap().rich.as_ref().unwrap();
         assert_eq!(rich.remote_images, 1);
         assert!(rich.blocks.iter().flat_map(|b| &b.spans).any(|s| s.image), "the image keeps a placeholder");
         let alternative = "Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\n\
 Content-Type: text/plain; charset=utf-8\r\n\r\nThe plain words\r\n--a\r\n\
 Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<script>x()</script></p>\r\n--a--\r\n";
         let m = parse(alternative.as_bytes(), MessageId(8), FolderId(0)).unwrap();
-        assert_eq!(m.body.trim(), "The plain words", "the sender's own text version wins");
-        assert_eq!(m.rich.unwrap().to_text(), "The formatted words");
+        assert_eq!(m.content().unwrap().body.trim(), "The plain words", "the sender's own text version wins");
+        assert_eq!(m.content().unwrap().rich.clone().unwrap().to_text(), "The formatted words");
         let plain = parse(b"Subject: x\r\n\r\njust text", MessageId(9), FolderId(0)).unwrap();
-        assert_eq!(plain.rich, None, "plain mail gets no formatted body");
+        assert_eq!(plain.content().unwrap().rich, None, "plain mail gets no formatted body");
     }
 
     #[test]
@@ -345,15 +348,16 @@ Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<scri
         m.to = Address::parse_list("Ana Souza <ana@example.org>").unwrap();
         m.cc = vec![Address::new(Some("José Ñúñez"), "jose@example.es").unwrap()];
         m.set_subject("Привіт\r\nBcc: victim@example.net");
-        m.body = "Bom dia!\nДо зустрічі.\n".into();
-        let raw = write(&m, &Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "abc\r\n123" }).unwrap();
+        m.content_mut().unwrap().body = "Bom dia!\nДо зустрічі.\n".into();
+        let raw =
+            write(&m, m.content().unwrap(), &Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "abc\r\n123" }).unwrap();
         assert!(!raw.contains("\r\nBcc:"), "{raw}");
         assert!(raw.contains("Message-ID: <abc  123@example.com>") || raw.contains("Message-ID: <abc123@example.com>"), "{raw}");
         let back = parse(raw.as_bytes(), MessageId(2), FolderId(0)).unwrap();
         assert_eq!(back.subject, "Привіт  Bcc: victim@example.net");
         assert_eq!(back.cc.first().and_then(|a| a.name.as_deref()), Some("José Ñúñez"));
-        assert_eq!(back.body.trim_end(), "Bom dia!\nДо зустрічі.");
-        assert!(write(&Message::new(MessageId(3), FolderId(0)), &Outgoing { from: &from, date: "x", message_id: "y" }).is_err());
+        assert_eq!(back.content().unwrap().body.trim_end(), "Bom dia!\nДо зустрічі.");
+        assert!(write(&Message::new(MessageId(3), FolderId(0)), &Content::default(), &Outgoing { from: &from, date: "x", message_id: "y" }).is_err());
     }
 
     #[test]
@@ -361,8 +365,8 @@ Content-Type: text/html; charset=utf-8\r\n\r\n<p>The <b>formatted</b> words<scri
         let from = Address::parse("Denys <denys@example.com>").unwrap();
         let mut m = Message::new(MessageId(1), FolderId(3));
         m.bcc = Address::parse_list("Boss <boss@example.net>").unwrap();
-        m.body = "only blind".into();
-        let raw = write(&m, &Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "b" }).unwrap();
+        m.content_mut().unwrap().body = "only blind".into();
+        let raw = write(&m, m.content().unwrap(), &Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "b" }).unwrap();
         assert!(!raw.contains("boss@") && !raw.contains("Bcc") && !raw.contains("\r\nTo:"), "{raw}");
     }
 
@@ -389,17 +393,17 @@ Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: 
             base64(REQUEST.as_bytes())
         );
         let m = parse(alternative.as_bytes(), MessageId(1), FolderId(0)).unwrap();
-        assert_eq!(m.invite.as_deref(), Some(REQUEST));
-        assert_eq!(m.body.trim(), "You are invited", "the calendar is not read as the body");
+        assert_eq!(m.content().unwrap().invite.as_deref(), Some(REQUEST));
+        assert_eq!(m.content().unwrap().body.trim(), "You are invited", "the calendar is not read as the body");
         let files: Vec<&str> = m.attachments.iter().map(|a| a.mime_type.as_str()).collect();
         assert_eq!(files, ["application/ics"], "the unnamed calendar alternative is not a file");
         // An attached .ics counts too.
-        assert!(parse(SAMPLE.as_bytes(), MessageId(2), FolderId(0)).unwrap().invite.is_some());
+        assert!(parse(SAMPLE.as_bytes(), MessageId(2), FolderId(0)).unwrap().content().unwrap().invite.is_some());
         // Not a calendar, or too big: none.
         let plain = parse(b"Subject: x\r\n\r\nBEGIN:VCALENDAR", MessageId(3), FolderId(0)).unwrap();
-        assert_eq!(plain.invite, None);
+        assert_eq!(plain.content().unwrap().invite, None);
         let huge = format!("Content-Type: text/calendar\r\n\r\nBEGIN:VCALENDAR\r\n{}", "X:y\r\n".repeat(MAX_INVITE_BYTES / 4));
-        assert_eq!(parse(huge.as_bytes(), MessageId(4), FolderId(0)).unwrap().invite, None);
+        assert_eq!(parse(huge.as_bytes(), MessageId(4), FolderId(0)).unwrap().content().unwrap().invite, None);
     }
 
     #[test]
@@ -408,21 +412,24 @@ Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: 
         let mut m = Message::new(MessageId(1), FolderId(3));
         m.to = Address::parse_list("ana@example.org").unwrap();
         m.set_subject("Accepted: Reunião");
-        m.body = "Até já.\n--=_ibercorreo_YWJj\n".into();
-        m.invite = Some(REQUEST.replace("METHOD:REQUEST", "METHOD:REPLY"));
+        m.content_mut().unwrap().body = "Até já.\n--=_ibercorreo_YWJj\n".into();
+        m.content_mut().unwrap().invite = Some(REQUEST.replace("METHOD:REQUEST", "METHOD:REPLY"));
         let out = Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "abc" };
-        let raw = write(&m, &out).unwrap();
-        assert_eq!(raw, write(&m, &out).unwrap(), "the same bytes every time");
+        let raw = write(&m, m.content().unwrap(), &out).unwrap();
+        assert_eq!(raw, write(&m, m.content().unwrap(), &out).unwrap(), "the same bytes every time");
         assert!(raw.contains("Content-Type: multipart/alternative; boundary=\"=_ibercorreo_YWJj\""), "{raw}");
         assert!(raw.contains("Content-Type: text/calendar; charset=utf-8; method=REPLY"), "{raw}");
         let back = parse(raw.as_bytes(), MessageId(2), FolderId(0)).unwrap();
-        assert_eq!(back.invite.as_deref(), m.invite.as_deref());
-        assert_eq!(back.body.trim_end(), "Até já.\n--=_ibercorreo_YWJj", "a body holding the boundary does not break the message");
+        assert_eq!(back.content().unwrap().invite.as_deref(), m.content().unwrap().invite.as_deref());
+        assert_eq!(back.content().unwrap().body.trim_end(), "Até já.\n--=_ibercorreo_YWJj", "a body holding the boundary does not break the message");
         // A text that looks like the boundary is base64, so it cannot end the part.
-        m.body = "plain\n--=_ibercorreo_YWJj--\n".into();
-        let raw = write(&m, &out).unwrap();
+        m.content_mut().unwrap().body = "plain\n--=_ibercorreo_YWJj--\n".into();
+        let raw = write(&m, m.content().unwrap(), &out).unwrap();
         assert_eq!(raw.matches("--=_ibercorreo_YWJj--").count(), 1, "{raw}");
-        assert_eq!(parse(raw.as_bytes(), MessageId(3), FolderId(0)).unwrap().invite.as_deref(), m.invite.as_deref());
+        assert_eq!(
+            parse(raw.as_bytes(), MessageId(3), FolderId(0)).unwrap().content().unwrap().invite.as_deref(),
+            m.content().unwrap().invite.as_deref()
+        );
         assert_eq!(calendar_method("METHOD:cancel\r\n"), "CANCEL");
         assert_eq!(calendar_method("METHOD:a;b\r\n"), "REQUEST");
     }

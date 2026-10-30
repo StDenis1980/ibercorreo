@@ -1,9 +1,11 @@
 //! A sample mailbox and calendar for screenshots, demos and tests. All names, addresses
 //! (`example.*`, RFC 2606) and text are invented for Tinta Correo.
 
+use std::sync::Arc;
+
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind, Attachment};
-use ibercorreo_core::{AccountId, Address, Contact, Date, DateTime, Event, EventId, FolderRole, Message, MessageId, Result};
+use ibercorreo_core::{AccountId, Address, Contact, Content, Date, DateTime, Event, EventId, FolderRole, Message, MessageId, Result};
 use ibercorreo_store::Store;
 
 struct Mail {
@@ -99,7 +101,7 @@ pub fn store(today: Date) -> Result<Store> {
         m.to = vec![addr("Denys <denys@example.com>")?];
         m.set_subject(mail.subject);
         m.date = Some(DateTime::new(today.add_days(-mail.days_ago)?, mail.hour, (i as u8).saturating_mul(7) % 60, 0)?);
-        m.body = mail.body.into();
+        m.set_content(text(mail.body));
         m.seen = mail.seen;
         m.flagged = mail.flagged;
         if let Some(name) = mail.attachment {
@@ -119,8 +121,7 @@ pub fn store(today: Date) -> Result<Store> {
         m.set_subject(subject);
         m.date = Some(DateTime::new(today.add_days(-days_ago)?, 7, 15, 0)?);
         let rich = ibercorreo_mime::html::to_rich(html);
-        m.body = rich.to_text();
-        m.rich = Some(rich);
+        m.set_content(Arc::new(Content { body: rich.to_text(), rich: Some(rich), invite: None }));
         m.seen = role != FolderRole::Inbox;
         s.add_message(m)?;
     }
@@ -130,10 +131,10 @@ pub fn store(today: Date) -> Result<Store> {
     m.to = vec![addr("Denys <denys@example.com>")?];
     m.set_subject("Invitación: Revisión del presupuesto");
     m.date = Some(DateTime::new(today, 7, 50, 0)?);
-    m.body = "Marta Iglesias te invita a una reunión.\n\nRevisión del presupuesto\nMañana, 16:00–17:00 (Madrid), Sala 1\n\nRepasamos las cifras del segundo trimestre.".into();
+    let body = "Marta Iglesias te invita a una reunión.\n\nRevisión del presupuesto\nMañana, 16:00–17:00 (Madrid), Sala 1\n\nRepasamos las cifras del segundo trimestre.";
     let day = today.add_days(1)?;
     let ymd = format!("{:04}{:02}{:02}", day.year(), day.month(), day.day());
-    m.invite = Some(format!(
+    let invite = Some(format!(
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Tinta Office//Tinta Correo sample//EN\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
 UID:sample-budget-review@example.es\r\nSEQUENCE:0\r\nDTSTAMP:{ymd}T065000Z\r\n\
 DTSTART;TZID=Europe/Madrid:{ymd}T160000\r\nDTEND;TZID=Europe/Madrid:{ymd}T170000\r\n\
@@ -142,13 +143,14 @@ ORGANIZER;CN=Marta Iglesias:mailto:marta@example.es\r\n\
 ATTENDEE;CN=Denys;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:denys@example.com\r\n\
 ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
     ));
+    m.set_content(Arc::new(Content { body: body.into(), rich: None, invite }));
     s.add_message(m)?;
     let mut m = Message::new(MessageId(0), sent);
     m.from = Some(addr("Denys <denys@example.com>")?);
     m.to = vec![addr("Marta Iglesias <marta@example.es>")?];
     m.set_subject("Re: Agenda de la reunión");
     m.date = Some(DateTime::new(today.add_days(-2)?, 15, 40, 0)?);
-    m.body = "Perfecto, nos vemos el lunes a las 10.\n\nDenys".into();
+    m.set_content(text("Perfecto, nos vemos el lunes a las 10.\n\nDenys"));
     m.seen = true;
     s.add_message(m)?;
 
@@ -210,10 +212,15 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
     m.to = vec![addr("Denys <denys.home@example.org>")?];
     m.set_subject("Fotos del fin de semana");
     m.date = Some(DateTime::new(today.add_days(-1)?, 20, 5, 0)?);
-    m.body = "¡Hola! Te paso las fotos de Valencia el domingo. Un abrazo, Olena".into();
+    m.set_content(text("¡Hola! Te paso las fotos de Valencia el domingo. Un abrazo, Olena"));
     s.add_message(m)?;
     // Favorites, as Outlook starts them: the Inbox and Sent of the first account.
     s.set_favorite(inbox, true)?;
     s.set_favorite(sent, true)?;
     Ok(s)
+}
+
+/// Plain content saying `body`.
+fn text(body: &str) -> Arc<Content> {
+    Arc::new(Content { body: body.into(), ..Content::default() })
 }
