@@ -28,7 +28,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use ibercorreo_core::{AccountId, Date, FolderId, Message, MessageId};
+use ibercorreo_core::{AccountId, Content, Date, FolderId, Message, MessageId};
+
+use crate::shards::Reader;
 
 /// Longest word kept, in characters; longer ones are cut (a query word is cut the same way).
 pub const MAX_WORD: usize = 40;
@@ -65,7 +67,8 @@ impl Field {
     }
 
     /// The field's text in `m`, as one string per part (each address, each attachment name).
-    fn texts(self, m: &Message) -> Vec<&str> {
+    /// The field's text in `m`, which says `content` (the body is not searched without it).
+    fn texts<'a>(self, m: &'a Message, content: Option<&'a Content>) -> Vec<&'a str> {
         fn addresses(list: &[ibercorreo_core::Address]) -> Vec<&str> {
             let mut v = Vec::new();
             for a in list {
@@ -85,7 +88,7 @@ impl Field {
                 v.extend(addresses(&m.bcc));
                 v
             }
-            Field::Body => vec![m.body.as_str()],
+            Field::Body => content.map(|c| c.body.as_str()).into_iter().collect(),
             Field::Attachment => m.attachments.iter().map(|a| a.name.as_str()).collect(),
         }
     }
@@ -252,12 +255,13 @@ struct MessageWords {
     keys: Vec<(Field, String)>,
 }
 
-/// The distinct words of `m` and the fields each is in, at most [`MAX_WORDS_PER_FIELD`] per field.
-fn read_words(m: &Message) -> BTreeMap<String, u8> {
+/// The distinct words of `m` (which says `content`) and the fields each is in, at most
+/// [`MAX_WORDS_PER_FIELD`] per field.
+fn read_words(m: &Message, content: Option<&Content>) -> BTreeMap<String, u8> {
     let mut found: BTreeMap<String, u8> = BTreeMap::new();
     for field in Field::ALL {
         let mut n = 0usize;
-        for text in field.texts(m) {
+        for text in field.texts(m, content) {
             let w = words(text);
             for word in w.parts.into_iter().chain(w.joined) {
                 if n >= MAX_WORDS_PER_FIELD {
@@ -275,9 +279,9 @@ fn read_words(m: &Message) -> BTreeMap<String, u8> {
 }
 
 impl MessageWords {
-    fn read(m: &Message) -> MessageWords {
+    fn read(m: &Message, content: Option<&Content>) -> MessageWords {
         let mut keys: Vec<(Field, String)> = Vec::new();
-        for (word, mask) in read_words(m) {
+        for (word, mask) in read_words(m, content) {
             for field in Field::ALL.into_iter().filter(|f| mask & f.bit() != 0) {
                 keys.push((field, word.clone()));
             }
@@ -340,15 +344,17 @@ pub struct Index {
 }
 
 impl Index {
-    /// Read the messages that changed since the last call; drop the ones that are gone.
-    fn refresh(&mut self, messages: &[Arc<Message>], stamps: &Stamps) {
+    /// Read the messages that changed since the last call (their content through `contents`);
+    /// drop the ones that are gone.
+    fn refresh(&mut self, messages: &[Arc<Message>], stamps: &Stamps, contents: &mut Reader) {
         for m in messages {
             let stamp = stamps.of(m.id);
             if self.entries.get(&m.id).is_some_and(|e| e.stamp == stamp) {
                 continue;
             }
             self.remove(m.id);
-            self.add(m, stamp);
+            let content = contents.get(m);
+            self.add(m, content.as_deref(), stamp);
         }
         // Ids are unique, so as many entries as messages means none is stale.
         if self.entries.len() != messages.len() {
@@ -371,9 +377,9 @@ impl Index {
         Some(n)
     }
 
-    fn add(&mut self, m: &Message, stamp: u64) {
+    fn add(&mut self, m: &Message, content: Option<&Content>, stamp: u64) {
         let mut numbers = Vec::new();
-        for (word, mask) in read_words(m) {
+        for (word, mask) in read_words(m, content) {
             let Some(p) = pack(m.id, mask) else { break };
             let Some(n) = self.word_number(word) else { break };
             let Some(list) = self.postings.get_mut(n as usize) else { continue };
@@ -613,14 +619,19 @@ impl Query {
         self.blank
     }
 
-    /// Whether `m` matches, read on its own (no index): for rules, which look at one message at
-    /// a time as it arrives.
-    pub fn matches(&self, m: &Message) -> bool {
+    /// Whether `m`, which says `content`, matches, read on its own (no index): for rules, which
+    /// look at one message at a time as it arrives.
+    pub fn matches(&self, m: &Message, content: Option<&Content>) -> bool {
         if self.blank {
             return true;
         }
-        let own = MessageWords::read(m);
-        self.groups.iter().any(|g| g.iter().all(|c| matches(&c.cond, m, &|fields, w| fields.iter().any(|f| own.has_prefix(*f, w))) != c.not))
+        let own = MessageWords::read(m, content);
+        self.groups.iter().any(|g| g.iter().all(|c| matches(&c.cond, m, content, &|fields, w| fields.iter().any(|f| own.has_prefix(*f, w))) != c.not))
+    }
+
+    /// Whether the query looks at a message's body.
+    pub fn reads_body(&self) -> bool {
+        self.groups.iter().flatten().any(|c| matches!(&c.cond, Cond::Words { fields, .. } if fields.contains(&Field::Body)))
     }
 }
 
@@ -648,14 +659,14 @@ fn has_phrase(text: &str, phrase: &[String]) -> bool {
 
 /// Whether `m` meets `cond`; `has` says whether `m` has a word in one of the fields that starts
 /// with the given one.
-fn matches(cond: &Cond, m: &Message, has: &dyn Fn(&[Field], &str) -> bool) -> bool {
+fn matches(cond: &Cond, m: &Message, content: Option<&Content>, has: &dyn Fn(&[Field], &str) -> bool) -> bool {
     match cond {
         Cond::Words { fields, words, phrase } => {
             let all = words.iter().all(|w| has(fields, w));
             if !all {
                 return false;
             }
-            if *phrase && words.len() > 1 { fields.iter().any(|f| f.texts(m).iter().any(|t| has_phrase(t, words))) } else { true }
+            if *phrase && words.len() > 1 { fields.iter().any(|f| f.texts(m, content).iter().any(|t| has_phrase(t, words))) } else { true }
         }
         Cond::HasAttachment => !m.attachments.is_empty(),
         Cond::Unread => !m.seen,
@@ -668,8 +679,8 @@ fn matches(cond: &Cond, m: &Message, has: &dyn Fn(&[Field], &str) -> bool) -> bo
 }
 
 /// Bring the index up to date with `messages`, so the next search only reads what changed after.
-pub(crate) fn warm(cache: &SearchCache, stamps: &Stamps, messages: &[Arc<Message>]) {
-    cache.lock().refresh(messages, stamps);
+pub(crate) fn warm(cache: &SearchCache, stamps: &Stamps, messages: &[Arc<Message>], contents: &mut Reader) {
+    cache.lock().refresh(messages, stamps, contents);
 }
 
 /// The messages of `messages` in `allowed` folders that match `query`, in no particular order.
@@ -677,6 +688,7 @@ pub(crate) fn run<'a>(
     cache: &SearchCache,
     stamps: &Stamps,
     messages: &'a [Arc<Message>],
+    contents: &mut Reader,
     allowed: &dyn Fn(FolderId) -> bool,
     query: &Query,
 ) -> Vec<&'a Message> {
@@ -688,7 +700,7 @@ pub(crate) fn run<'a>(
         return Vec::new();
     }
     let mut index = cache.lock();
-    index.refresh(messages, stamps);
+    index.refresh(messages, stamps, contents);
     let mut hits: BTreeSet<MessageId> = BTreeSet::new();
     for group in &query.groups {
         // Each word of the group looked up once: the messages that have it in its fields.
@@ -708,12 +720,16 @@ pub(crate) fn run<'a>(
                 }
             }
         }
+        // A phrase in the body is checked in the text, read for the messages that have its words.
+        let phrase_in_body =
+            group.iter().any(|c| matches!(&c.cond, Cond::Words { fields, words, phrase: true } if words.len() > 1 && fields.contains(&Field::Body)));
         for m in in_scope.clone() {
             if hits.contains(&m.id) || candidates.as_ref().is_some_and(|c| !c.contains(&m.id)) {
                 continue;
             }
             let has = |fields: &[Field], w: &str| found.get(&(fields.to_vec(), w.to_string())).is_some_and(|set| set.contains(&m.id));
-            if group.iter().all(|c| matches(&c.cond, m, &has) != c.not) {
+            let content = if phrase_in_body { contents.get(m) } else { None };
+            if group.iter().all(|c| matches(&c.cond, m, content.as_deref(), &has) != c.not) {
                 hits.insert(m.id);
             }
         }
@@ -733,11 +749,11 @@ mod tests {
         let mut ix = Index::default();
         let mut a = Message::new(MessageId(1), FolderId(0));
         a.set_subject("Budget");
-        a.body = "budget budget review".into();
+        a.content_mut().unwrap().body = "budget budget review".into();
         let mut b = Message::new(MessageId(2), FolderId(0));
-        b.body = "budget".into();
-        ix.add(&a, 1);
-        ix.add(&b, 1);
+        b.content_mut().unwrap().body = "budget".into();
+        ix.add(&a, a.content(), 1);
+        ix.add(&b, b.content(), 1);
         assert_eq!(ix.dict.len(), 2, "budget and review");
         assert_eq!(ix.lookup(&[Field::Subject], "bud").into_iter().collect::<Vec<_>>(), [MessageId(1)]);
         assert_eq!(ix.lookup(&[Field::Body], "bud").len(), 2);
@@ -745,14 +761,14 @@ mod tests {
         // A message changed out of order goes back in its place, and its old words go.
         ix.remove(MessageId(1));
         assert_eq!(ix.lookup(&Field::ALL, "rev").len(), 0);
-        a.body = "review".into();
-        ix.add(&a, 2);
+        a.content_mut().unwrap().body = "review".into();
+        ix.add(&a, a.content(), 2);
         assert_eq!(ix.postings.iter().map(Vec::len).sum::<usize>(), 3);
         assert!(ix.postings.iter().all(|l| l.is_sorted_by_key(|&p| posting_id(p))));
         // An id too big to pack (a hand-edited store) is not found by its words, and nothing breaks.
         let mut huge = Message::new(MessageId(u64::MAX), FolderId(0));
-        huge.body = "budget".into();
-        ix.add(&huge, 1);
+        huge.content_mut().unwrap().body = "budget".into();
+        ix.add(&huge, huge.content(), 1);
         assert_eq!(ix.lookup(&Field::ALL, "budget").len(), 2);
         ix.remove(MessageId(u64::MAX));
     }

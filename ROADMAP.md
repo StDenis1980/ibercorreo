@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-28 · M3 (accounts, search, rules) in progress
+Status: 2026-10-30 · M3 (accounts, search, rules) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -168,6 +168,14 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-28 — The search index keeps each distinct word once and a word's postings as packed
   numbers (message id and field mask) instead of every message's own copy of its words: with
   60,000 messages it takes 0.7 GB instead of 4.3 GB (the app held ~2 GB for 67,000 real ones).
+- 2026-10-30 — M3.9: message text stays on disk. Each shard is two files: the headers
+  (`m000042.json`) and the content (`c000042.json`: body, formatted body, invitation; format 6).
+  A store opens with headers only (the list shows a stored preview) and reads a message's text
+  when it is shown, replied to, sent or searched (`Store::content`, `content_mut` for drafts); a
+  flag change rewrites the headers only. Removed messages keep their text until the store is
+  opened again (undo), then it is dropped. A synthetic 67,000-message mailbox went from 1.65 GB
+  in memory to 0.4 GB (35 MB of it the messages, the rest the search index); it opens in 0.1 s and
+  a message reads in ~6 ms. Older stores are rewritten at once (`Store::needs_rewrite`).
 
 ## Revision history
 - 2026-10-22 — created.
@@ -189,6 +197,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-26 — M3.3c.
 - 2026-10-27 — M3.4.
 - 2026-10-27 — M3.5.
+- 2026-10-30 — M3.9.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

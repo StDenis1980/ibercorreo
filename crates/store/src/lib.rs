@@ -19,8 +19,8 @@ use std::sync::Arc;
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{
-    Account, AccountId, AddressBook, Calendar, CalendarRemote, Contact, Date, DateTime, Error, Event, EventId, EventRemote, Folder, FolderId,
-    FolderRole, Message, MessageId, RemoteRef, Result, Zone, clamp_text,
+    Account, AccountId, AddressBook, Calendar, CalendarRemote, Contact, Content, Date, DateTime, Error, Event, EventId, EventRemote, Folder,
+    FolderId, FolderRole, Message, MessageId, RemoteRef, Result, Zone, clamp_text,
 };
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +35,9 @@ pub const MAX_STORE_BYTES: u64 = 1024 * 1024 * 1024;
 /// before give everything account 0).
 /// 5: messages are in shard files beside the store file (`message_shards`, [`shards`]); files
 /// from before hold them inline and are written back sharded.
-pub const FORMAT_VERSION: u32 = 5;
+/// 6: a message's content (body, formatted body, invitation) is in its shard's content file, not
+/// with its headers, and read when it is shown ([`Store::content`]).
+pub const FORMAT_VERSION: u32 = 6;
 /// The most accounts a store holds.
 pub const MAX_ACCOUNTS: usize = 50;
 
@@ -112,9 +114,13 @@ pub struct Store {
     repaired: Repaired,
 }
 
-/// How many messages a load left out; not part of the store's value.
+/// How many messages a load left out, and whether it read a format from before content files;
+/// not part of the store's value.
 #[derive(Debug, Clone, Copy, Default)]
-struct Repaired(usize);
+struct Repaired {
+    left_out: usize,
+    old_format: bool,
+}
 
 impl PartialEq for Repaired {
     fn eq(&self, _: &Repaired) -> bool {
@@ -441,8 +447,8 @@ impl Store {
     /// the store opens or mail arrives: the first search of a big mailbox then has nothing to
     /// read. The index is shared with this store and its copies.
     pub fn search_warmup(&self) -> impl FnOnce() + Send + 'static {
-        let (cache, stamps, messages) = (self.search_cache.clone(), self.stamps.clone(), self.messages.clone());
-        move || search::warm(&cache, &stamps, &messages)
+        let (cache, stamps, messages, saved) = (self.search_cache.clone(), self.stamps.clone(), self.messages.clone(), self.saved.clone());
+        move || search::warm(&cache, &stamps, &messages, &mut saved.reader())
     }
 
     /// Messages in every folder that match `query` ([`search`] has the syntax), newest first.
@@ -460,13 +466,36 @@ impl Store {
             search::Scope::Folder(f) => folder == f,
             search::Scope::Account(a) => self.folder(folder).is_ok_and(|f| f.account == a),
         };
-        let mut v = search::run(&self.search_cache, &self.stamps, &self.messages, &allowed, &query);
+        let mut v = search::run(&self.search_cache, &self.stamps, &self.messages, &mut self.saved.reader(), &allowed, &query);
         v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
         v
     }
 
     pub fn message(&self, id: MessageId) -> Result<&Message> {
         self.position(id).and_then(|pos| self.messages.get(pos)).map(|m| &**m).ok_or_else(|| Error::not_found("message", id.0.to_string()))
+    }
+
+    /// What message `id` says: its own content, or the one kept on disk for it, read now.
+    pub fn content(&self, id: MessageId) -> Result<Arc<Content>> {
+        let m = self.message(id)?;
+        if let Some(c) = m.shared_content() {
+            return Ok(Arc::clone(c));
+        }
+        self.saved.content(id)?.ok_or_else(|| Error::not_found("message text", id.0.to_string()))
+    }
+
+    /// The content of message `id` to change (a draft being written), read from disk first if
+    /// it is kept there.
+    pub fn content_mut(&mut self, id: MessageId) -> Result<&mut Content> {
+        let content = match self.message(id)?.shared_content() {
+            Some(_) => None,
+            None => Some(self.content(id)?),
+        };
+        let m = self.message_mut(id)?;
+        if let Some(c) = content {
+            m.set_content(c);
+        }
+        m.content_mut().ok_or_else(|| Error::not_found("message text", id.0.to_string()))
     }
 
     /// A message to change; the search index reads it again.
@@ -1021,6 +1050,8 @@ impl Store {
         }
         let bytes = std::fs::read(path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
         let mut s = Store::parse(&bytes)?;
+        let headers_only = s.version >= 6;
+        s.repaired.old_format = !headers_only;
         if !s.message_shards {
             return s.finish_load();
         }
@@ -1030,9 +1061,9 @@ impl Store {
         if let Some(top) = s.messages.iter().map(|m| m.id.0.saturating_add(1)).max() {
             s.next_message = s.next_message.max(top);
         }
-        s.repaired = Repaired(s.drop_strays());
+        s.repaired.left_out = s.drop_strays();
         let s = s.finish_load()?;
-        s.saved.remember(path, &s.messages);
+        s.saved.remember(path, &s.messages, headers_only);
         Ok(s)
     }
 
@@ -1073,7 +1104,13 @@ impl Store {
     /// or a second copy of one id. Only a save cut short (shards written, the store file not)
     /// leaves them; a synced one comes back with the folder at the next Send/Receive.
     pub fn repaired_on_load(&self) -> usize {
-        self.repaired.0
+        self.repaired.left_out
+    }
+
+    /// Whether the load read a store from before content files, which holds every message's
+    /// content in memory until it is saved (split) and opened again: save it soon.
+    pub fn needs_rewrite(&self) -> bool {
+        self.repaired.old_format
     }
 
     /// Drop messages whose folder (or server folder) is gone, and repeated ids; returns how many.
@@ -1224,7 +1261,7 @@ mod tests {
     fn search_finds_words_by_prefix_without_accents_in_every_field() {
         let mut s = Store::new();
         let mut m = msg(&s, "Factura de octubre", 3);
-        m.body = "El camión llega el lunes. Prou col·lecció!".into();
+        m.content_mut().unwrap().body = "El camión llega el lunes. Prou col·lecció!".into();
         m.to = vec![Address::parse("Олена Коваль <olena@example.com>").unwrap()];
         m.attachments.push(Attachment { name: "presupuesto-2026.pdf".into(), mime_type: "application/pdf".into(), size: 10 });
         let a = s.add_message(m).unwrap();
@@ -1483,6 +1520,13 @@ END:VCALENDAR\r\n";
         v
     }
 
+    /// `s` as a load gives it back: messages with their headers only (content stays on disk).
+    fn as_loaded(s: &Store) -> Store {
+        let mut c = s.clone();
+        c.messages = c.messages.iter().map(|m| Arc::new(m.headers_only())).collect();
+        c
+    }
+
     fn modified(path: &Path, shard: &str) -> std::time::SystemTime {
         std::fs::metadata(shards::dir(path).join(shard)).unwrap().modified().unwrap()
     }
@@ -1499,29 +1543,157 @@ END:VCALENDAR\r\n";
         s.next_message = 2500;
         let late = s.add_message(msg(&s, "late", 4)).unwrap();
         s.save(&path).unwrap();
-        assert_eq!(shard_files(&path), ["m000000.json", "m000002.json"]);
+        assert_eq!(shard_files(&path), ["c000000.json", "c000002.json", "m000000.json", "m000002.json"]);
         let inline = std::fs::read_to_string(&path).unwrap();
         assert!(!inline.contains("early") && inline.contains("\"message_shards\": true"), "{inline}");
         let back = Store::load(&path).unwrap();
-        assert_eq!(back, s);
+        assert_eq!(back, as_loaded(&s));
         assert_eq!(back.repaired_on_load(), 0);
         // Change the late message only: its shard is written again, the other one is not.
         let (first, second) = (modified(&path, "m000000.json"), modified(&path, "m000002.json"));
+        let (first_content, second_content) = (modified(&path, "c000000.json"), modified(&path, "c000002.json"));
         std::thread::sleep(std::time::Duration::from_millis(20));
         let mut back = back;
         back.message_mut(late).unwrap().seen = true;
         back.save(&path).unwrap();
         assert_eq!(modified(&path, "m000000.json"), first, "an unchanged shard is not rewritten");
         assert_ne!(modified(&path, "m000002.json"), second);
-        // The late message gone, its shard goes too.
+        assert_eq!(modified(&path, "c000000.json"), first_content);
+        assert_eq!(modified(&path, "c000002.json"), second_content, "a flag change leaves the content file alone");
+        // The late message gone, its shard goes too; its content stays while undo may want it.
         back.remove_message(late).unwrap();
         back.save(&path).unwrap();
-        assert_eq!(shard_files(&path), ["m000000.json"]);
+        assert_eq!(shard_files(&path), ["c000000.json", "c000002.json", "m000000.json"]);
         let again = Store::load(&path).unwrap();
         assert_eq!(again, back);
         assert!(again.message(late).is_err());
         // A file with shards is opened with its path, never as bare JSON missing its mail.
         assert!(Store::from_json(&std::fs::read(&path).unwrap()).is_err());
+    }
+
+    /// A message's content stays in its content file until it is read: a load holds headers
+    /// only, and showing, searching, editing a draft, a rule and undo read it from there.
+    #[test]
+    fn message_content_stays_on_disk_until_it_is_read() {
+        let path = temp("content");
+        let mut s = Store::new();
+        let mut m = msg(&s, "Factura", 1);
+        let c = m.content_mut().unwrap();
+        c.body = "El camión llega el lunes.\nSegunda línea".into();
+        c.invite = Some("BEGIN:VCALENDAR".into());
+        c.rich = Some(ibercorreo_core::rich::Rich::default());
+        let a = s.add_message(m).unwrap();
+        let mut draft = msg(&s, "Borrador", 2);
+        draft.content_mut().unwrap().body = "primera versión".into();
+        let d = s.add_message(draft).unwrap();
+        let original = s.content(a).unwrap();
+        s.save(&path).unwrap();
+        let headers = std::fs::read_to_string(shards::dir(&path).join("m000000.json")).unwrap();
+        assert!(!headers.contains("Segunda") && !headers.contains("VCALENDAR"), "{headers}");
+
+        let mut back = Store::load(&path).unwrap();
+        assert_eq!(back.message(a).unwrap().content(), None, "nothing read yet");
+        assert_eq!(back.message(a).unwrap().preview(80), "El camión llega el lunes.", "the list needs no content");
+        assert_eq!(back.content(a).unwrap(), original);
+        assert_eq!(back.message(a).unwrap().content(), None, "reading does not keep it with the message");
+        // Search reads content files for the index, and the text itself for a phrase.
+        let ids = |q: &str, s: &Store| s.search(q).iter().map(|m| m.id).collect::<Vec<_>>();
+        assert_eq!(ids("camion", &back), [a]);
+        assert_eq!(ids("\"llega el lunes\"", &back), [a]);
+        assert!(ids("\"lunes llega\"", &back).is_empty());
+        // A rule that looks at the body reads it too.
+        back.add_rule(rules::Rule {
+            id: 0,
+            name: "camión".into(),
+            enabled: true,
+            account: None,
+            query: "body:camion".into(),
+            actions: vec![rules::RuleAction::Flag],
+            stop: false,
+        })
+        .unwrap();
+        back.run_rules(&[a, d], None);
+        assert!(back.message(a).unwrap().flagged && !back.message(d).unwrap().flagged);
+        // A draft edited: only its content is rewritten into the file, the other one kept.
+        back.content_mut(d).unwrap().body = "segunda versión".into();
+        back.save(&path).unwrap();
+        let back = Store::load(&path).unwrap();
+        assert_eq!(back.content(d).unwrap().body, "segunda versión");
+        assert_eq!(back.content(a).unwrap(), original);
+
+        // Removed and saved, then put back by undo (the copy from before): its content is still
+        // on disk until the store is opened again.
+        let snapshot = back.clone();
+        let mut back = back;
+        back.remove_message(a).unwrap();
+        // The draft edited in the same save, so the content file is written again.
+        back.content_mut(d).unwrap().body = "tercera versión".into();
+        back.save(&path).unwrap();
+        assert_eq!(snapshot.content(a).unwrap(), original);
+        snapshot.save(&path).unwrap();
+        assert_eq!(Store::load(&path).unwrap().content(a).unwrap(), original);
+        back.save(&path).unwrap();
+        // Opened again without it: reading the content files finds it, and the next save drops
+        // it, so deleted mail does not stay on disk.
+        let content_file = shards::dir(&path).join("c000000.json");
+        assert!(std::fs::read_to_string(&content_file).unwrap().contains("camión"));
+        let reopened = Store::load(&path).unwrap();
+        (reopened.search_warmup())();
+        reopened.save(&path).unwrap();
+        let kept = std::fs::read_to_string(&content_file).unwrap();
+        assert!(!kept.contains("camión") && kept.contains("tercera versión"), "{kept}");
+    }
+
+    /// Shards written before content files (format 5) hold each message whole: they open as
+    /// they are, and the next save splits them.
+    #[test]
+    fn shards_from_before_content_files_are_split_on_save() {
+        let path = temp("split");
+        let mut s = Store::new();
+        let mut m = msg(&s, "old", 1);
+        m.content_mut().unwrap().body = "texto antiguo".into();
+        let id = s.add_message(m).unwrap();
+        let whole: Vec<&Message> = s.all_messages().collect();
+        let mut rest = s.clone();
+        rest.messages.clear();
+        rest.message_shards = true;
+        rest.version = 5;
+        std::fs::create_dir_all(shards::dir(&path)).unwrap();
+        std::fs::write(shards::dir(&path).join("m000000.json"), serde_json::to_vec(&whole).unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&rest).unwrap()).unwrap();
+
+        let back = Store::load(&path).unwrap();
+        assert!(back.needs_rewrite());
+        assert_eq!(back.message(id).unwrap().content().map(|c| c.body.as_str()), Some("texto antiguo"));
+        back.save(&path).unwrap();
+        assert_eq!(shard_files(&path), ["c000000.json", "m000000.json"]);
+        let headers = std::fs::read_to_string(shards::dir(&path).join("m000000.json")).unwrap();
+        assert!(!headers.contains("\"body\""), "only the preview stays with the headers: {headers}");
+        let again = Store::load(&path).unwrap();
+        assert!(!again.needs_rewrite());
+        assert_eq!(again.message(id).unwrap().content(), None);
+        assert_eq!(again.content(id).unwrap().body, "texto antiguo");
+    }
+
+    /// A content file that cannot be read loses only the text: the messages still list, opening
+    /// one says its text is missing, and a save keeps the broken file aside instead of over it.
+    #[test]
+    fn a_broken_content_file_loses_only_the_text() {
+        let path = temp("broken");
+        let mut s = Store::new();
+        let a = s.add_message(msg(&s, "listed", 1)).unwrap();
+        s.save(&path).unwrap();
+        let content_file = shards::dir(&path).join("c000000.json");
+        std::fs::write(&content_file, b"not json").unwrap();
+        let mut back = Store::load(&path).unwrap();
+        assert_eq!(back.message(a).unwrap().subject, "listed");
+        assert!(back.content(a).is_err());
+        (back.search_warmup())();
+        assert_eq!(back.search("listed").len(), 1);
+        back.add_message(msg(&back, "new", 2)).unwrap();
+        back.save(&path).unwrap();
+        assert!(content_file.with_extension("unreadable.json").exists());
+        assert_eq!(Store::load(&path).unwrap().all_messages().len(), 2);
     }
 
     /// A store from before shards (messages inline) opens as it is and is written back sharded.
@@ -1539,7 +1711,7 @@ END:VCALENDAR\r\n";
         assert_eq!(std::fs::read(&copy).unwrap(), std::fs::read(&path).unwrap());
         back.save(&path).unwrap();
         assert_eq!(Store::keep_unsharded_copy(&path).unwrap(), None, "once only");
-        assert_eq!(shard_files(&path), ["m000000.json"]);
+        assert_eq!(shard_files(&path), ["c000000.json", "m000000.json"]);
         assert_eq!(Store::load(&path).unwrap().message(id).unwrap().subject, "old");
     }
 
@@ -1597,7 +1769,7 @@ END:VCALENDAR\r\n";
         let mut small = Store::new();
         small.add_message(msg(&small, "mine", 1)).unwrap();
         small.save(&path).unwrap();
-        assert_eq!(shard_files(&path), ["m000000.json"]);
+        assert_eq!(shard_files(&path), ["c000000.json", "m000000.json"]);
         let back = Store::load(&path).unwrap();
         assert_eq!(back.all_messages().map(|m| m.subject.as_str()).collect::<Vec<_>>(), ["mine"]);
     }
@@ -1610,7 +1782,7 @@ END:VCALENDAR\r\n";
         let mut s = Store::new();
         s.add_message(msg(&s, "kept", 3)).unwrap();
         s.save(&path).unwrap();
-        assert_eq!(Store::load(&path).unwrap(), s);
+        assert_eq!(Store::load(&path).unwrap(), as_loaded(&s));
         assert!(Store::from_json(b"{").is_err());
         assert!(Store::from_json(b"[]").is_err());
         let mut newer = serde_json::to_value(&s).unwrap();

@@ -188,7 +188,12 @@ impl Session {
     /// What message `id`'s meeting invitation (or reply, or cancellation) says, if it has one
     /// that can be read.
     pub fn invite_info(&self, id: MessageId) -> Option<commands::InviteInfo> {
-        commands::invite_info(self, self.store.message(id).ok()?)
+        let m = self.store.message(id).ok()?;
+        // Read from disk only for a message that has one.
+        if !m.has_invite() {
+            return None;
+        }
+        commands::invite_info(self, m, &*self.store.content(id).ok()?)
     }
 
     /// The first and last day the calendar shows: the day; Monday to Friday or Sunday of its week;

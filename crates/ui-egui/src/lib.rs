@@ -15,7 +15,7 @@ use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, S
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
-use ibercorreo_core::{AccountId, Date, FolderId, FolderRole, MessageId};
+use ibercorreo_core::{AccountId, Content, Date, FolderId, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, SearchScope, Session, View};
 use serde_json::{Value, json};
 
@@ -378,6 +378,9 @@ pub struct App {
     due_checked: Option<f64>,
     /// The open message's invitation, read once per message (and again after anything runs).
     invite: Option<(ibercorreo_core::MessageId, Option<ibercorreo_engine::commands::InviteInfo>)>,
+    /// The open message's content, read once per message (from disk, for most mail) and again
+    /// after anything runs; the error, if it could not be read.
+    content: Option<(ibercorreo_core::MessageId, std::result::Result<std::sync::Arc<Content>, String>)>,
     /// How an answer to an invitation goes: 0 sent now, 1 edited first, 2 not at all.
     invite_reply: usize,
     /// Folder pane headings folded shut: an account's id, or [`FOLD_FAVORITES`].
@@ -427,6 +430,7 @@ impl App {
             due_checked: None,
             last_calendar: None,
             invite: None,
+            content: None,
             invite_reply: 0,
             folded,
         }
@@ -782,6 +786,7 @@ impl App {
         // Anything may have changed what is due, or whether a meeting is in the calendar.
         self.due_checked = None;
         self.invite = None;
+        self.content = None;
         out
     }
 
@@ -1122,7 +1127,8 @@ impl App {
                     bcc: list(&m.bcc),
                     show_bcc: !m.bcc.is_empty(),
                     subject: m.subject.clone(),
-                    body: m.body.clone(),
+                    // A draft whose text cannot be read starts empty rather than not opening.
+                    body: store.content(m.id).map(|c| c.body.clone()).unwrap_or_default(),
                 });
             }
             (None, _) => self.draft = None,
@@ -1626,6 +1632,12 @@ impl App {
         {
             self.invite = Some((id, self.session.invite_info(id)));
         }
+        if let Some(id) = self.session.message
+            && self.content.as_ref().is_none_or(|(at, _)| *at != id)
+        {
+            self.content = Some((id, self.session.store.content(id).map_err(|e| e.to_string())));
+        }
+        let content = self.content.as_ref().map(|(_, c)| c.clone());
         // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
         let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
             ui.centered_and_justified(|ui| ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak)));
@@ -1675,7 +1687,11 @@ impl App {
             answer = invite_banner(ui, &t, info, &mut self.invite_reply);
         }
         let mut toggle_plain = false;
-        if let Some(rich) = &m.rich {
+        let rich = match &content {
+            Some(Ok(c)) => c.rich.as_ref(),
+            _ => None,
+        };
+        if let Some(rich) = rich {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if rich.remote_images > 0 {
@@ -1697,11 +1713,15 @@ impl App {
         }
         ui.add_space(10.0);
         ui.separator();
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match &m.rich {
-            Some(rich) if !self.session.plain_text => rich_body(ui, &t, rich),
-            _ => {
-                ui.add(egui::Label::new(RichText::new(&m.body).size(14.0).color(t.text)).wrap());
+        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match (&content, rich) {
+            (_, Some(rich)) if !self.session.plain_text => rich_body(ui, &t, rich),
+            (Some(Ok(c)), _) => {
+                ui.add(egui::Label::new(RichText::new(&c.body).size(14.0).color(t.text)).wrap());
             }
+            (Some(Err(e)), _) => {
+                ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
+            }
+            (None, _) => {}
         });
         if toggle_plain {
             self.run("view.plainText", json!({}));
@@ -3509,5 +3529,49 @@ mod tests {
         assert!((1..=30).contains(&rows), "{rows} rows painted for a window 860 px high");
         // The unread count of the folder pane and status bar is right, counted once a frame.
         assert_eq!(app.unread.get(&inbox), Some(&2000));
+    }
+
+    /// Mail reopened from disk keeps its text there: the list shows each preview without reading
+    /// it, and the reading pane reads the open message's text (or says it could not).
+    #[test]
+    fn the_reading_pane_reads_message_text_kept_on_disk() {
+        let dir = std::env::temp_dir().join(format!("ibercorreo-ui-content-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("store.json");
+        let mut store = ibercorreo_store::Store::new();
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+        m.set_subject("Kept on disk");
+        m.content_mut().unwrap().body = "First line of the text\nSecond line, only in the pane".into();
+        let id = store.add_message(m).unwrap();
+        let other = store.add_message(ibercorreo_core::Message::new(MessageId(0), inbox)).unwrap();
+        store.save(&path).unwrap();
+        let mut s = Session::new(ibercorreo_store::Store::load(&path).unwrap(), Date::EPOCH);
+        s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1360.0, 860.0))), ..Default::default() };
+        let mut texts = |app: &mut App| {
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None })
+                .collect::<Vec<_>>()
+        };
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t.contains("First line of the text")), "the preview: {shown:?}");
+        assert!(app.session.store.message(id).unwrap().content().is_none(), "the list read nothing");
+        app.session.message = Some(id);
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t.contains("Second line, only in the pane")), "{shown:?}");
+        // Another message's text gone from disk: the pane says so instead of showing nothing.
+        std::fs::write(ibercorreo_store::shards::dir(&path).join("c000000.json"), b"{}").unwrap();
+        app.session.message = Some(other);
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t.contains("could not be read")), "{shown:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

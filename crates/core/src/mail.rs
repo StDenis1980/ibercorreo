@@ -1,5 +1,7 @@
 //! Accounts, folders, messages and addresses.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{DateTime, Error, MAX_FIELD_LEN, Result, clamp_text};
@@ -356,6 +358,24 @@ pub struct Attachment {
     pub size: usize,
 }
 
+/// What a message says, apart from its headers, so a store can leave it on disk until it is read.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Content {
+    /// Plain-text body. HTML-only mail is reduced to text by `ibercorreo-mime`; remote content is
+    /// never fetched.
+    pub body: String,
+    /// The formatted body of an HTML message, made safe ([`crate::rich`]); `None` for plain mail.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rich: Option<crate::rich::Rich>,
+    /// The iCalendar part of a meeting invitation, a reply to one or a cancellation (iMIP, RFC
+    /// 6047), as text: at most [`MAX_INVITE_BYTES`]. A message being sent carries its reply here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invite: Option<String>,
+}
+
+/// Most characters kept as a message's [`Message::preview`] while its content is on disk.
+pub const SNIPPET_CHARS: usize = 120;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
     pub id: MessageId,
@@ -369,17 +389,20 @@ pub struct Message {
     pub subject: String,
     /// When it was sent, in the sender's wall-clock time (UTC offset applied by the parser).
     pub date: Option<DateTime>,
-    /// Plain-text body. HTML-only mail is reduced to text by `ibercorreo-mime`; remote content is
-    /// never fetched.
-    pub body: String,
-    /// The formatted body of an HTML message, made safe ([`crate::rich`]); `None` for plain mail.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rich: Option<crate::rich::Rich>,
+    /// What the message says. `None` while a store keeps it on disk: the store reads it back
+    /// when asked (`Store::content`). Written in line with the other fields when present.
+    #[serde(flatten)]
+    content: Option<Arc<Content>>,
+    /// The start of the body, for the message list, kept while the content is on disk; with the
+    /// content here, the preview is read from it instead.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    snippet: String,
+    /// Whether the content has a formatted body and an invitation, kept like `snippet`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    html: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    has_invite: bool,
     pub attachments: Vec<Attachment>,
-    /// The iCalendar part of a meeting invitation, a reply to one or a cancellation (iMIP, RFC
-    /// 6047), as text: at most [`MAX_INVITE_BYTES`]. A message being sent carries its reply here.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub invite: Option<String>,
     pub seen: bool,
     pub flagged: bool,
     /// The server copy, for a synced message; `None` for one that only exists here.
@@ -399,10 +422,11 @@ impl Message {
             bcc: Vec::new(),
             subject: String::new(),
             date: None,
-            body: String::new(),
-            rich: None,
+            content: Some(Arc::default()),
+            snippet: String::new(),
+            html: false,
+            has_invite: false,
             attachments: Vec::new(),
-            invite: None,
             seen: false,
             flagged: false,
             remote: None,
@@ -413,9 +437,49 @@ impl Message {
         self.subject = clamp_text(s, MAX_FIELD_LEN).to_string();
     }
 
+    /// What the message says, if it is here: `None` while a store keeps it on disk.
+    pub fn content(&self) -> Option<&Content> {
+        self.content.as_deref()
+    }
+
+    /// The content shared, for a store that keeps it apart (an `Arc` copy, not the text).
+    pub fn shared_content(&self) -> Option<&Arc<Content>> {
+        self.content.as_ref()
+    }
+
+    /// The content to change, if it is here (copied first if it is shared).
+    pub fn content_mut(&mut self) -> Option<&mut Content> {
+        self.content.as_mut().map(Arc::make_mut)
+    }
+
+    /// Give the message its content (one read back from disk, or new).
+    pub fn set_content(&mut self, content: Arc<Content>) {
+        self.content = Some(content);
+    }
+
+    /// The message without its content, as a store writes it beside the content it keeps on
+    /// disk: the preview is kept, so the message list needs no content.
+    pub fn headers_only(&self) -> Message {
+        let snippet = self.preview(SNIPPET_CHARS);
+        Message { content: None, snippet, html: self.is_html(), has_invite: self.has_invite(), ..self.clone() }
+    }
+
+    /// Whether the message has a formatted (HTML) body.
+    pub fn is_html(&self) -> bool {
+        self.content.as_ref().map_or(self.html, |c| c.rich.is_some())
+    }
+
+    /// Whether the message carries a meeting invitation (or a reply to one).
+    pub fn has_invite(&self) -> bool {
+        self.content.as_ref().map_or(self.has_invite, |c| c.invite.is_some())
+    }
+
     /// The first line of the body, for the message list preview.
     pub fn preview(&self, max_chars: usize) -> String {
-        let line = self.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+        let line = match &self.content {
+            Some(c) => c.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or(""),
+            None => self.snippet.as_str(),
+        };
         let mut out: String = line.chars().take(max_chars).collect();
         if line.chars().count() > max_chars {
             out.push('…');
@@ -505,9 +569,40 @@ mod tests {
     #[test]
     fn preview_takes_first_text_line() {
         let mut m = Message::new(MessageId(1), FolderId(0));
-        m.body = "\n\n  Olá, equipa! Segue a agenda da reunião.\nSecond".into();
+        m.content_mut().unwrap().body = "\n\n  Olá, equipa! Segue a agenda da reunião.\nSecond".into();
         assert_eq!(m.preview(10), "Olá, equip…");
-        m.body.clear();
+        let away = m.headers_only();
+        assert_eq!(away.content(), None);
+        assert_eq!(away.preview(10), "Olá, equip…", "the preview stays with the headers");
+        assert!(!away.is_html() && !away.has_invite());
+        m.content_mut().unwrap().invite = Some("BEGIN:VCALENDAR".into());
+        m.content_mut().unwrap().rich = Some(crate::rich::Rich::default());
+        let away = m.headers_only();
+        assert!(away.is_html() && away.has_invite(), "kept with the headers too");
+        m.content_mut().unwrap().body.clear();
         assert_eq!(m.preview(10), "");
+    }
+
+    /// A message is written with its content in line, as before content could stay on disk; one
+    /// written without it reads back without it, never with an empty body.
+    #[test]
+    fn content_is_written_in_line_and_may_be_left_out() {
+        let mut m = Message::new(MessageId(1), FolderId(0));
+        m.set_subject("Hola");
+        let c = m.content_mut().unwrap();
+        c.body = "Bom dia".into();
+        c.invite = Some("BEGIN:VCALENDAR".into());
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["body"], "Bom dia");
+        assert_eq!(json["invite"], "BEGIN:VCALENDAR");
+        let back: Message = serde_json::from_value(json).unwrap();
+        assert_eq!(back, m);
+
+        let headers = serde_json::to_value(m.headers_only()).unwrap();
+        assert!(headers.get("body").is_none() && headers.get("invite").is_none(), "{headers}");
+        let back: Message = serde_json::from_value(headers).unwrap();
+        assert_eq!(back.content(), None);
+        assert_eq!(back.subject, "Hola");
+        assert_eq!(back.preview(20), "Bom dia");
     }
 }

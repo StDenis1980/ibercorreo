@@ -1,9 +1,12 @@
 //! The command registry. Each entry is everything a front end needs to show and run one action.
 
+use std::sync::Arc;
+
 use ibercorreo_core::calendar::When;
 use ibercorreo_core::mail::{Account, AccountKind};
 use ibercorreo_core::{
-    AccountId, Address, Contact, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Phone, Result, Security, Zone,
+    AccountId, Address, Contact, Content, Date, DateTime, Error, Event, EventId, FolderId, FolderRole, Message, MessageId, Phone, Result, Security,
+    Zone,
 };
 use serde_json::{Value, json};
 
@@ -857,8 +860,8 @@ fn summary(m: &Message) -> Value {
         "seen": m.seen,
         "flagged": m.flagged,
         "attachments": m.attachments.len(),
-        "html": m.rich.is_some(),
-        "invite": m.invite.is_some(),
+        "html": m.is_html(),
+        "invite": m.has_invite(),
     })
 }
 
@@ -958,13 +961,17 @@ fn message_select(s: &mut Session, p: &Value) -> Result<Value> {
     let m = s.store.message_mut(id)?;
     // Opening a message marks it read, as Outlook does by default.
     m.seen = true;
-    let (folder, body) = (m.folder, m.body.clone());
-    s.folder = folder;
+    s.folder = m.folder;
     s.message = Some(id);
+    // Selected even when its text cannot be read back; the reply says so.
+    let body = s.store.content(id).map(|c| c.body.clone());
     let m = s.store.message(id)?;
     let mut v = summary(m);
     if let Some(o) = v.as_object_mut() {
-        o.insert("body".into(), Value::String(body));
+        match body {
+            Ok(body) => o.insert("body".into(), Value::String(body)),
+            Err(e) => o.insert("bodyError".into(), Value::String(e.to_string())),
+        };
     }
     Ok(v)
 }
@@ -1049,7 +1056,8 @@ fn new_draft(s: &mut Session, account: AccountId, d: DraftParts<'_>) -> Result<V
     m.cc = d.cc;
     m.bcc = d.bcc;
     m.set_subject(d.subject);
-    m.body = ibercorreo_core::clamp_text(&body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
+    let body = ibercorreo_core::clamp_text(&body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
+    m.set_content(Arc::new(Content { body, ..Content::default() }));
     m.seen = true;
     m.date = Some(s.now());
     let id = s.store.add_message(m)?;
@@ -1095,15 +1103,16 @@ fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
         m.set_subject(subject);
     }
     if let Some(body) = body {
-        m.body = ibercorreo_core::clamp_text(body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
+        s.store.content_mut(id)?.body = ibercorreo_core::clamp_text(body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
     }
     Ok(json!({ "id": id.0 }))
 }
 
-fn quote(m: &Message) -> String {
+/// `m`, which says `body`, quoted under a reply or forward.
+fn quote(m: &Message, body: &str) -> String {
     let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
     let when = m.date.map(|d| d.to_string()).unwrap_or_default();
-    let quoted: String = m.body.lines().map(|l| format!("> {l}\n")).collect();
+    let quoted: String = body.lines().map(|l| format!("> {l}\n")).collect();
     format!("\n\nOn {when}, {who} wrote:\n{quoted}")
 }
 
@@ -1117,6 +1126,7 @@ fn prefixed(prefix: &str, subject: &str) -> String {
 fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
     let id = target_message(s, p)?;
     let orig = s.store.message(id)?.clone();
+    let text = s.store.content(id)?.body.clone();
     let account = account_of_message(s, id)?;
     let me = the_user(s, account);
     let mut to: Vec<Address> = orig.from.iter().cloned().collect();
@@ -1132,16 +1142,17 @@ fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
         to = orig.to.clone();
     }
     let subject = prefixed("Re", &orig.subject);
-    new_draft(s, account, DraftParts { to, cc, bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig) })
+    new_draft(s, account, DraftParts { to, cc, bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig, &text) })
 }
 
 fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let orig = s.store.message(id)?.clone();
+    let text = s.store.content(id)?.body.clone();
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
     let subject = prefixed("Fwd", &orig.subject);
     let account = account_of_message(s, id)?;
-    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig) })
+    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig, &text) })
 }
 
 fn rfc5322_date(dt: DateTime) -> String {
@@ -1161,7 +1172,8 @@ pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     let when = m.date.unwrap_or_else(|| s.now());
     let date = rfc5322_date(when);
     let unique = format!("{}.{:05}.{}.ibercorreo", when.date.day_number(), u32::from(when.minute_of_day()) * 60 + u32::from(when.second()), id.0);
-    ibercorreo_mime::write(m, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
+    let content = s.store.content(id)?;
+    ibercorreo_mime::write(m, &content, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
 }
 
 fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1184,14 +1196,15 @@ fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
 fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let m = s.store.message(id)?;
+    let content = s.store.content(id)?;
     let mut v = summary(m);
     if let Some(o) = v.as_object_mut() {
         o.insert("cc".into(), json!(m.cc.iter().map(ToString::to_string).collect::<Vec<_>>()));
         o.insert("bcc".into(), json!(m.bcc.iter().map(ToString::to_string).collect::<Vec<_>>()));
-        o.insert("body".into(), Value::String(m.body.clone()));
-        let rich = m.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
+        o.insert("body".into(), Value::String(content.body.clone()));
+        let rich = content.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
         o.insert("rich".into(), rich.unwrap_or(Value::Null));
-        o.insert("invite".into(), invite_info(s, m).map(|i| i.to_json()).unwrap_or(Value::Null));
+        o.insert("invite".into(), invite_info(s, m, &content).map(|i| i.to_json()).unwrap_or(Value::Null));
     }
     Ok(v)
 }
@@ -1274,8 +1287,9 @@ fn party_display(p: &ibercorreo_ical::Party) -> String {
     }
 }
 
-pub(crate) fn invite_info(s: &Session, m: &Message) -> Option<InviteInfo> {
-    let inv = ibercorreo_ical::invite(m.invite.as_deref()?).ok()?;
+/// The invitation `m` (which says `content`) carries, read.
+pub(crate) fn invite_info(s: &Session, m: &Message, content: &Content) -> Option<InviteInfo> {
+    let inv = ibercorreo_ical::invite(content.invite.as_deref()?).ok()?;
     let me = the_user(s, s.store.account_of(m.folder).ok()?);
     let first = inv.events.iter().find(|e| e.recurrence_id.is_none()).or(inv.events.first());
     let when = first.map(|e| {
@@ -1305,7 +1319,7 @@ pub(crate) fn invite_info(s: &Session, m: &Message) -> Option<InviteInfo> {
 /// The open (or `id`) message's invitation, read.
 fn message_invite(s: &Session, p: &Value) -> Result<(MessageId, String, ibercorreo_ical::Invite)> {
     let id = target_message(s, p)?;
-    let text = s.store.message(id)?.invite.clone().ok_or_else(|| Error::invalid("message", "not a meeting invitation"))?;
+    let text = s.store.content(id)?.invite.clone().ok_or_else(|| Error::invalid("message", "not a meeting invitation"))?;
     let inv = ibercorreo_ical::invite(&text)?;
     if inv.events.is_empty() {
         return Err(Error::invalid("invitation", "it holds no meeting that can be read"));
@@ -1417,10 +1431,10 @@ fn invite_respond(s: &mut Session, p: &Value) -> Result<Value> {
         m.to = vec![Address::new(org.name.as_deref(), &org.email)?];
         let summary = inv.events.first().map(|e| e.summary.as_str()).unwrap_or("");
         m.set_subject(&format!("{verb}: {summary}"));
-        m.body = comment.clone();
+        let invite = Some(ibercorreo_ical::reply(&text, &me, status, &comment, s.now())?);
+        m.set_content(Arc::new(Content { body: comment.clone(), rich: None, invite }));
         m.seen = true;
         m.date = Some(s.now());
-        m.invite = Some(ibercorreo_ical::reply(&text, &me, status, &comment, s.now())?);
         let mid = s.store.add_message(m)?;
         // Proves it can be written before it waits in the Outbox.
         render(s, mid)?;

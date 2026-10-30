@@ -434,7 +434,7 @@ fn repeating_appointments_and_deleting_one_occurrence() {
 
 /// The sample invitation's message id.
 fn invitation(s: &Session) -> MessageId {
-    s.store.all_messages().find(|m| m.invite.is_some()).map(|m| m.id).unwrap()
+    s.store.all_messages().find(|m| m.has_invite()).map(|m| m.id).unwrap()
 }
 
 #[test]
@@ -465,7 +465,7 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
     let raw = commands::render(&s, answer).unwrap();
     assert!(raw.contains("method=REPLY"), "{raw}");
     let back = ibercorreo_mime::parse(raw.as_bytes(), MessageId(99), FolderId(0)).unwrap();
-    let reply = ibercorreo_ical::invite(back.invite.as_deref().unwrap()).unwrap();
+    let reply = ibercorreo_ical::invite(back.content().unwrap().invite.as_deref().unwrap()).unwrap();
     assert_eq!(reply.method, "REPLY");
     assert_eq!((reply.attendees[0].email.as_str(), reply.attendees[0].status.as_deref()), ("denys@example.com", Some("ACCEPTED")));
     assert_eq!(s.outbox(AccountId(0)).len(), 1);
@@ -473,7 +473,7 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
     // An update from the organizer moves the meeting; answering again changes it in place.
     let moved = s
         .store
-        .message(id)
+        .content(id)
         .unwrap()
         .invite
         .clone()
@@ -481,7 +481,7 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
         .replace("T160000", "T180000")
         .replace("T170000", "T190000")
         .replace("SEQUENCE:0", "SEQUENCE:1");
-    s.store.message_mut(id).unwrap().invite = Some(moved);
+    s.store.content_mut(id).unwrap().invite = Some(moved);
     s.store.event_mut(event).unwrap().reminders = vec![30];
     let out = s.run("invite.respond", &json!({"id": id.0, "response": "tentative", "reply": "none"})).unwrap();
     assert_eq!(out["events"][0].as_u64(), Some(event.0), "the same event");
@@ -492,8 +492,8 @@ fn invitations_are_accepted_answered_updated_and_cancelled() {
     assert_eq!(s.store.events().iter().filter(|e| e.uid == "sample-budget-review@example.es").count(), 1);
 
     // Cancelled: it can be removed, not accepted.
-    let cancel = s.store.message(id).unwrap().invite.clone().unwrap().replace("METHOD:REQUEST", "METHOD:CANCEL");
-    s.store.message_mut(id).unwrap().invite = Some(cancel);
+    let cancel = s.store.content(id).unwrap().invite.clone().unwrap().replace("METHOD:REQUEST", "METHOD:CANCEL");
+    s.store.content_mut(id).unwrap().invite = Some(cancel);
     assert!(s.run("invite.respond", &json!({"id": id.0, "response": "accept"})).is_err());
     assert_eq!(s.run("invite.remove", &json!({"id": id.0})).unwrap()["removed"], 1);
     assert!(s.store.event(event).is_err());
@@ -518,12 +518,12 @@ fn declining_removes_the_meeting_and_can_be_edited_first() {
     let sent = &s.outbox(AccountId(0))[0];
     let text = String::from_utf8_lossy(&sent.raw).to_string();
     let back = ibercorreo_mime::parse(text.as_bytes(), MessageId(99), FolderId(0)).unwrap();
-    assert_eq!(back.body.trim(), "Lo siento, estoy de viaje.");
-    assert!(back.invite.unwrap().contains("PARTSTAT=DECLINED"));
+    assert_eq!(back.content().unwrap().body.trim(), "Lo siento, estoy de viaje.");
+    assert!(back.content().unwrap().invite.as_deref().unwrap().contains("PARTSTAT=DECLINED"));
     for bad in [json!({"id": id.0}), json!({"id": id.0, "response": "maybe later"}), json!({"id": id.0, "response": "accept", "reply": "fax"})] {
         assert!(s.run("invite.respond", &bad).is_err(), "{bad}");
     }
-    let plain = s.store.all_messages().find(|m| m.invite.is_none()).unwrap().id;
+    let plain = s.store.all_messages().find(|m| !m.has_invite()).unwrap().id;
     assert!(s.run("invite.respond", &json!({"id": plain.0, "response": "accept"})).is_err());
 }
 
@@ -531,14 +531,14 @@ fn declining_removes_the_meeting_and_can_be_edited_first() {
 fn declining_one_occurrence_cancels_only_that_day() {
     let mut s = session();
     let id = invitation(&s);
-    let series = s.store.message(id).unwrap().invite.clone().unwrap().replace("SUMMARY:", "RRULE:FREQ=DAILY;COUNT=5\r\nSUMMARY:");
-    s.store.message_mut(id).unwrap().invite = Some(series.clone());
+    let series = s.store.content(id).unwrap().invite.clone().unwrap().replace("SUMMARY:", "RRULE:FREQ=DAILY;COUNT=5\r\nSUMMARY:");
+    s.store.content_mut(id).unwrap().invite = Some(series.clone());
     let event = EventId(s.run("invite.respond", &json!({"id": id.0, "response": "accept", "reply": "none"})).unwrap()["events"][0].as_u64().unwrap());
     // The organizer cancels the third day only.
     let one = series
         .replace("METHOD:REQUEST", "METHOD:CANCEL")
         .replace("RRULE:FREQ=DAILY;COUNT=5\r\n", "RECURRENCE-ID;TZID=Europe/Madrid:20261025T160000\r\n");
-    s.store.message_mut(id).unwrap().invite = Some(one);
+    s.store.content_mut(id).unwrap().invite = Some(one);
     s.run("invite.remove", &json!({"id": id.0})).unwrap();
     let e = s.store.event(event).unwrap();
     assert_eq!(e.exdates, [Date::new(2026, 10, 25).unwrap()]);
@@ -682,7 +682,7 @@ fn each_account_signs_its_own_mail_above_the_quote() {
     p["signature"] = json!("Denys\r\nTinta Office\n\n");
     s.run("account.set", &p).unwrap();
     assert_eq!(s.store.account(work).unwrap().signature, "Denys\nTinta Office", "line ends kept as \\n, trailing blank lines dropped");
-    let body = |s: &Session, v: Value| s.store.message(MessageId(v["id"].as_u64().unwrap())).unwrap().body.clone();
+    let body = |s: &Session, v: Value| s.store.content(MessageId(v["id"].as_u64().unwrap())).unwrap().body.clone();
 
     let v = s.run("message.compose", &json!({"to": "ana@example.org"})).unwrap();
     assert_eq!(body(&s, v), "\n\nDenys\nTinta Office");
@@ -917,4 +917,47 @@ fn undo_steps_share_the_messages_a_command_left_alone() {
     assert!(!s.store.message(MessageId(a)).unwrap().flagged);
     s.run("edit.redo", &Value::Null).unwrap();
     assert!(s.store.message(MessageId(a)).unwrap().flagged);
+}
+
+/// Reopened from disk, messages have only their headers in memory: reading, replying, answering
+/// an invitation, editing a draft and sending read the text from the store's content files.
+#[test]
+fn commands_read_message_text_kept_on_disk() {
+    let dir = std::env::temp_dir().join(format!("ibercorreo-engine-content-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("store.json");
+    let s = session();
+    s.store.save(&path).unwrap();
+    let mut s = Session::new(ibercorreo_store::Store::load(&path).unwrap(), today());
+    assert!(s.store.all_messages().all(|m| m.content().is_none()), "nothing read at open");
+
+    let inbox = s.store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+    let first = s.store.messages_in(inbox).into_iter().find(|m| m.preview(80).starts_with("Hola Denys")).map(|m| m.id).unwrap();
+    let read = s.run("message.read", &json!({"id": first.0})).unwrap();
+    assert!(read["body"].as_str().unwrap().contains("presupuesto revisado"), "{read}");
+    let selected = s.run("message.select", &json!({"id": first.0})).unwrap();
+    assert!(selected["body"].as_str().unwrap().contains("presupuesto revisado"), "{selected}");
+    let listed = s.run("message.list", &json!({})).unwrap();
+    assert!(listed.as_array().unwrap().iter().any(|m| m["invite"] == true), "the list knows without reading: {listed}");
+
+    let v = s.run("message.reply", &json!({"id": first.0})).unwrap();
+    let draft = MessageId(v["id"].as_u64().unwrap());
+    assert!(s.store.content(draft).unwrap().body.contains("> Te envío el presupuesto revisado"));
+
+    let id = invitation(&s);
+    assert_eq!(s.invite_info(id).unwrap().summary, "Revisión del presupuesto");
+    let out = s.run("invite.respond", &json!({"id": id.0, "response": "accept"})).unwrap();
+    assert!(commands::render(&s, MessageId(out["reply"].as_u64().unwrap())).unwrap().contains("method=REPLY"));
+
+    // A draft saved, reopened and edited: only the body changes, and it is what is sent.
+    s.run("message.update", &json!({"id": draft.0, "subject": "Re: cifras"})).unwrap();
+    s.store.save(&path).unwrap();
+    let mut s = Session::new(ibercorreo_store::Store::load(&path).unwrap(), today());
+    assert!(s.store.content(draft).unwrap().body.contains("> Te envío"), "a subject change keeps the text");
+    s.run("message.update", &json!({"id": draft.0, "body": "Las cifras están bien."})).unwrap();
+    let raw = commands::render(&s, draft).unwrap();
+    let sent = ibercorreo_mime::parse(raw.as_bytes(), MessageId(99), FolderId(0)).unwrap();
+    assert_eq!((sent.subject.as_str(), sent.content().unwrap().body.trim()), ("Re: cifras", "Las cifras están bien."));
+    let _ = std::fs::remove_dir_all(&dir);
 }

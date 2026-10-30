@@ -805,6 +805,11 @@ fn main() -> eframe::Result {
             status = format!("Could not keep a copy of the mailbox before converting it: {e}");
         }
         session.path = Some(p.clone());
+        // A mailbox from an older version is written in the current format right away, so the
+        // next start keeps message text on disk instead of in memory.
+        if session.store.needs_rewrite() {
+            session.dirty = true;
+        }
     }
     for path in imports {
         let result = std::fs::metadata(&path)

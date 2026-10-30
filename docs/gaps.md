@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-10-28 · Pick from the top.
+Status: 2026-10-30 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -47,9 +47,9 @@ Status: 2026-10-28 · Pick from the top.
    a sync would resurrect stale server state). Replace with operation-level undo.
 7. **Store**: `store.json` with the messages in shard files beside it (`store.mail/`, a thousand
    ids each); a background save rewrites only the shards that changed, and no file grows with the
-   mailbox. Still all loaded in memory at start (a 43,000-message mailbox is about 500 MB of
-   JSON): next, keep message bodies on disk and read them when shown, then an on-disk search
-   index.
+   mailbox. Message text stays on disk in each shard's content file and is read when shown
+   (M3.9), so only headers sit in memory. Next: an on-disk search index (it is now most of the
+   memory a big mailbox takes, and is rebuilt at every start by reading all the text).
 8. **Attachments**: names and sizes are kept, contents are not; no saving or opening yet (Tinta PDF,
    Tinta Texto, Tinta Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
@@ -135,3 +135,4 @@ Status: 2026-10-28 · Pick from the top.
 - 2026-10-28 — gaps 6, 7 and 15 updated: big mailboxes (shared messages, background save and index).
 - 2026-10-28 — gap 7 narrowed: messages saved in shards (M3.7).
 - 2026-10-28 — gap 15: compact search index (M3.8).
+- 2026-10-30 — gap 7 narrowed: message text kept on disk (M3.9).
