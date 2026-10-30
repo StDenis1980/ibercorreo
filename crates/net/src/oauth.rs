@@ -7,6 +7,10 @@
 //! access token (an hour) and a refresh token (kept in the system credential store by the app).
 //! IMAP and SMTP then sign in with `XOAUTH2` ([`Secret::Bearer`]).
 //!
+//! Microsoft accounts also consent to Microsoft Graph (calendar, contacts, mail) in the same
+//! sign-in. Microsoft issues a token for one resource at a time, so the Graph token is a second
+//! one, renewed from the same refresh token ([`Credential::graph_token_with`]).
+//!
 //! Each provider needs a client ID registered with it ([`App`]): a build takes them from the
 //! `IBERCORREO_GOOGLE_CLIENT_ID` (and `_CLIENT_SECRET`) and `IBERCORREO_MICROSOFT_CLIENT_ID`
 //! environment variables at compile time, and the same variables at run time win. Without one,
@@ -52,6 +56,10 @@ pub enum Error {
     /// The provider could not be reached.
     #[error("cannot reach {provider}: {detail}")]
     Network { provider: &'static str, detail: String },
+    /// The grant has no consent for Microsoft Graph (it was given before Tinta Correo asked for
+    /// it): signing in again asks for it. Mail keeps working meanwhile.
+    #[error("sign in to {0} again to let Tinta Correo use the calendar and contacts")]
+    NeedsConsent(&'static str),
     /// The sign-in took longer than [`SIGN_IN_TIMEOUT`] or was cancelled.
     #[error("the sign-in was not finished in the browser")]
     Cancelled,
@@ -69,7 +77,12 @@ pub struct App {
     pub client_id: String,
     /// Google issues one to desktop apps too; it is not secret there (RFC 8252 §8.5).
     pub client_secret: Option<String>,
+    /// What the person consents to in the browser.
     pub scope: &'static str,
+    /// What a mail token is asked for with (one resource: Microsoft refuses more).
+    pub token_scope: &'static str,
+    /// What a Microsoft Graph token is asked for with (`None`: the provider has no Graph).
+    pub graph_scope: Option<&'static str>,
     /// The host in the redirect address: what the provider's registration expects for a loopback
     /// redirect. The listener itself is always on 127.0.0.1.
     pub redirect_host: &'static str,
@@ -85,12 +98,19 @@ struct Endpoints {
     auth_url: &'static str,
     token_url: &'static str,
     scope: &'static str,
+    token_scope: &'static str,
+    graph_scope: Option<&'static str>,
     redirect_host: &'static str,
     scope_on_token: bool,
     extra: &'static [(&'static str, &'static str)],
     built_id: Option<&'static str>,
     built_secret: Option<&'static str>,
 }
+
+/// The Microsoft Graph permissions Tinta Correo uses (all ones a user may grant without an
+/// administrator): who is signed in, the calendar, contacts, and mail for accounts without IMAP.
+const MICROSOFT_GRAPH: &str = "https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.ReadWrite \
+https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send offline_access";
 
 const ENDPOINTS: &[Endpoints] = &[
     Endpoints {
@@ -99,6 +119,8 @@ const ENDPOINTS: &[Endpoints] = &[
         auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
         token_url: "https://oauth2.googleapis.com/token",
         scope: "https://mail.google.com/",
+        token_scope: "https://mail.google.com/",
+        graph_scope: None,
         redirect_host: "127.0.0.1",
         scope_on_token: false,
         // A refresh token, and one again on each sign-in.
@@ -111,7 +133,13 @@ const ENDPOINTS: &[Endpoints] = &[
         env: "MICROSOFT",
         auth_url: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
         token_url: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
-        scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access",
+        // Mail (IMAP, SMTP) and Microsoft Graph in one consent; see `MICROSOFT_GRAPH`.
+        scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send \
+https://graph.microsoft.com/User.Read https://graph.microsoft.com/Calendars.ReadWrite \
+https://graph.microsoft.com/Contacts.ReadWrite https://graph.microsoft.com/Mail.ReadWrite \
+https://graph.microsoft.com/Mail.Send offline_access",
+        token_scope: "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access",
+        graph_scope: Some(MICROSOFT_GRAPH),
         redirect_host: "localhost",
         scope_on_token: true,
         extra: &[("prompt", "select_account")],
@@ -140,6 +168,8 @@ pub fn app_with(provider: &str, env: &dyn Fn(&str) -> Option<String>) -> Result<
         client_id,
         client_secret: var("CLIENT_SECRET").or_else(|| built(e.built_secret)),
         scope: e.scope,
+        token_scope: e.token_scope,
+        graph_scope: e.graph_scope,
         redirect_host: e.redirect_host,
         scope_on_token: e.scope_on_token,
         extra: e.extra,
@@ -311,13 +341,13 @@ impl Post for Net<'_> {
     }
 }
 
-fn token_request<'a>(post: &mut dyn Post, app: &'a App, mut form: Vec<(&'a str, &'a str)>) -> Result<Tokens, Error> {
+fn token_request<'a>(post: &mut dyn Post, app: &'a App, scope: &'a str, mut form: Vec<(&'a str, &'a str)>) -> Result<Tokens, Error> {
     form.push(("client_id", &app.client_id));
     if let Some(secret) = &app.client_secret {
         form.push(("client_secret", secret));
     }
     if app.scope_on_token {
-        form.push(("scope", app.scope));
+        form.push(("scope", scope));
     }
     let body: Vec<String> = form.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect();
     let (status, reply) = post.post(&app.token_url, &body.join("&")).map_err(|detail| Error::Network { provider: app.provider.name, detail })?;
@@ -327,12 +357,22 @@ fn token_request<'a>(post: &mut dyn Post, app: &'a App, mut form: Vec<(&'a str, 
 /// Exchange the code the browser brought back for tokens.
 pub fn exchange(post: &mut dyn Post, app: &App, code: &str, verifier: &str, redirect_uri: &str) -> Result<Tokens, Error> {
     let form = vec![("grant_type", "authorization_code"), ("code", code), ("redirect_uri", redirect_uri), ("code_verifier", verifier)];
-    token_request(post, app, form)
+    token_request(post, app, app.token_scope, form)
 }
 
-/// A new access token from a refresh token.
+/// A new mail access token from a refresh token.
 pub fn refresh(post: &mut dyn Post, app: &App, refresh_token: &str) -> Result<Tokens, Error> {
-    token_request(post, app, vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token)])
+    token_request(post, app, app.token_scope, vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token)])
+}
+
+/// A Microsoft Graph access token from a refresh token. A grant without Graph consent is
+/// [`Error::NeedsConsent`].
+pub fn refresh_graph(post: &mut dyn Post, app: &App, refresh_token: &str) -> Result<Tokens, Error> {
+    let Some(scope) = app.graph_scope else { return Err(Error::Protocol(format!("{} accounts have no Microsoft Graph", app.provider.name))) };
+    match token_request(post, app, scope, vec![("grant_type", "refresh_token"), ("refresh_token", refresh_token)]) {
+        Err(Error::SignInAgain(p)) => Err(Error::NeedsConsent(p)),
+        other => other,
+    }
 }
 
 /// The one-time listener the browser comes back to.
@@ -510,10 +550,24 @@ pub struct Grant {
     app: App,
     refresh: String,
     access: Option<(String, Instant)>,
+    /// The Microsoft Graph access token in use.
+    graph: Option<(String, Instant)>,
     /// The provider replaced the refresh token; the app stores the new one.
     rotated: bool,
     /// The provider said the grant is gone: sign in again.
     revoked: bool,
+}
+
+impl Grant {
+    /// Keep a refresh token the provider replaced, for the app to store.
+    fn keep_refresh(&mut self, new: Option<String>) {
+        if let Some(new) = new
+            && new != self.refresh
+        {
+            self.refresh = new;
+            self.rotated = true;
+        }
+    }
 }
 
 /// How an account signs in, shared by the threads that use it (Send/Receive, the Inbox watch).
@@ -535,14 +589,14 @@ impl std::fmt::Debug for Credential {
 impl Credential {
     /// A grant from a stored refresh token; the first use fetches an access token.
     pub fn oauth(app: App, refresh: String) -> Credential {
-        Credential::OAuth(Arc::new(Mutex::new(Grant { app, refresh, access: None, rotated: false, revoked: false })))
+        Credential::OAuth(Arc::new(Mutex::new(Grant { app, refresh, access: None, graph: None, rotated: false, revoked: false })))
     }
 
     /// A grant straight after a sign-in, with its access token.
     pub fn signed_in(app: App, tokens: Tokens) -> Credential {
         let refresh = tokens.refresh.clone().unwrap_or_default();
         let access = Some((tokens.access, Instant::now() + Duration::from_secs(tokens.expires_in)));
-        Credential::OAuth(Arc::new(Mutex::new(Grant { app, refresh, access, rotated: false, revoked: false })))
+        Credential::OAuth(Arc::new(Mutex::new(Grant { app, refresh, access, graph: None, rotated: false, revoked: false })))
     }
 
     /// The secret for a sign-in now, renewing the access token over `post` when it is about to
@@ -566,13 +620,48 @@ impl Credential {
             }
         };
         g.access = Some((tokens.access.clone(), Instant::now() + Duration::from_secs(tokens.expires_in)));
-        if let Some(new) = tokens.refresh
-            && new != g.refresh
-        {
-            g.refresh = new;
-            g.rotated = true;
-        }
+        g.keep_refresh(tokens.refresh);
         Ok(Secret::Bearer(tokens.access))
+    }
+
+    /// The Microsoft Graph access token now, renewed over `post` when it is about to expire.
+    /// A password account, or one whose provider has no Graph, is an error; a grant without Graph
+    /// consent is [`Error::NeedsConsent`] and leaves mail signed in.
+    pub fn graph_token_with(&self, post: &mut dyn Post) -> Result<String, Error> {
+        let grant = match self {
+            Credential::Password(_) => return Err(Error::Protocol("a password account has no Microsoft Graph sign-in".into())),
+            Credential::OAuth(g) => g,
+        };
+        let mut g = grant.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((token, until)) = &g.graph
+            && Instant::now() + RENEW_BEFORE < *until
+        {
+            return Ok(token.clone());
+        }
+        let tokens = refresh_graph(post, &g.app, &g.refresh)?;
+        g.graph = Some((tokens.access.clone(), Instant::now() + Duration::from_secs(tokens.expires_in)));
+        g.keep_refresh(tokens.refresh);
+        Ok(tokens.access)
+    }
+
+    /// [`Credential::graph_token_with`] the network.
+    pub fn graph_token(&self, tls: &Tls) -> Result<String, Error> {
+        self.graph_token_with(&mut Net { tls })
+    }
+
+    /// Whether this account can use Microsoft Graph (a Microsoft sign-in).
+    pub fn has_graph(&self) -> bool {
+        match self {
+            Credential::Password(_) => false,
+            Credential::OAuth(g) => g.lock().unwrap_or_else(PoisonError::into_inner).app.graph_scope.is_some(),
+        }
+    }
+
+    /// Drop the Graph access token (Graph refused it), so the next use renews it.
+    pub fn forget_graph_access(&self) {
+        if let Credential::OAuth(g) = self {
+            g.lock().unwrap_or_else(PoisonError::into_inner).graph = None;
+        }
     }
 
     /// [`Credential::secret_with`] the network.
@@ -660,6 +749,57 @@ mod tests {
 &code_challenge=ch&code_challenge_method=S256&login_hint=ana%2Bx%40gmail.com&access_type=offline&prompt=consent"
         );
         assert_eq!(decode("a%2Bb+c%zz%4"), "a+b c%zz%4");
+    }
+
+    #[test]
+    fn microsoft_signs_in_once_for_mail_and_graph() {
+        let app = app_with("microsoft", &env(&[("IBERCORREO_MICROSOFT_CLIENT_ID", "ms")])).unwrap();
+        // One consent in the browser covers both resources...
+        let words = |s: &str| s.split(' ').map(str::to_string).collect::<std::collections::BTreeSet<_>>();
+        let both: std::collections::BTreeSet<_> = words(app.token_scope).union(&words(app.graph_scope.unwrap())).cloned().collect();
+        assert_eq!(words(app.scope), both);
+        assert!(authorize_url(&app, "http://localhost:5000/", "st", "ch", "").contains("Calendars.ReadWrite"));
+        // ...and each token is for one of them.
+        let credential = Credential::oauth(app, "R0".into());
+        assert!(credential.has_graph());
+        let mut fake = Fake {
+            answers: vec![
+                (200, r#"{"access_token":"G1","expires_in":3600,"refresh_token":"R1"}"#),
+                (200, r#"{"access_token":"A1","expires_in":3600,"refresh_token":"R2"}"#),
+            ],
+            forms: Vec::new(),
+        };
+        assert_eq!(credential.graph_token_with(&mut fake).unwrap(), "G1");
+        assert_eq!(credential.graph_token_with(&mut fake).unwrap(), "G1", "still good: not renewed");
+        assert_eq!(credential.secret_with(&mut fake).unwrap(), Secret::Bearer("A1".into()), "the mail token is another one");
+        assert_eq!(fake.forms.len(), 2);
+        assert!(
+            fake.forms[0].contains("refresh_token=R0") && fake.forms[0].contains("graph.microsoft.com%2FCalendars.ReadWrite"),
+            "{}",
+            fake.forms[0]
+        );
+        assert!(!fake.forms[0].contains("outlook.office.com"), "one resource per token: {}", fake.forms[0]);
+        assert!(fake.forms[1].contains("refresh_token=R1") && fake.forms[1].contains("outlook.office.com"), "{}", fake.forms[1]);
+        assert!(!fake.forms[1].contains("graph.microsoft.com"), "{}", fake.forms[1]);
+        assert_eq!(credential.take_rotated().as_deref(), Some("R2"));
+        credential.forget_graph_access();
+        assert!(matches!(credential.graph_token_with(&mut fake), Err(Error::Network { .. })), "renewed after forgetting");
+
+        // A grant from before Graph was asked for: sign in again for the calendar, mail goes on.
+        let old = Credential::oauth(app_with("microsoft", &env(&[("IBERCORREO_MICROSOFT_CLIENT_ID", "ms")])).unwrap(), "R0".into());
+        let consent = r#"{"error":"invalid_grant","error_description":"AADSTS65001: The user or administrator has not consented"}"#;
+        let mut fake = Fake { answers: vec![(400, consent), (200, r#"{"access_token":"A1","expires_in":3600}"#)], forms: Vec::new() };
+        assert_eq!(old.graph_token_with(&mut fake), Err(Error::NeedsConsent("Microsoft")));
+        assert!(!old.revoked(), "the mail sign-in is not thrown away");
+        assert_eq!(old.secret_with(&mut fake).unwrap(), Secret::Bearer("A1".into()));
+
+        // Google and passwords have no Graph, and nothing is asked of the network.
+        let mut fake = Fake { answers: Vec::new(), forms: Vec::new() };
+        let google = Credential::oauth(google(), "R".into());
+        assert!(!google.has_graph() && !Credential::Password("p".into()).has_graph());
+        assert!(matches!(google.graph_token_with(&mut fake), Err(Error::Protocol(_))));
+        assert!(matches!(Credential::Password("p".into()).graph_token_with(&mut fake), Err(Error::Protocol(_))));
+        assert!(fake.forms.is_empty());
     }
 
     #[test]

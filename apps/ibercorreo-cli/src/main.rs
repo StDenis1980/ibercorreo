@@ -20,6 +20,11 @@
 //!                                                 sign in in the browser; prints the refresh token
 //!                                                 for IBERCORREO_REFRESH_TOKEN (keep it like a
 //!                                                 password)
+//! ibercorreo-cli graph --store FILE [--account ID] [--ca CERT.der] [PATH]
+//!                                                 a Microsoft account's Microsoft Graph: who is
+//!                                                 signed in, or the JSON a GET of PATH (such as
+//!                                                 `me/calendars`) returns; read-only, and signs in
+//!                                                 like `sync`
 //! ```
 //!
 //! `run` prints each command's result as one JSON line and stops at the first error (exit code 1).
@@ -59,7 +64,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH]"
     );
     ExitCode::from(2)
 }
@@ -97,6 +102,7 @@ fn main() -> ExitCode {
         Some("sync") => sync(args.get(1..).unwrap_or(&[])),
         Some("autoconfig") => autoconfig(args.get(1..).unwrap_or(&[])),
         Some("oauth") => oauth(args.get(1..).unwrap_or(&[])),
+        Some("graph") => graph(args.get(1..).unwrap_or(&[])),
         _ => return usage(),
     };
     match result {
@@ -292,6 +298,48 @@ fn sync(args: &[String]) -> Result<(), String> {
             obj.insert("newRefreshToken".into(), json!(token));
         }
     }
+    print(&out);
+    Ok(())
+}
+
+fn graph(args: &[String]) -> Result<(), String> {
+    let (mut store_path, mut ca, mut account_id, mut path) = (None, None, None, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or(format!("{a} needs a value"));
+        match a.as_str() {
+            "--store" => store_path = Some(PathBuf::from(value()?)),
+            "--ca" => ca = Some(value()?.clone()),
+            "--account" => account_id = Some(value()?.parse::<u32>().map_err(|e| format!("--account: {e}"))?),
+            other if path.is_none() && !other.starts_with("--") => path = Some(other.to_string()),
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let store_path = store_path.ok_or("graph needs --store FILE")?;
+    let tls = tls_for(ca)?;
+    let store = Store::load(&store_path).map_err(|e| e.to_string())?;
+    let account = match account_id {
+        Some(id) => store.account(ibercorreo_core::AccountId(id)).cloned().map_err(|e| e.to_string())?,
+        None => store.accounts.iter().find(|a| a.oauth().is_some_and(|p| p.id == "microsoft")).cloned().ok_or("no Microsoft account in the store")?,
+    };
+    let (credential, from_store) =
+        credential(&account, &|k| std::env::var(k).ok(), &|service, key| keyring::Entry::new(service, key).ok().and_then(|e| e.get_password().ok()))?;
+    let token = credential.graph_token(&tls);
+    // Keep a replaced refresh token whatever Graph answers, as `sync` does.
+    if let Some(new) = credential.take_rotated() {
+        let kept = from_store.is_some_and(|(service, key)| keyring::Entry::new(service, &key).is_ok_and(|e| e.set_password(&new).is_ok()));
+        if !kept {
+            print(&json!({ "newRefreshToken": new }));
+        }
+    }
+    let mut graph = ibercorreo_net::graph(&tls, &token.map_err(|e| e.to_string())?);
+    let out = match path {
+        Some(p) => graph.get(&p).map_err(|e| e.to_string())?,
+        None => {
+            let me = graph.me().map_err(|e| e.to_string())?;
+            json!({ "name": me.name, "email": me.email })
+        }
+    };
     print(&out);
     Ok(())
 }

@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-30 · M3 (accounts, search, rules) in progress
+Status: 2026-10-30 · M3 follow-ups done; M4 (Microsoft Graph) in progress
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -176,6 +176,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   opened again (undo), then it is dropped. A synthetic 67,000-message mailbox went from 1.65 GB
   in memory to 0.4 GB (35 MB of it the messages, the rest the search index); it opens in 0.1 s and
   a message reads in ~6 ms. Older stores are rewritten at once (`Store::needs_rewrite`).
+- 2026-10-30 — M4.1: Microsoft Graph client (`dav::graph`): JSON requests with Graph's error
+  codes, throttled requests waited out (`Retry-After`, at most a minute, then `Busy`), lists read
+  page by page with their delta links, every page kept on the Graph host. The Microsoft sign-in
+  now also asks consent for Graph (profile, calendar, contacts, mail); the Graph token is a second
+  token renewed from the same refresh token, and a grant from before is `NeedsConsent` (sign in
+  again) without stopping mail. `ibercorreo-cli graph` shows who is signed in or any Graph `GET`.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -198,6 +204,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-27 — M3.4.
 - 2026-10-27 — M3.5.
 - 2026-10-30 — M3.9.
+- 2026-10-30 — M4.1.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
