@@ -276,3 +276,14 @@
 	Make a {provider} app password…	Créer un mot de passe d'application {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Compte {provider} → Sécurité → Mots de passe des applications (validation en deux étapes requise). Collez ici les 16 lettres.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Si {provider} indique ne pas avoir validé l'application, choisissez Paramètres avancés, puis Accéder à Tinta Correo : la vérification de {provider} viendra plus tard et la connexion est tout aussi sûre.
+	Send error reports automatically?	Envoyer automatiquement les rapports d'erreur ?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Quand l'application plante ou ne répond plus, elle peut envoyer un rapport pour que le problème soit corrigé sans que vous ayez à nous écrire. Le rapport contient la version de l'application, le système, la langue, l'endroit du code où l'erreur s'est produite et les dernières lignes du journal technique. Jamais le texte de vos documents, les noms de fichiers, les dossiers, les adresses e-mail ni les mots de passe.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Les rapports sont envoyés à Tinta Office (report.tintaoffice.com, stockés dans l'UE) et supprimés après 90 jours. Vous pouvez changer ce choix à tout moment depuis « Rapports d'erreur » dans la barre d'état et y supprimer vos rapports du serveur. Détails : tintaoffice.com/en/legal
+	Yes, send reports	Oui, envoyer les rapports
+	No	Non
+	Error reports	Rapports d'erreur
+	Send error reports automatically	Envoyer automatiquement les rapports d'erreur
+	Installation id: {id}	Identifiant de l'installation : {id}
+	Delete my reports from the server	Supprimer mes rapports du serveur
+	Deletion requested: it completes the next time the app is online.	Suppression demandée : elle aura lieu la prochaine fois que l'application sera en ligne.
+	Open the reports folder	Ouvrir le dossier des rapports

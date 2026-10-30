@@ -304,6 +304,16 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: language,
     },
     CommandSpec {
+        id: "file.errorReports",
+        label: "Error reports",
+        group: "File/Options",
+        shortcut: None,
+        params: "value?: true or false (send error reports automatically); forget?: true (delete this installation's reports from the server) — default: just say what is chosen",
+        // Saved, but not undone: Undo is for mail, and undoing an answer would ask again.
+        edits: false,
+        run: error_reports,
+    },
+    CommandSpec {
         id: "calendar.viewDay",
         label: "Day",
         group: "Calendar/Arrange",
@@ -1523,6 +1533,28 @@ fn language(s: &mut Session, p: &Value) -> Result<Value> {
         };
     }
     Ok(json!({ "language": s.store.language.as_deref().unwrap_or("auto"), "followsSystem": s.store.language.is_none() }))
+}
+
+/// Tinta Office: whether error reports may be sent. The desktop app asks at the first start and
+/// sends; this keeps the answer with the person's other choices in the store.
+fn error_reports(s: &mut Session, p: &Value) -> Result<Value> {
+    let value = bool_param(p, "value")?;
+    let forget = bool_param(p, "forget")?.unwrap_or(false);
+    let r = &mut s.store.error_reports;
+    let before = r.clone();
+    if let Some(v) = value {
+        r.consent = Some(v);
+    }
+    // The server deletes the old id's reports; later reports go under a new id.
+    if forget && !r.install_id.is_empty() {
+        r.forget_pending = Some(std::mem::take(&mut r.install_id));
+    }
+    let changed = *r != before;
+    let out = json!({ "value": r.consent, "installId": r.install_id, "forgetPending": r.forget_pending.is_some() });
+    if changed {
+        s.dirty = true;
+    }
+    Ok(out)
 }
 
 /// One day, week or month forward (`delta` 1) or back (-1), as the calendar mode says.

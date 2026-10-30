@@ -276,3 +276,14 @@
 	Make a {provider} app password…	Utwórz hasło do aplikacji {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Konto {provider} → Bezpieczeństwo → Hasła do aplikacji (wymaga weryfikacji dwuetapowej). Wklej tutaj 16 liter.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Jeśli {provider} napisze, że nie zweryfikował aplikacji, wybierz Zaawansowane, a potem Przejdź do Tinta Correo: weryfikacja {provider} nastąpi później, a logowanie jest tak samo bezpieczne.
+	Send error reports automatically?	Wysyłać raporty o błędach automatycznie?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Gdy aplikacja ulegnie awarii lub przestanie odpowiadać, może wysłać raport, aby problem został naprawiony bez pisania do nas. Raport zawiera wersję aplikacji, system, język, miejsce w kodzie, w którym wystąpił błąd, i ostatnie wiersze dziennika technicznego. Nigdy treści Twoich dokumentów, nazw plików, folderów, adresów e-mail ani haseł.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Raporty trafiają do Tinta Office (report.tintaoffice.com, przechowywane w UE) i są usuwane po 90 dniach. Możesz to zmienić w dowolnej chwili w menu „Raporty o błędach” na pasku stanu i tam usunąć swoje raporty z serwera. Szczegóły: tintaoffice.com/en/legal
+	Yes, send reports	Tak, wysyłaj raporty
+	No	Nie
+	Error reports	Raporty o błędach
+	Send error reports automatically	Wysyłaj raporty o błędach automatycznie
+	Installation id: {id}	Identyfikator instalacji: {id}
+	Delete my reports from the server	Usuń moje raporty z serwera
+	Deletion requested: it completes the next time the app is online.	Usunięcie zlecone: zakończy się, gdy aplikacja następnym razem będzie online.
+	Open the reports folder	Otwórz folder raportów

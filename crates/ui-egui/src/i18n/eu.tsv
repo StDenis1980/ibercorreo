@@ -274,3 +274,14 @@
 	Make a {provider} app password…	Sortu {provider} aplikazio-pasahitz bat…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	{provider} kontua → Segurtasuna → Aplikazio-pasahitzak (bi urratseko egiaztapena behar da). Itsatsi hemen 16 letrak.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	{provider}(e)k aplikazioa egiaztatu ez duela esaten badu, aukeratu Aurreratua eta gero Joan Tinta Correo-ra: {provider}(r)en berrikuspena geroago dator, eta saio-hasiera berdin segurua da.
+	Send error reports automatically?	Errore-txostenak automatikoki bidali?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Programak huts egiten duenean edo erantzuteari uzten dionean, txosten bat bidal dezake arazoa konpontzeko, guri idatzi behar izan gabe. Txostenak programaren bertsioa, sistema, hizkuntza, errorea kodearen zein lekutan gertatu den eta erregistro teknikoaren azken lerroak ditu. Inoiz ez zure dokumentuen testua, fitxategi-izenak, karpetak, helbide elektronikoak edo pasahitzak.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Txostenak Tinta Officera doaz (report.tintaoffice.com, EBn gordeta) eta 90 egunen buruan ezabatzen dira. Nahi duzunean alda dezakezu egoera-barrako «Errore-txostenak» atalean, eta zure txostenak zerbitzaritik ezabatu bertan. Xehetasunak: tintaoffice.com/aviso-legal
+	Yes, send reports	Bai, bidali txostenak
+	No	Ez
+	Error reports	Errore-txostenak
+	Send error reports automatically	Bidali errore-txostenak automatikoki
+	Installation id: {id}	Instalazioaren identifikatzailea: {id}
+	Delete my reports from the server	Ezabatu nire txostenak zerbitzaritik
+	Deletion requested: it completes the next time the app is online.	Ezabatzea eskatuta: programak konexioa duen hurrengo aldian osatuko da.
+	Open the reports folder	Ireki txostenen karpeta

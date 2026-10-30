@@ -1613,6 +1613,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "getrandom 0.4.3",
  "ibercorreo-core",
  "ibercorreo-engine",
  "ibercorreo-net",

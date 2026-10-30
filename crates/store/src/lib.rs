@@ -11,6 +11,7 @@
 pub mod rules;
 pub mod search;
 pub mod shards;
+pub mod tinta_reports;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -97,6 +98,9 @@ pub struct Store {
     /// Mail rules, in the order they run ([`rules`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     rules: Vec<rules::Rule>,
+    /// Tinta Office: whether error reports may be sent ([`tinta_reports`]).
+    #[serde(default, deserialize_with = "tinta_reports::lenient", skip_serializing_if = "tinta_reports::ErrorReports::is_default")]
+    pub error_reports: tinta_reports::ErrorReports,
     /// The full-text index ([`search`]), kept in memory only, and which message versions it must
     /// match. Neither counts in comparing two stores.
     #[serde(skip)]

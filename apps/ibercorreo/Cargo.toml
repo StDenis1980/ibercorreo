@@ -21,6 +21,8 @@ serde_json.workspace = true
 eframe = { workspace = true, features = ["default_fonts", "glow", "accesskit", "wayland", "x11"] }
 # The system credential store: Keychain, Windows Credential Manager, Secret Service.
 keyring = "4"
+# Tinta Office error reports: a random installation id (`tinta_report.rs`); already in the tree.
+getrandom = "0.4"
 
 [lints]
 workspace = true

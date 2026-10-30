@@ -274,3 +274,14 @@
 	Make a {provider} app password…	Crea una contrasenya d'aplicació de {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Compte de {provider} → Seguretat → Contrasenyes d'aplicacions (cal la verificació en dos passos). Enganxeu-hi les 16 lletres.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Si {provider} diu que no ha verificat l'aplicació, trieu Opcions avançades i després Ves a Tinta Correo: la revisió de {provider} arribarà més tard i l'inici de sessió és igual de segur.
+	Send error reports automatically?	Voleu enviar informes d'errors automàticament?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Quan el programa falla o deixa de respondre, pot enviar un informe perquè el problema es corregeixi sense que ens hàgiu d'escriure. L'informe conté la versió del programa, el sistema, l'idioma, el lloc del codi on s'ha produït l'error i les últimes línies del registre tècnic. Mai el text dels vostres documents, noms de fitxers, carpetes, adreces electròniques ni contrasenyes.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Els informes van a Tinta Office (report.tintaoffice.com, emmagatzemats a la UE) i s'esborren als 90 dies. Podeu canviar-ho quan vulgueu des d'«Informes d'errors» a la barra d'estat i esborrar-hi els vostres informes del servidor. Detalls: tintaoffice.com/aviso-legal
+	Yes, send reports	Sí, envia els informes
+	No	No
+	Error reports	Informes d'errors
+	Send error reports automatically	Envia els informes d'errors automàticament
+	Installation id: {id}	Identificador de la instal·lació: {id}
+	Delete my reports from the server	Esborra els meus informes del servidor
+	Deletion requested: it completes the next time the app is online.	Esborrament sol·licitat: es completarà la propera vegada que el programa tingui connexió.
+	Open the reports folder	Obre la carpeta d'informes

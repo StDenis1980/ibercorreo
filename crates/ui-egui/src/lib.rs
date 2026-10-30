@@ -9,6 +9,7 @@
 pub mod i18n;
 pub mod icons;
 pub mod theme;
+mod tinta_reports_ui;
 
 use crate::i18n::{Language, tf, tl};
 use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
@@ -357,6 +358,9 @@ pub struct App {
     pub oauth_cancel: bool,
     /// Set by the shell while the browser sign-in runs: the address it opened.
     pub oauth_running: Option<String>,
+    /// Tinta Office: where the shell keeps error reports, set only by builds that send them
+    /// (`tinta_reports_ui`).
+    pub error_reports_dir: Option<std::path::PathBuf>,
     account_form: AccountForm,
     rule_form: RuleForm,
     password: Option<(AccountId, String)>,
@@ -413,6 +417,7 @@ impl App {
             oauth_request: None,
             oauth_cancel: false,
             oauth_running: None,
+            error_reports_dir: None,
             account_form: AccountForm::default(),
             rule_form: RuleForm::default(),
             password: None,
@@ -808,6 +813,7 @@ impl App {
         self.account_window(ui);
         self.rules_window(ui);
         self.reminder_window(ui);
+        tinta_reports_ui::first_start(self, ui.ctx());
     }
 
     /// Rules: the list in the order they run (on/off, up/down, edit, delete), New rule and Run
@@ -1316,7 +1322,10 @@ impl App {
                 ui.separator();
             }
             ui.label(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.language_menu(ui));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                self.language_menu(ui);
+                tinta_reports_ui::menu(self, ui);
+            });
         });
     }
 
