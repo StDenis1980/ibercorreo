@@ -3552,7 +3552,7 @@ mod tests {
         let mut app = App::new(s);
         let ctx = egui::Context::default();
         let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1360.0, 860.0))), ..Default::default() };
-        let mut texts = |app: &mut App| {
+        let texts = |app: &mut App| {
             ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
             let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
             out.textures_delta.clear();
