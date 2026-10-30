@@ -377,3 +377,20 @@ fn changes_never_leave_their_calendar() {
     assert_eq!(batch.errors.len(), 1, "{:?}", batch.errors);
     assert!(!server.log.iter().any(|l| l.starts_with("DELETE")));
 }
+
+#[test]
+fn outlook_calendars_are_never_sent_to_a_caldav_server() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    let url = Url::parse("https://cal.example.org/dav/").unwrap();
+    let mut mixed = state(&store, now());
+    // A Microsoft account's calendar in the same store, with a change waiting for Graph.
+    let outlook = "/v1.0/users/u1/calendars/AAA=/";
+    mixed.calendars.insert(outlook.into(), Known::default());
+    mixed.changes = vec![Change::Delete { calendar: outlook.into(), href: format!("{outlook}events/e1"), etag: "W/\"1\"".into() }];
+    server.log.clear();
+    let batch = run(&mut server, &url, &mixed).unwrap();
+    assert!(batch.pushed.is_empty() && batch.errors.is_empty(), "{batch:?}");
+    assert!(!server.log.iter().any(|l| l.contains("/v1.0/")), "{:?}", server.log);
+    assert_eq!(batch.scope, None, "speaks for the CalDAV calendars only");
+}

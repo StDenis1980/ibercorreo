@@ -68,6 +68,11 @@ Status: 2026-10-30 · Pick from the top.
     the status bar), `sync-collection` (RFC 6578) instead of listing every ETag, a separate
     CalDAV password, tasks (`VTODO`), creating, renaming or hiding a calendar, moving an
     appointment to another calendar, and checking against Nextcloud, Google and iCloud.
+    Microsoft accounts' Outlook calendars sync over Microsoft Graph instead (M4.2), both ways,
+    with series, their moved and deleted occurrences, and reminders. Missing there: delta
+    queries (every sync lists each calendar's events), occurrences changed outside the window
+    (a year back, two ahead), attendees and organizing, read-only calendars marked as such, and
+    removing an account's Outlook calendars with the account.
 13. **Meeting invitations, as an attendee (M2.6).** An invitation by mail (iMIP) shows a strip with
     Accept, Tentative and Decline; the meeting goes into (or out of) the calendar, an update moves
     the same event, and the answer (`METHOD:REPLY`) goes to the organizer, sent now, edited first
@@ -136,3 +141,4 @@ Status: 2026-10-30 · Pick from the top.
 - 2026-10-28 — gap 7 narrowed: messages saved in shards (M3.7).
 - 2026-10-28 — gap 15: compact search index (M3.8).
 - 2026-10-30 — gap 7 narrowed: message text kept on disk (M3.9).
+- 2026-10-30 — gap 12: Outlook calendars over Microsoft Graph (M4.2).

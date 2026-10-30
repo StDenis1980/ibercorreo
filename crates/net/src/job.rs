@@ -1,6 +1,6 @@
 //! One Send/Receive for an account, start to finish on the network: send the Outbox over SMTP,
 //! save the copies to the server's Sent, sync over IMAP, then sync the calendars over CalDAV and
-//! the contacts over CardDAV. It takes a snapshot of what the store needs ([`Job`]) and returns
+//! the contacts over CardDAV, or a Microsoft account's Outlook calendars over Microsoft Graph. It takes a snapshot of what the store needs ([`Job`]) and returns
 //! what happened ([`Finished`]), so it can run on a background thread while the window stays
 //! responsive; the front end applies the result to the session.
 
@@ -31,7 +31,7 @@ pub struct Job {
 pub struct Finished {
     pub sent: Vec<Sent>,
     pub batch: Result<Batch, String>,
-    /// The calendar sync, when the account has a CalDAV address.
+    /// The calendar sync, when the account has a CalDAV address or is a Microsoft one.
     pub calendar: Option<Result<calendar::Batch, String>>,
     /// The contact sync, when the account has a CalDAV address (it serves CardDAV too).
     pub contacts: Option<Result<contacts::Batch, String>>,
@@ -108,12 +108,28 @@ pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress))
             batch
         });
     let (calendar, contacts) = if job.account.caldav.trim().is_empty() {
-        (None, None)
+        // A Microsoft account's Outlook calendars come over Graph.
+        (job.credential.has_graph().then(|| sync_graph(job)), None)
     } else {
         let (calendar, contacts) = sync_dav(job, login, &secret);
         (Some(calendar), Some(contacts))
     };
     Finished { sent, batch, calendar, contacts }
+}
+
+/// The Outlook calendars over Microsoft Graph, with the account's Graph token. A grant from
+/// before Tinta Correo asked for Graph says to sign in again; mail is not affected.
+fn sync_graph(job: &Job) -> Result<calendar::Batch, String> {
+    let token = job.credential.graph_token(&job.tls).map_err(|e| format!("sign-in: {e}"))?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let now = ibercorreo_core::DateTime::from_unix(now).map_err(|e| e.to_string())?;
+    let mut graph = crate::graph(&job.tls, &token);
+    let batch = ibercorreo_sync::graph_calendar::run(&mut graph, &job.calendar, now);
+    if matches!(batch, Err(crate::dav::Error::Auth(_))) {
+        // Renewed at the next try.
+        job.credential.forget_graph_access();
+    }
+    batch.map_err(|e| e.to_string())
 }
 
 /// The CalDAV and CardDAV part, on its own connection; mail failing does not stop it, and the
