@@ -3,12 +3,13 @@ name = "ibercorreo-dav"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Tinta Correo L2: HTTP/1.1, WebDAV, CalDAV (RFC 4791) and CardDAV (RFC 6352) over any byte stream; never opens a socket itself"
+description = "Tinta Correo L2: HTTP/1.1, WebDAV, CalDAV (RFC 4791) and CardDAV (RFC 6352) and Microsoft Graph over any byte stream; never opens a socket itself"
 
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-mime.workspace = true
 quick-xml = "0.38"
+serde_json.workspace = true
 thiserror.workspace = true
 
 [lints]

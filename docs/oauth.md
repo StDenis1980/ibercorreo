@@ -1,6 +1,6 @@
 # Tinta Correo — OAuth 2.0 sign-in (Gmail, Microsoft 365)
 
-Status: 2026-10-26 · M3.3 · the flow works; a build needs client IDs registered by the project
+Status: 2026-10-30 · M4.1 · the flow works, Microsoft accounts also consent to Microsoft Graph; a build needs client IDs registered by the project
 
 Gmail, Outlook.com and Microsoft 365 do not take a mail program's password: the person signs in
 on the provider's own page and the program gets a token. Tinta Correo does this the way RFC 8252
@@ -16,6 +16,14 @@ describes for native apps:
 4. The refresh token goes into the system credential store (service `Iber Correo OAuth`, the app's first name, account
    `google:<login>` or `microsoft:<login>`). Access tokens stay in memory and are renewed before
    they run out. IMAP and SMTP sign in with `XOAUTH2`.
+
+Microsoft accounts also consent to Microsoft Graph in the same sign-in (`User.Read`,
+`Calendars.ReadWrite`, `Contacts.ReadWrite`, `Mail.ReadWrite`, `Mail.Send`: the profile, the
+Outlook calendar and contacts, and mail for work accounts without IMAP). Microsoft gives a token
+for one resource at a time, so the mail token and the Graph token are two tokens renewed from the
+same refresh token. An account signed in before Graph was asked for (before M4.1) keeps its mail;
+its calendar asks to sign in again once (`NeedsConsent`). `ibercorreo-cli graph --store FILE`
+shows who the Graph token belongs to.
 
 The password never reaches Tinta Correo. A refresh token the provider replaces (Microsoft does on
 renewals) is stored again. A revoked grant (the person removed the app's access, or changed their
@@ -56,7 +64,9 @@ Security → 2-Step Verification → App passwords) and **Sign in with: Password
    personal Microsoft accounts*; **Redirect URI**: platform *Public client/native (mobile &
    desktop)*, `http://localhost` (any port is accepted for it).
 3. **API permissions → Add a permission → Microsoft Graph → Delegated**: `IMAP.AccessAsUser.All`,
-   `SMTP.Send`, `offline_access`.
+   `SMTP.Send`, `offline_access`, `User.Read`, `Calendars.ReadWrite`, `Contacts.ReadWrite`,
+   `Mail.ReadWrite`, `Mail.Send`. (The sign-in asks for them anyway; listing them shows them on
+   the registration and in an organisation's admin consent.)
 4. Copy the **Application (client) ID**. No secret is needed.
 
 Personal accounts work at once. Work and school accounts may need their administrator's consent
@@ -99,8 +109,8 @@ that opens the sign-in page. `docs/testing.md` (OAuth 2.0) describes the end-to-
 Dovecot and Postfix.
 
 ## Not yet
-- OAuth for calendars and contacts: Google's CalDAV and CardDAV need their own scopes, so a Gmail
-  account syncs mail only (Microsoft has no CalDAV).
+- OAuth for Google calendars and contacts: Google's CalDAV and CardDAV need their own scopes, so a
+  Gmail account syncs mail only. Microsoft's calendar and contacts come through Graph (M4.2, M4.3).
 - Other OAuth providers (Yahoo, AOL, Fastmail, Yandex) and `OAUTHBEARER` (RFC 7628).
 - Microsoft 365 may file sent mail in Sent Items itself, giving two copies there (Gmail is known
   and gets none).
@@ -108,3 +118,4 @@ Dovecot and Postfix.
 ## Revision history
 - 2026-10-23 — created (M3.2).
 - 2026-10-26 — several accounts, each with its own grant; choosing a provider fills in its servers (M3.3).
+- 2026-10-30 — Microsoft Graph consent and a separate Graph token (M4.1).

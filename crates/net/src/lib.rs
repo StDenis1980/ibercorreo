@@ -283,6 +283,18 @@ pub fn dav(url: &dav::Url, tls: &Tls, user: &str, password: &str) -> dav::Client
     dav_with(url, tls, user, &oauth::Secret::Password(password.to_string()))
 }
 
+/// A Microsoft Graph client signing in with a Graph access token
+/// ([`oauth::Credential::graph_token`]).
+pub fn graph(tls: &Tls, token: &str) -> dav::graph::Graph<dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>>> {
+    let url = graph_url();
+    dav::graph::Graph::new(dav_with(&url, tls, "", &oauth::Secret::Bearer(token.to_string())))
+}
+
+fn graph_url() -> dav::Url {
+    // Provably infallible: BASE is a fixed, valid https address.
+    dav::Url::parse(dav::graph::BASE).unwrap_or(dav::Url { host: "graph.microsoft.com".into(), port: 443, path: "/v1.0/".into() })
+}
+
 /// An HTTPS client for `url`'s server that sends no credentials.
 pub fn dav_anonymous(url: &dav::Url, tls: &Tls) -> dav::Client<Stream, impl FnMut() -> std::io::Result<Stream> + use<>> {
     let host = url.host.trim_start_matches('[').trim_end_matches(']').to_string();

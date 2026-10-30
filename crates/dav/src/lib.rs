@@ -10,12 +10,14 @@
 //! - [`caldav`]: finding the calendars, listing what is in one, fetching events.
 //! - [`carddav`]: the same for address books and contact cards.
 //! - [`autoconfig`]: where a mail address's server settings are published, and reading them.
+//! - [`graph`]: Microsoft Graph, the JSON API for Microsoft 365 and Outlook.com accounts.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod autoconfig;
 pub mod caldav;
 pub mod carddav;
+pub mod graph;
 mod http;
 pub mod xml;
 
@@ -38,6 +40,10 @@ pub enum Error {
     Invalid(String),
     #[error("{what} is larger than the {limit} allowed")]
     TooLarge { what: &'static str, limit: usize },
+    /// The server is throttling requests or briefly unavailable; try again later (after
+    /// `retry_after` seconds, when it said).
+    #[error("the server is busy; try again later")]
+    Busy { retry_after: Option<u64> },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -1653,6 +1653,7 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-mime",
  "quick-xml 0.38.4",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
