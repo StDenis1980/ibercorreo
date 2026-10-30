@@ -60,3 +60,11 @@ opt-level = 3
 lto = "thin"
 codegen-units = 16
 debug = 0
+
+# winit from the storytold fork the other Tinta apps use, at its W11 commit: on X11 without
+# Xft.dpi it takes the X server's DPI instead of guessing a scale from the panel's physical size,
+# which drew the whole window 1.75x too big on a 14" 1080p laptop (XFCE). Later fork commits add
+# a WindowEvent variant that egui-winit 0.36 does not match, so the pin stays here until Correo
+# moves to the fork's egui. Same 0.30.13 API; Apache-2.0, like upstream winit.
+[patch.crates-io]
+winit = { git = "https://github.com/storytold/winit.git", rev = "4df8554b7d1c50c78d092a6c1ef0fa1d533ab80f" }

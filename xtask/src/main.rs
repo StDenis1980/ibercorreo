@@ -189,4 +189,13 @@ mod tests {
         let m = "[package]\nname = \"x\"\n[dependencies]\negui.workspace = true\nfoo = \"1\"\n[dev-dependencies]\nbar = \"1\"\n[target.'cfg(unix)'.dependencies]\nbaz = \"1\"\n";
         assert_eq!(dependencies(m), ["egui", "foo", "baz"]);
     }
+
+    /// winit comes from the storytold fork: crates.io winit guesses the X11 scale from the
+    /// panel's millimetres when Xft.dpi is unset, and drew Tinta Correo 1.75x too big.
+    #[test]
+    fn winit_is_the_fork_with_the_x11_server_dpi_fallback() {
+        let lock = std::fs::read_to_string(root().join("Cargo.lock")).unwrap();
+        let winit = lock.split("[[package]]").find(|p| p.contains("name = \"winit\"")).unwrap();
+        assert!(winit.contains("git+https://github.com/storytold/winit.git?rev=4df8554b7d1c50c78d092a6c1ef0fa1d533ab80f"), "{winit}");
+    }
 }
