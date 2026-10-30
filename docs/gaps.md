@@ -95,8 +95,9 @@ Status: 2026-10-28 · Pick from the top.
 15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
     ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
     dates) and the All mailboxes / Current mailbox / Current folder scope. Missing: an index kept
-    on disk (it is rebuilt on a background thread at start and after each Send/Receive, about 15 s
-    for 43,000 messages; a search before then waits for it; gap 7), searching
+    on disk (it is rebuilt on a background thread at start and after each Send/Receive, up to a
+    minute for 60,000 messages, and takes a fraction of the mail's size in memory; a search
+    before then waits for it; gap 7), searching
     attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
     the words found, a Search ribbon tab with filter buttons, search history and saved searches
     (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
@@ -133,3 +134,4 @@ Status: 2026-10-28 · Pick from the top.
 - 2026-10-27 — gap 16 added: rules (M3.5).
 - 2026-10-28 — gaps 6, 7 and 15 updated: big mailboxes (shared messages, background save and index).
 - 2026-10-28 — gap 7 narrowed: messages saved in shards (M3.7).
+- 2026-10-28 — gap 15: compact search index (M3.8).

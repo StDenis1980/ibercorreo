@@ -165,6 +165,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   a thousand ids each, format 5); a save rewrites only the shards whose messages changed (found by
   `Arc` identity against the last save), so the 1 GB single-file limit is gone. Older stores open
   as before and are written back sharded; a save cut short opens with the stray messages left out.
+- 2026-10-28 — The search index keeps each distinct word once and a word's postings as packed
+  numbers (message id and field mask) instead of every message's own copy of its words: with
+  60,000 messages it takes 0.7 GB instead of 4.3 GB (the app held ~2 GB for 67,000 real ones).
 
 ## Revision history
 - 2026-10-22 — created.
