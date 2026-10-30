@@ -174,6 +174,8 @@ impl ContactForm {
 /// others as the server names them.
 /// The search box's tooltip: what a query can say.
 const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
+/// The search box on the mail ribbon.
+const SEARCH_WIDTH: f32 = 220.0;
 
 /// A rule's condition and actions in one line, for the Rules list.
 fn rule_summary(r: &Value) -> String {
@@ -1166,7 +1168,9 @@ impl App {
 
     fn ribbon(&mut self, ui: &mut Ui) {
         let has_message = self.session.message.is_some();
-        ui.horizontal(|ui| {
+        // Wrapped, so a narrow window (or long translated labels) moves buttons to a second row
+        // instead of drawing them over Undo, Redo and the search box.
+        ui.horizontal_wrapped(|ui| {
             match self.session.view {
                 View::Mail => {
                     if ui.add(egui::Button::new(RichText::new(tl("✉ New Email")).strong()).fill(self.tokens.accent_soft)).clicked() {
@@ -1231,12 +1235,15 @@ impl App {
                     self.sync_button(ui, "Set up your account to sync contacts.");
                 }
             }
+            if ui.available_size_before_wrap().x < self.ribbon_right_width(ui) {
+                ui.end_row();
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 self.button(ui, "Redo", "edit.redo", self.session.can_redo());
                 self.button(ui, "Undo", "edit.undo", self.session.can_undo());
                 if self.session.view == View::Mail {
                     let r = ui
-                        .add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(220.0))
+                        .add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(SEARCH_WIDTH))
                         .on_hover_text(tl(SEARCH_HELP));
                     if r.changed() {
                         let q = self.search.clone();
@@ -1245,6 +1252,17 @@ impl App {
                 }
             });
         });
+    }
+
+    /// The width the ribbon's right-hand group (search box, Undo, Redo) needs.
+    fn ribbon_right_width(&self, ui: &Ui) -> f32 {
+        let style = ui.style();
+        let font = egui::TextStyle::Button.resolve(style);
+        let text = |s: &str| ui.fonts_mut(|f| f.layout_no_wrap(tl(s).to_string(), font.clone(), egui::Color32::WHITE).size().x);
+        let button = |s: &str| text(s) + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x;
+        let search =
+            if self.session.view == View::Mail { SEARCH_WIDTH + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x } else { 0.0 };
+        button("Undo") + button("Redo") + search
     }
 
     /// Send/Receive, which also syncs the calendars and address books; without an account it
@@ -3573,5 +3591,37 @@ mod tests {
         let shown = texts(&mut app);
         assert!(shown.iter().any(|t| t.contains("could not be read")), "{shown:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The toolbar never draws one button over another: Ukrainian labels are long, and on a
+    /// narrow window the left buttons ran under Undo, Redo and the search box.
+    #[test]
+    fn the_toolbar_buttons_never_overlap() {
+        for width in [1360.0, 1100.0, 900.0] {
+            let mut store = ibercorreo_store::Store::new();
+            store.language = Some("uk".into());
+            let mut app = App::new(Session::new(store, Date::EPOCH));
+            let ctx = egui::Context::default();
+            let input =
+                || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 860.0))), ..Default::default() };
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            i18n::set_current(Language::En);
+            let rect = |label: &str| {
+                out.shapes.iter().find_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text.contains(label) => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    _ => None,
+                })
+            };
+            let sync = rect("Надіслати/отримати").unwrap();
+            for other in ["Скасувати", "Повторити", "Правила…"] {
+                let r = rect(other).unwrap_or_else(|| panic!("{other} is drawn at {width} px"));
+                assert!(r == sync || !r.intersects(sync), "{other} {r:?} overlaps Send/Receive {sync:?} at {width} px");
+            }
+            let undo = rect("Скасувати").unwrap();
+            let rules = rect("Правила…").unwrap();
+            assert!(!undo.intersects(rules), "Undo {undo:?} overlaps Rules {rules:?} at {width} px");
+        }
     }
 }

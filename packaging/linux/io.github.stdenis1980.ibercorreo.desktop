@@ -9,6 +9,6 @@ Icon=io.github.stdenis1980.ibercorreo
 Terminal=false
 StartupNotify=true
 StartupWMClass=io.github.stdenis1980.ibercorreo
-Categories=Office;Network;Email;Calendar;ContactManagement;
+Categories=Office;Email;Calendar;ContactManagement;
 Keywords=mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;
 MimeType=message/rfc822;text/calendar;text/vcard;text/x-vcard;
