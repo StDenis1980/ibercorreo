@@ -368,6 +368,7 @@ fn caldav_address_is_checked_kept_and_forgotten() {
         }],
         errors: Vec::new(),
         pushed: Vec::new(),
+        scope: None,
     };
     let calendars = s.store.calendars().len();
     let r = s.apply_calendar_sync(batch);

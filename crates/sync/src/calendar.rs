@@ -46,6 +46,29 @@ pub struct State {
     pub changes: Vec<Change>,
 }
 
+impl State {
+    /// The part of this state whose calendars `owns` names (by collection href): what one source
+    /// syncs when several share the store (CalDAV and Microsoft Graph accounts).
+    pub fn only(&self, owns: &dyn Fn(&str) -> bool) -> State {
+        let calendar = |c: &Change| match c {
+            Change::Put { calendar, .. } | Change::Delete { calendar, .. } => owns(calendar),
+        };
+        State {
+            calendars: self.calendars.iter().filter(|(h, _)| owns(h)).map(|(h, k)| (h.clone(), k.clone())).collect(),
+            changes: self.changes.iter().filter(|c| calendar(c)).cloned().collect(),
+        }
+    }
+}
+
+/// Collection hrefs of calendars mirrored from Microsoft Graph start with this (then the user's
+/// id); everything else came from a CalDAV server.
+pub const GRAPH_PREFIX: &str = "/v1.0/users/";
+
+/// Whether `href` is a CalDAV calendar's (not one from Microsoft Graph).
+pub fn is_caldav(href: &str) -> bool {
+    !href.starts_with(GRAPH_PREFIX)
+}
+
 /// Most changes sent in one sync; the rest go in the next.
 pub const MAX_CHANGES: usize = 500;
 
@@ -131,6 +154,18 @@ pub struct Batch {
     /// Every calendar the server has (that can hold events), changed or not.
     pub calendars: Vec<CalendarSync>,
     pub errors: Vec<String>,
+    /// The collection hrefs this batch speaks for: those starting with this (one Microsoft Graph
+    /// account), or with `None` the CalDAV ones. Calendars missing from the batch are removed
+    /// only within it.
+    pub scope: Option<String>,
+}
+
+/// Whether a batch of `scope` ([`Batch::scope`]) speaks for calendar `href`.
+fn owns(scope: &Option<String>, href: &str) -> bool {
+    match scope {
+        Some(prefix) => href.starts_with(prefix.as_str()),
+        None => is_caldav(href),
+    }
 }
 
 /// Send `state`'s changes; returns the state as it stands after them (what was written must be
@@ -184,7 +219,7 @@ fn push(http: &mut dyn Http, url: &Url, state: &State, batch: &mut Batch) -> ibe
 /// [`Batch::errors`] and left as it is.
 pub fn run(http: &mut dyn Http, url: &Url, state: &State) -> ibercorreo_dav::Result<Batch> {
     let mut batch = Batch::default();
-    let state = &push(http, url, state, &mut batch)?;
+    let state = &push(http, url, &state.only(&is_caldav), &mut batch)?;
     for cal in caldav::discover(http, url)? {
         let known = state.calendars.get(&cal.href);
         if let Some(k) = known
@@ -244,6 +279,7 @@ const DEFAULT_COLOR: &str = "#1F7A8C";
 
 /// Fold a [`run`] result into the store. Calendars the server no longer has are removed here too.
 pub fn apply(store: &mut Store, batch: Batch) -> Report {
+    let scope = batch.scope;
     let mut report = Report { errors: batch.errors, ..Report::default() };
     for p in &batch.pushed {
         match p {
@@ -264,6 +300,7 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
         }
     }
     let hrefs: Vec<String> = batch.calendars.iter().map(|cs| cs.calendar.href.clone()).collect();
+    let owned: Vec<String> = store.calendars().iter().filter_map(|c| c.remote.as_ref()).map(|r| r.href.clone()).filter(|h| owns(&scope, h)).collect();
     for cs in batch.calendars {
         let cal = &cs.calendar;
         // `#RRGGBBAA` from Apple's servers: the alpha is dropped.
@@ -325,13 +362,14 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
     }
     // A batch exists only after a run that listed every calendar, so a network failure never
     // empties the store.
-    remove_missing(store, &hrefs, &mut report);
+    let gone: Vec<String> = owned.into_iter().filter(|h| !hrefs.contains(h)).collect();
+    remove(store, &gone, &mut report);
     report
 }
 
-/// Remove the calendars mirrored from a server that are not in `hrefs`.
-fn remove_missing(store: &mut Store, hrefs: &[String], report: &mut Report) {
-    let gone: Vec<u32> = store.calendars().iter().filter(|c| c.remote.as_ref().is_some_and(|r| !hrefs.contains(&r.href))).map(|c| c.id).collect();
+/// Remove the calendars mirrored from collections `hrefs`.
+fn remove(store: &mut Store, hrefs: &[String], report: &mut Report) {
+    let gone: Vec<u32> = store.calendars().iter().filter(|c| c.remote.as_ref().is_some_and(|r| hrefs.contains(&r.href))).map(|c| c.id).collect();
     for id in gone {
         match store.remove_calendar(id) {
             Ok(_) => report.calendars_removed = report.calendars_removed.saturating_add(1),
@@ -350,10 +388,11 @@ fn remove_missing(store: &mut Store, hrefs: &[String], report: &mut Report) {
     }
 }
 
-/// Stop mirroring: forget every server calendar (when the CalDAV address is removed).
+/// Stop mirroring: forget every CalDAV calendar (when the CalDAV address is removed).
 pub fn forget(store: &mut Store) -> Report {
     let mut report = Report::default();
-    remove_missing(store, &[], &mut report);
+    let hrefs: Vec<String> = store.calendars().iter().filter_map(|c| c.remote.as_ref()).map(|r| r.href.clone()).filter(|h| is_caldav(h)).collect();
+    remove(store, &hrefs, &mut report);
     report
 }
 

@@ -44,6 +44,18 @@ fn understands_windows_names_and_vendor_prefixes() {
 }
 
 #[test]
+fn zones_are_named_the_windows_way_for_microsoft() {
+    for (iana, windows) in
+        [("Europe/Madrid", "Romance Standard Time"), ("Europe/Kyiv", "FLE Standard Time"), ("Atlantic/Canary", "GMT Standard Time"), ("UTC", "UTC")]
+    {
+        assert_eq!(Zone::named(iana).unwrap().windows_name(), Some(windows), "{iana}");
+    }
+    // A Windows name read back names itself.
+    assert_eq!(Zone::named("W. Europe Standard Time").unwrap().windows_name(), Some("W. Europe Standard Time"));
+    assert_eq!(Zone::named("Pacific/Kiritimati").unwrap().windows_name(), None);
+}
+
+#[test]
 fn edges_of_time_do_not_panic() {
     let z = Zone::named("Pacific/Kiritimati").unwrap();
     for t in [at(1, 1, 1, 0, 0), at(9999, 12, 31, 23, 59), DateTime::new(Date::new(2016, 12, 31).unwrap(), 23, 59, 60).unwrap()] {

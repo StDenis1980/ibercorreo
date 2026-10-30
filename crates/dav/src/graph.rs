@@ -62,6 +62,11 @@ impl<H: Http> Graph<H> {
         Graph { http, base, sleep: std::thread::sleep, waited: Duration::ZERO }
     }
 
+    /// The connection the requests go over.
+    pub fn http(&self) -> &H {
+        &self.http
+    }
+
     /// The same, counting waits in [`Graph::waited`] without sleeping (for tests).
     pub fn without_sleeping(mut self) -> Self {
         self.sleep = |_| {};

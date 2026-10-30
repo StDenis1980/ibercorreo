@@ -79,6 +79,15 @@ impl Zone {
         self.name == "UTC"
     }
 
+    /// The Windows name of this zone (`Romance Standard Time`), for servers that want one
+    /// (Microsoft Graph, Exchange), when the tables know it.
+    pub fn windows_name(&self) -> Option<&'static str> {
+        if self.is_utc() {
+            return Some("UTC");
+        }
+        WINDOWS.iter().chain(WINDOWS_ALSO).find(|(_, iana)| *iana == self.name).map(|(w, _)| *w)
+    }
+
     /// The wall-clock time here at UTC time `t`. Out-of-range input comes back unchanged.
     pub fn from_utc(&self, t: DateTime) -> DateTime {
         self.try_from_utc(t).unwrap_or(t)
@@ -141,6 +150,41 @@ fn from_civil(c: jiff::civil::DateTime) -> Result<DateTime> {
     let date = crate::Date::new(i32::from(c.year()), n(c.month())?, n(c.day())?)?;
     DateTime::new(date, n(c.hour())?, n(c.minute())?, n(c.second())?)
 }
+
+/// More IANA ids each Windows zone covers (the CLDR table's other territories), used only to name
+/// a zone the Windows way.
+const WINDOWS_ALSO: &[(&str, &str)] = &[
+    ("Romance Standard Time", "Europe/Madrid"),
+    ("Romance Standard Time", "Europe/Brussels"),
+    ("Romance Standard Time", "Europe/Copenhagen"),
+    ("Romance Standard Time", "Africa/Ceuta"),
+    ("GMT Standard Time", "Europe/Lisbon"),
+    ("GMT Standard Time", "Europe/Dublin"),
+    ("GMT Standard Time", "Atlantic/Canary"),
+    ("GMT Standard Time", "Atlantic/Madeira"),
+    ("W. Europe Standard Time", "Europe/Amsterdam"),
+    ("W. Europe Standard Time", "Europe/Rome"),
+    ("W. Europe Standard Time", "Europe/Vienna"),
+    ("W. Europe Standard Time", "Europe/Zurich"),
+    ("W. Europe Standard Time", "Europe/Stockholm"),
+    ("W. Europe Standard Time", "Europe/Oslo"),
+    ("W. Europe Standard Time", "Europe/Luxembourg"),
+    ("W. Europe Standard Time", "Europe/Andorra"),
+    ("Central Europe Standard Time", "Europe/Prague"),
+    ("Central Europe Standard Time", "Europe/Bratislava"),
+    ("Central Europe Standard Time", "Europe/Belgrade"),
+    ("Central Europe Standard Time", "Europe/Ljubljana"),
+    ("Central European Standard Time", "Europe/Zagreb"),
+    ("Central European Standard Time", "Europe/Sarajevo"),
+    ("Central European Standard Time", "Europe/Skopje"),
+    ("FLE Standard Time", "Europe/Kiev"),
+    ("FLE Standard Time", "Europe/Helsinki"),
+    ("FLE Standard Time", "Europe/Riga"),
+    ("FLE Standard Time", "Europe/Tallinn"),
+    ("FLE Standard Time", "Europe/Vilnius"),
+    ("FLE Standard Time", "Europe/Sofia"),
+    ("GTB Standard Time", "Europe/Athens"),
+];
 
 /// Windows zone names to IANA ids, from the Unicode CLDR `windowsZones` table (the "001"
 /// territory of each), for the zones calendar invitations most often carry.

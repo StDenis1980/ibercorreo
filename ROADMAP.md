@@ -182,6 +182,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   now also asks consent for Graph (profile, calendar, contacts, mail); the Graph token is a second
   token renewed from the same refresh token, and a grant from before is `NeedsConsent` (sign in
   again) without stopping mail. `ibercorreo-cli graph` shows who is signed in or any Graph `GET`.
+- 2026-10-30 — M4.2: Outlook calendars over Microsoft Graph for Microsoft accounts (no CalDAV
+  address needed), both ways and shared with the CalDAV store side: each calendar with its
+  colour, events in their own zone (Windows names), Outlook repeat patterns as `RRULE` and back,
+  moved and deleted occurrences from `instances` (a year back, two ahead) as overrides and
+  `EXDATE`s, changes sent as `POST`/`PATCH`/`DELETE` with `If-Match` (the server's copy wins a
+  conflict), a deleted or moved occurrence here sent as that instance. Calendars from Graph and
+  from CalDAV never remove each other (`Batch::scope`). `Zone::windows_name`.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -205,6 +212,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-27 — M3.5.
 - 2026-10-30 — M3.9.
 - 2026-10-30 — M4.1.
+- 2026-10-30 — M4.2.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
