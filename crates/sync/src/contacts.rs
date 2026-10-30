@@ -23,7 +23,7 @@ use ibercorreo_dav::carddav::{self, RemoteBook};
 use ibercorreo_store::Store;
 use serde::Serialize;
 
-use crate::calendar::{Known, resource_name};
+use crate::calendar::{Known, is_caldav, resource_name};
 
 /// A change made here, to send.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -40,6 +40,20 @@ pub enum Change {
 pub struct State {
     pub books: BTreeMap<String, Known>,
     pub changes: Vec<Change>,
+}
+
+impl State {
+    /// The part of this state whose address books `owns` names (by collection href): what one
+    /// source syncs when several share the store (CardDAV and Microsoft Graph accounts).
+    pub fn only(&self, owns: &dyn Fn(&str) -> bool) -> State {
+        let book = |c: &Change| match c {
+            Change::Put { book, .. } | Change::Delete { book, .. } => owns(book),
+        };
+        State {
+            books: self.books.iter().filter(|(h, _)| owns(h)).map(|(h, k)| (h.clone(), k.clone())).collect(),
+            changes: self.changes.iter().filter(|c| book(c)).cloned().collect(),
+        }
+    }
 }
 
 /// Most changes sent in one sync; the rest go in the next.
@@ -107,6 +121,19 @@ pub struct Batch {
     /// Every address book the server has, changed or not.
     pub books: Vec<BookSync>,
     pub errors: Vec<String>,
+    /// The collection hrefs this batch speaks for: those starting with this (one Microsoft Graph
+    /// account), or with `None` the CardDAV ones. Books missing from the batch are removed only
+    /// within it.
+    pub scope: Option<String>,
+}
+
+/// Whether a batch of `scope` ([`Batch::scope`]) speaks for address book `href`.
+fn owns(scope: &Option<String>, href: &str) -> bool {
+    match scope {
+        Some(prefix) => href.starts_with(prefix.as_str()),
+        // CardDAV and CalDAV hrefs are told from Graph ones the same way.
+        None => is_caldav(href),
+    }
 }
 
 /// Send `state`'s changes; returns the state as it stands after them (what was written is
@@ -160,7 +187,7 @@ fn push(http: &mut dyn Http, url: &Url, state: &State, batch: &mut Batch) -> ibe
 /// [`Batch::errors`] and left as it is.
 pub fn run(http: &mut dyn Http, url: &Url, state: &State) -> ibercorreo_dav::Result<Batch> {
     let mut batch = Batch::default();
-    let state = &push(http, url, state, &mut batch)?;
+    let state = &push(http, url, &state.only(&is_caldav), &mut batch)?;
     for book in carddav::discover(http, url)? {
         let known = state.books.get(&book.href);
         if let Some(k) = known
@@ -218,6 +245,7 @@ pub struct Report {
 /// Fold a [`run`] result into the store. Address books the server no longer has are removed here
 /// too.
 pub fn apply(store: &mut Store, batch: Batch) -> Report {
+    let scope = batch.scope;
     let mut report = Report { errors: batch.errors, ..Report::default() };
     for p in &batch.pushed {
         match p {
@@ -236,6 +264,7 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
         }
     }
     let hrefs: Vec<String> = batch.books.iter().map(|bs| bs.book.href.clone()).collect();
+    let owned: Vec<String> = store.books().iter().filter_map(|b| b.remote.as_ref()).map(|r| r.href.clone()).filter(|h| owns(&scope, h)).collect();
     for bs in batch.books {
         let book = &bs.book;
         let id = match store.book_by_href(&book.href) {
@@ -287,13 +316,14 @@ pub fn apply(store: &mut Store, batch: Batch) -> Report {
     }
     // A batch exists only after a run that listed every address book, so a network failure never
     // empties the store.
-    remove_missing(store, &hrefs, &mut report);
+    let gone: Vec<String> = owned.into_iter().filter(|h| !hrefs.contains(h)).collect();
+    remove(store, &gone, &mut report);
     report
 }
 
-/// Remove the address books mirrored from a server that are not in `hrefs`.
-fn remove_missing(store: &mut Store, hrefs: &[String], report: &mut Report) {
-    let gone: Vec<u32> = store.books().iter().filter(|b| b.remote.as_ref().is_some_and(|r| !hrefs.contains(&r.href))).map(|b| b.id).collect();
+/// Remove the address books mirrored from collections `hrefs`.
+fn remove(store: &mut Store, hrefs: &[String], report: &mut Report) {
+    let gone: Vec<u32> = store.books().iter().filter(|b| b.remote.as_ref().is_some_and(|r| hrefs.contains(&r.href))).map(|b| b.id).collect();
     for id in gone {
         match store.remove_book(id) {
             Ok(_) => report.books_removed = report.books_removed.saturating_add(1),
@@ -312,10 +342,11 @@ fn remove_missing(store: &mut Store, hrefs: &[String], report: &mut Report) {
     }
 }
 
-/// Stop mirroring: forget every server address book (when the server address is removed).
+/// Stop mirroring: forget every CardDAV address book (when the server address is removed).
 pub fn forget(store: &mut Store) -> Report {
     let mut report = Report::default();
-    remove_missing(store, &[], &mut report);
+    let hrefs: Vec<String> = store.books().iter().filter_map(|b| b.remote.as_ref()).map(|r| r.href.clone()).filter(|h| is_caldav(h)).collect();
+    remove(store, &hrefs, &mut report);
     report
 }
 

@@ -189,6 +189,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `EXDATE`s, changes sent as `POST`/`PATCH`/`DELETE` with `If-Match` (the server's copy wins a
   conflict), a deleted or moved occurrence here sent as that instance. Calendars from Graph and
   from CalDAV never remove each other (`Batch::scope`). `Zone::windows_name`.
+- 2026-10-30 — M4.3: Outlook contacts over Microsoft Graph, both ways and shared with the CardDAV
+  store side: the Contacts folder and each subfolder as an address book; names, up to three
+  addresses, mobile, work and home numbers, company, job title, notes and birthday; changes sent
+  as `POST`/`PATCH`/`DELETE` with `If-Match`; what Outlook cannot keep is reported. One Graph
+  token serves the calendars and the contacts; CardDAV and Graph books never remove each other.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -213,6 +218,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-30 — M3.9.
 - 2026-10-30 — M4.1.
 - 2026-10-30 — M4.2.
+- 2026-10-30 — M4.3.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

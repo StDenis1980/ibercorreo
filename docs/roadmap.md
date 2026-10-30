@@ -8,7 +8,7 @@ Status: 2026-10-30 · Current focus: M4 (Microsoft Graph)
 | M1 | IMAP (RFC 9051/3501: folders, sync, IDLE, flags, move) and SMTP (RFC 5321, STARTTLS/TLS via rustls), account setup, OS keychain, offline queue (Outbox really sends), HTML mail shown safely | done (M1.1–M1.6: IMAP, TLS, two-way sync, SMTP and the Outbox, accounts in the window, safe HTML) except IDLE, which moves to M3 with push and autodiscovery |
 | M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | done: recurrence (M2.1), day and week views (M2.2), time zones (M2.3), reminders (M2.4), two-way CalDAV sync (M2.5), meeting invitations (M2.6), contact cards and vCard (M2.7a), two-way CardDAV sync (M2.7b). Organizing meetings (sending invitations) stays in gap 13 |
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | in progress: autoconfiguration and IDLE (M3.1), OAuth2 for Gmail and Microsoft 365 (M3.2), several accounts (M3.3), the full-text search index (M3.4), rules (M3.5) done; Outlook.com checked; Gmail by app password, Google verification after the public release |
-| M4 | Exchange. Microsoft Graph first, since Exchange Online switches EWS off (from 2026-10, fully 2027-04-01): the Graph client and token (M4.1), the Outlook calendar (M4.2), contacts (M4.3), mail for work accounts without IMAP (M4.4); then EWS for on-premises Exchange (M4.5, Thunderbird's MPL-2.0 `ews` crate, unmodified) | in progress: M4.1 (Graph client, Graph consent in the Microsoft sign-in) and M4.2 (Outlook calendars, both ways) done |
+| M4 | Exchange. Microsoft Graph first, since Exchange Online switches EWS off (from 2026-10, fully 2027-04-01): the Graph client and token (M4.1), the Outlook calendar (M4.2), contacts (M4.3), mail for work accounts without IMAP (M4.4); then EWS for on-premises Exchange (M4.5, Thunderbird's MPL-2.0 `ews` crate, unmodified) | in progress: M4.1 (Graph client, Graph consent in the Microsoft sign-in) M4.2 (Outlook calendars, both ways) and M4.3 (Outlook contacts, both ways) done |
 | M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | Windows MSI done early (#20); `.pst`/`.msg`, macOS and Linux installers and the full guide open |
 | M6 | MCP server (agent control), PGP/S-MIME (including signing mail with an FNMT certificate), accessibility pass, translations | translations done early (uk, es, ca, gl, eu, it, fr, de, pl: #24–#27; native review pending); the rest open |
 
@@ -16,8 +16,9 @@ Status: 2026-10-30 · Current focus: M4 (Microsoft Graph)
 M3: autoconfiguration and IDLE (M3.1), OAuth2 sign-in for Gmail and Microsoft 365 (M3.2) and several accounts with Favorites, signatures and Bcc (M3.3) landed, and so did the full-text search index with Outlook-style queries and scopes (M3.4) and mail rules (M3.5). Next, in order:
 
 M4, decided 2026-10-30 (Graph first): M4.1 (client and token) and M4.2 (Outlook calendars both
-ways) landed; a Microsoft account signed in before M4.1 signs in again once to give the calendar
-consent. Next M4.3, contacts through Graph (`contacts`, two-way like CardDAV).
+ways) and M4.3 (Outlook contacts both ways) landed; a Microsoft account signed in before M4.1
+signs in again once to give the calendar and contacts consent. Next M4.4, mail through Graph for
+work accounts whose IMAP is switched off.
 
 Earlier: Google verification, decided 2026-10-28: Gmail signs in with an app password for now (offered first in Account settings, with a link to make one); browser sign-in stays as the second choice: the Google OAuth app is published unverified (2026-10-28, owner's step in the Cloud Console), so no 7-day re-sign-in, an "unverified app" page the app explains, and at most 100 Google users. Google's verification and the paid CASA assessment wait until after the public release and the first support sales. Outlook.com browser sign-in works on a real account (checked 2026-10-28).
 
@@ -53,3 +54,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-10-28 — Gmail browser sign-in published unverified (choice between app password and Google sign-in).
 - 2026-10-30 — M4 order: Microsoft Graph first, EWS last; M4.1 landed.
 - 2026-10-30 — M4.2 landed.
+- 2026-10-30 — M4.3 landed.

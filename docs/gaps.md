@@ -88,7 +88,10 @@ Status: 2026-10-30 · Pick from the top.
     title, birthday and notes, edited in People; `.vcf` import (vCard 2.1 from Outlook, 3.0, 4.0)
     and export (3.0), keeping every property not shown (postal addresses, photos, web sites) so a
     round trip loses nothing. Address books synced both ways with a CardDAV server (M2.7b, the
-    same address as the calendars), checked against Radicale. Missing: checking against
+    same address as the calendars), checked against Radicale. Microsoft accounts' Outlook
+    contacts (the Contacts folder and its subfolders) sync both ways over Microsoft Graph (M4.3);
+    Outlook keeps three mail addresses and one mobile a contact (more is reported when sent), and
+    postal addresses and photos are not read from Graph yet. Missing: checking against
     Nextcloud, Google (needs OAuth and its own CardDAV address, M3) and iCloud; a separate
     CardDAV address when it differs from the CalDAV one; creating, renaming and deleting address
     books (on the server too); `sync-collection` (RFC 6578) instead of a full listing on every
@@ -142,3 +145,4 @@ Status: 2026-10-30 · Pick from the top.
 - 2026-10-28 — gap 15: compact search index (M3.8).
 - 2026-10-30 — gap 7 narrowed: message text kept on disk (M3.9).
 - 2026-10-30 — gap 12: Outlook calendars over Microsoft Graph (M4.2).
+- 2026-10-30 — gap 14: Outlook contacts over Microsoft Graph (M4.3).

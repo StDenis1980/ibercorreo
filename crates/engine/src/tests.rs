@@ -609,6 +609,7 @@ fn server_address_books_sync_and_contacts_move_between_books() {
         }],
         errors: Vec::new(),
         pushed: Vec::new(),
+        scope: None,
     };
     let r = s.apply_contacts_sync(batch);
     assert_eq!((r.books_added, r.added), (1, 1));

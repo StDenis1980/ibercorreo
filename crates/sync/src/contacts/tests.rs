@@ -320,3 +320,19 @@ fn changes_never_leave_their_book() {
     assert_eq!(batch.errors.len(), 2, "{:?}", batch.errors);
     assert!(!server.log.iter().any(|l| l.starts_with("DELETE") || l.starts_with("PUT")));
 }
+
+#[test]
+fn outlook_contacts_are_never_sent_to_a_carddav_server() {
+    let (mut server, mut store) = (server(), Store::new());
+    sync(&mut server, &mut store);
+    let url = Url::parse("https://dav.example.org/dav/").unwrap();
+    let mut mixed = state(&store);
+    let outlook = "/v1.0/users/u1/contacts/";
+    mixed.books.insert(outlook.into(), Known::default());
+    mixed.changes = vec![Change::Delete { book: outlook.into(), href: format!("{outlook}c1"), etag: "W/\"1\"".into() }];
+    server.log.clear();
+    let batch = run(&mut server, &url, &mixed).unwrap();
+    assert!(batch.pushed.is_empty() && batch.errors.is_empty(), "{batch:?}");
+    assert!(!server.log.iter().any(|l| l.contains("/v1.0/")), "{:?}", server.log);
+    assert_eq!(batch.scope, None);
+}
