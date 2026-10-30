@@ -44,7 +44,7 @@ const EVENT_FIELDS: &str = "id,iCalUId,subject,body,location,start,end,isAllDay,
 recurrence,type,originalStart,originalStartTimeZone";
 
 /// A Graph id as a path segment: anything but letters, digits and `-_=.` percent-encoded.
-fn segment(id: &str) -> String {
+pub(crate) fn segment(id: &str) -> String {
     let mut out = String::with_capacity(id.len());
     for b in id.bytes() {
         if b.is_ascii_alphanumeric() || b"-_=.".contains(&b) {
@@ -56,7 +56,7 @@ fn segment(id: &str) -> String {
     out
 }
 
-fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
 }
 
@@ -401,13 +401,13 @@ fn instance_on(found: &[Value], master: &Event, day: Date) -> Option<String> {
 
 /// What a write's failure means: the server's copy changed (it wins), the item is gone, or a
 /// real error.
-enum Failed {
+pub(crate) enum Failed {
     Conflict,
     Gone,
     Other(Error),
 }
 
-fn failed(e: Error) -> Failed {
+pub(crate) fn failed(e: Error) -> Failed {
     match e {
         Error::Status { status: 409 | 412, .. } => Failed::Conflict,
         Error::Status { status: 404 | 410, .. } => Failed::Gone,
