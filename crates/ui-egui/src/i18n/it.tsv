@@ -276,3 +276,14 @@
 	Make a {provider} app password…	Crea una password per le app di {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Account {provider} → Sicurezza → Password per le app (serve la verifica in due passaggi). Incolla qui le 16 lettere.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Se {provider} dice di non aver verificato l'app, scegli Avanzate e poi Vai a Tinta Correo: la revisione di {provider} arriverà più avanti e l'accesso è altrettanto sicuro.
+	Send error reports automatically?	Inviare automaticamente le segnalazioni di errore?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Quando l'app si blocca o smette di rispondere, può inviare una segnalazione perché il problema venga corretto senza che tu debba scriverci. La segnalazione contiene la versione dell'app, il sistema, la lingua, il punto del codice in cui si è verificato l'errore e le ultime righe del registro tecnico. Mai il testo dei tuoi documenti, nomi di file, cartelle, indirizzi e-mail o password.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Le segnalazioni vanno a Tinta Office (report.tintaoffice.com, archiviate nell'UE) e vengono eliminate dopo 90 giorni. Puoi cambiare la scelta in qualsiasi momento da «Segnalazioni di errore» nella barra di stato ed eliminare lì le tue segnalazioni dal server. Dettagli: tintaoffice.com/en/legal
+	Yes, send reports	Sì, invia le segnalazioni
+	No	No
+	Error reports	Segnalazioni di errore
+	Send error reports automatically	Invia automaticamente le segnalazioni di errore
+	Installation id: {id}	ID dell'installazione: {id}
+	Delete my reports from the server	Elimina le mie segnalazioni dal server
+	Deletion requested: it completes the next time the app is online.	Eliminazione richiesta: verrà completata la prossima volta che l'app sarà online.
+	Open the reports folder	Apri la cartella delle segnalazioni

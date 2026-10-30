@@ -33,7 +33,10 @@ People trust a mail client with their correspondence; a crash or lost draft is t
 
 ## 4. Privacy and security
 - Remote content (images, CSS, fonts in HTML mail) is never fetched unless the person asks.
-- No telemetry, no outbound network except to the servers the person configured.
+- No telemetry, no outbound network except to the servers the person configured. The one exception:
+  error reports to report.tintaoffice.com, only after the person said yes at the first start
+  (`apps/ibercorreo/src/tinta_report.rs`, `file.errorReports`); scrubbed of mail text, addresses,
+  paths and names, and only in builds that set `TINTA_REPORT_URL`.
 - Credentials go to the OS keychain (from M1), never to the store file or logs.
 
 ## 5. Architecture

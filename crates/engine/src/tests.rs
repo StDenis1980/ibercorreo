@@ -961,3 +961,24 @@ fn commands_read_message_text_kept_on_disk() {
     assert_eq!((sent.subject.as_str(), sent.content().unwrap().body.trim()), ("Re: cifras", "Las cifras están bien."));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Tinta Office: the error-report answer is kept and saved, never undone, and Forget moves the
+/// id to the deletion the desktop app sends.
+#[test]
+fn error_reports_answer_is_kept_and_forget_moves_the_id() {
+    let mut s = session();
+    assert_eq!(s.store.error_reports.consent, None);
+    s.dirty = false;
+    let v = s.run("file.errorReports", &json!({"value": true})).unwrap();
+    assert_eq!(v["value"], json!(true));
+    assert!(s.dirty, "the answer is saved");
+    assert!(s.run("edit.undo", &Value::Null).is_err() || s.store.error_reports.consent == Some(true));
+    assert!(s.run("file.errorReports", &json!({"value": "yes"})).is_err());
+    assert!(s.run("file.errorReports", &json!({"forget": 1})).is_err());
+    let id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    s.store.error_reports.install_id = id.into();
+    let v = s.run("file.errorReports", &json!({"forget": true})).unwrap();
+    assert_eq!(v["forgetPending"], json!(true));
+    assert_eq!(s.store.error_reports.forget_pending.as_deref(), Some(id));
+    assert!(s.store.error_reports.install_id.is_empty());
+}

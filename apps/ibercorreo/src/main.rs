@@ -22,6 +22,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod tinta_report;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -690,6 +692,8 @@ impl Shell {
 
 impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        tinta_report::busy();
+        tinta_report::tick(&mut self.app);
         self.app.session.set_now(now());
         if self.ctx.is_none() {
             self.ctx = Some(ui.ctx().clone());
@@ -712,6 +716,7 @@ impl eframe::App for Shell {
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
         let busy = self.worker.is_some() || self.finder.is_some() || self.sign_in.is_some() || self.saving.is_some();
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
+        tinta_report::idle();
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -858,6 +863,12 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     let persist = !sample;
+    // Tinta Office: error reports, sent only with consent (asked at the first start). Not for
+    // the sample mailbox, which is never saved.
+    let reports = tinta_report::dir(data_dir(), persist && store_path.is_some());
+    if let Some(dir) = &reports {
+        tinta_report::install(dir.clone(), None, "release");
+    }
     eframe::run_native(
         NAME,
         options,
@@ -865,6 +876,7 @@ fn main() -> eframe::Result {
             warm_search(&session.store);
             let mut app = App::new(session);
             app.oauth_ready = oauth::configured().iter().map(|p| p.id.to_string()).collect();
+            app.error_reports_dir = reports;
             Ok(Box::new(Shell {
                 app,
                 last_save: Instant::now(),

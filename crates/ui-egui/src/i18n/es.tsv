@@ -274,3 +274,14 @@
 	Make a {provider} app password…	Crear una contraseña de aplicación de {provider}…
 	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Cuenta de {provider} → Seguridad → Contraseñas de aplicaciones (requiere verificación en dos pasos). Pegue aquí las 16 letras.
 	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Si {provider} dice que no ha verificado la aplicación, elija Configuración avanzada y luego Ir a Tinta Correo: la revisión de {provider} llegará más tarde y el inicio de sesión es igual de seguro.
+	Send error reports automatically?	¿Enviar informes de errores automáticamente?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Cuando el programa falla o deja de responder, puede enviar un informe para que el problema se corrija sin que tengas que escribirnos. El informe contiene la versión del programa, el sistema, el idioma, el lugar del código donde ocurrió el error y las últimas líneas del registro técnico. Nunca el texto de tus documentos, nombres de archivos, carpetas, direcciones de correo ni contraseñas.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Los informes van a Tinta Office (report.tintaoffice.com, almacenados en la UE) y se borran a los 90 días. Puedes cambiarlo cuando quieras desde «Informes de errores» en la barra de estado y borrar allí tus informes del servidor. Detalles: tintaoffice.com/aviso-legal
+	Yes, send reports	Sí, enviar informes
+	No	No
+	Error reports	Informes de errores
+	Send error reports automatically	Enviar informes de errores automáticamente
+	Installation id: {id}	Identificador de la instalación: {id}
+	Delete my reports from the server	Borrar mis informes del servidor
+	Deletion requested: it completes the next time the app is online.	Borrado solicitado: se completará la próxima vez que el programa tenga conexión.
+	Open the reports folder	Abrir la carpeta de informes

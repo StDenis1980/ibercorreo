@@ -1,2 +1,6 @@
 [alias]
 xtask = "run --quiet --package xtask --"
+
+# Tinta Office error reports (apps/ibercorreo/src/tinta_report.rs); unset, the app never asks or sends.
+[env]
+TINTA_REPORT_URL = "https://report.tintaoffice.com"
