@@ -273,9 +273,50 @@ pub fn dav_with(
         secure(tcp, &host, &tls).map_err(|e| std::io::Error::other(e.to_string()))
     };
     match secret {
-        oauth::Secret::Password(p) => dav::Client::new(connect, url, user, p),
+        oauth::Secret::Password(p) => dav::Client::new(connect, url, user, p).with_ntlm(NTLM),
         oauth::Secret::Bearer(t) => dav::Client::bearer(connect, url, t),
     }
+}
+
+/// What NTLM sign-in ([`dav::ntlm`]) takes from the system: the system random source, the clock
+/// and the server's certificate.
+pub const NTLM: dav::ntlm::Hooks<Stream> = dav::ntlm::Hooks { nonce: ntlm_nonce, now: filetime_now, binding: tls_server_end_point };
+
+fn ntlm_nonce() -> Option<[u8; 8]> {
+    use ring::rand::SecureRandom;
+    let mut b = [0u8; 8];
+    ring::rand::SystemRandom::new().fill(&mut b).ok()?;
+    Some(b)
+}
+
+/// Seconds from 1601-01-01 (the Windows epoch) to 1970-01-01.
+const FILETIME_UNIX: u64 = 11_644_473_600;
+
+/// Now as a Windows FILETIME: hundreds of nanoseconds since 1601.
+fn filetime_now() -> Option<u64> {
+    let since = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?;
+    filetime(since)
+}
+
+fn filetime(since_unix: Duration) -> Option<u64> {
+    since_unix.as_secs().checked_add(FILETIME_UNIX)?.checked_mul(10_000_000)?.checked_add(u64::from(since_unix.subsec_nanos() / 100))
+}
+
+/// The connection's `tls-server-end-point` channel binding (RFC 5929): the server certificate's
+/// hash, with the hash its signature uses.
+fn tls_server_end_point(stream: &Stream) -> Option<Vec<u8>> {
+    let Stream::Tls(tls) = stream else { return None };
+    let cert = tls.conn.peer_certificates()?.first()?;
+    Some(dav::ntlm::tls_server_end_point(cert_hash(cert.as_ref()).as_ref()))
+}
+
+fn cert_hash(cert: &[u8]) -> ring::digest::Digest {
+    let algorithm = match dav::ntlm::cert_hash(cert) {
+        dav::ntlm::CertHash::Sha256 => &ring::digest::SHA256,
+        dav::ntlm::CertHash::Sha384 => &ring::digest::SHA384,
+        dav::ntlm::CertHash::Sha512 => &ring::digest::SHA512,
+    };
+    ring::digest::digest(algorithm, cert)
 }
 
 /// A CalDAV client for `url`'s server signing in as `user`. Every connection it opens is TLS,

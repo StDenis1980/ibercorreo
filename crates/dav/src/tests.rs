@@ -435,3 +435,125 @@ fn address_book_discovery_falls_back_from_well_known_and_may_find_none() {
     let books = carddav::discover(&mut one, &Url::parse("https://h/ana/books/phone/").unwrap()).unwrap();
     assert_eq!(books.iter().map(|b| b.href.as_str()).collect::<Vec<_>>(), ["/ana/books/phone/"]);
 }
+
+/// What NTLM sign-in uses from the system, fixed for tests.
+fn hooks() -> ntlm::Hooks<Script> {
+    ntlm::Hooks { nonce: || Some([1; 8]), now: || Some(0), binding: |_| Some(ntlm::tls_server_end_point(&[7; 32])) }
+}
+
+/// A `401` offering NTLM, and one carrying a challenge.
+const OFFER: &str = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\nContent-Length: 0\r\n\r\n";
+fn challenge(close: bool) -> String {
+    let m = ntlm::tests::challenge_message(0xe28a8235, &ntlm::tests::spec_info());
+    let close = if close { "Connection: close\r\n" } else { "" };
+    format!("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: NTLM {}\r\n{close}Content-Length: 0\r\n\r\n", ibercorreo_mime::base64(&m))
+}
+const OK_REPLY: &str = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+
+/// The requests written, split at each request line.
+fn requests(written: &Written) -> Vec<String> {
+    let w = String::from_utf8(written.borrow().clone()).unwrap();
+    w.split("POST ").filter(|r| !r.is_empty()).map(|r| format!("POST {r}")).collect()
+}
+
+/// The NTLM message in a request's `Authorization` header.
+fn ntlm_message(request: &str) -> Vec<u8> {
+    let line = request.lines().find_map(|l| l.strip_prefix("Authorization: NTLM ")).unwrap();
+    ibercorreo_mime::unbase64(line).unwrap()
+}
+
+#[test]
+fn a_server_refusing_basic_gets_ntlm_on_the_same_connection() {
+    let script = format!("{OFFER}{}{OK_REPLY}{OK_REPLY}", challenge(false));
+    let (c, written, opened) = client(vec![&script]);
+    let mut c = c.with_ntlm(hooks());
+    let resp = c.send("POST", "/EWS/Exchange.asmx", &[("Content-Type", "text/xml")], b"ok-body").unwrap();
+    assert_eq!((resp.status, resp.body.as_slice()), (200, &b"ok"[..]));
+    let resp = c.send("POST", "/EWS/Exchange.asmx", &[], b"ok-body").unwrap();
+    assert_eq!(resp.status, 200);
+    let r = requests(&written);
+    assert_eq!(r.len(), 4, "{r:?}");
+    assert!(r[0].contains("Authorization: Basic "), "Basic first: {}", r[0]);
+    assert!(r[1].contains("Content-Length: 0\r\n") && !r[1].contains("ok-body"), "the negotiate step carries no body: {}", r[1]);
+    assert_eq!(ntlm_message(&r[1]), ntlm::negotiate());
+    let answer = ntlm_message(&r[2]);
+    assert_eq!(&answer[..12], b"NTLMSSP\0\x03\0\0\0");
+    assert!(answer.windows(4).any(|w| w == [10, 0, 16, 0]), "the answer is bound to the certificate");
+    assert!(r[2].ends_with("ok-body"), "the request itself comes with the answer");
+    assert!(!r[3].contains("Authorization"), "a signed-in connection needs no credentials: {}", r[3]);
+    assert_eq!(opened.get(), 1, "one connection for all of it");
+}
+
+#[test]
+fn ntlm_signs_in_again_on_a_new_connection_and_reports_a_refusal() {
+    // The server closes the signed-in connection; the next one signs in from the start.
+    let first = format!("{OFFER}{}HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nok", challenge(false));
+    let second = format!("{}{OK_REPLY}", challenge(false));
+    let (c, written, opened) = client(vec![&first, &second]);
+    let mut c = c.with_ntlm(hooks());
+    assert_eq!(c.send("POST", "/ews", &[], b"ok-body").unwrap().status, 200);
+    assert_eq!(c.send("POST", "/ews", &[], b"ok-body").unwrap().status, 200);
+    let r = requests(&written);
+    assert_eq!(r.len(), 5, "{r:?}");
+    assert_eq!(ntlm_message(&r[3]), ntlm::negotiate(), "no Basic again once the server asked for NTLM");
+    assert_eq!(opened.get(), 2);
+
+    // The server drops a signed-in, kept-alive connection without saying so: the new one signs
+    // in from the start.
+    let first = format!("{OFFER}{}{OK_REPLY}", challenge(false));
+    let second = format!("{}{OK_REPLY}", challenge(false));
+    let (c, written, opened) = client(vec![&first, &second]);
+    let mut c = c.with_ntlm(hooks());
+    assert_eq!(c.send("POST", "/ews", &[], b"ok-body").unwrap().status, 200);
+    assert_eq!(c.send("POST", "/ews", &[], b"ok-body").unwrap().status, 200);
+    let r = requests(&written);
+    assert_eq!(r.len(), 6, "{r:?}");
+    assert!(!r[3].contains("Authorization"), "tried on the kept connection first");
+    assert_eq!(ntlm_message(&r[4]), ntlm::negotiate(), "then signed in on the new one");
+    assert_eq!(opened.get(), 2);
+
+    // A wrong password: the answer is refused, and the refusal is the reply.
+    let refused = format!("{OFFER}{}{OFFER}{}{OFFER}", challenge(false), challenge(false));
+    let (c, written, _) = client(vec![&refused]);
+    let mut c = c.with_ntlm(hooks());
+    assert_eq!(c.send("POST", "/ews", &[], b"x").unwrap().status, 401);
+    // A refused connection has not signed in: the next request starts over.
+    assert_eq!(c.send("POST", "/ews", &[], b"x").unwrap().status, 401);
+    let r = requests(&written);
+    assert_eq!(r.len(), 5, "{r:?}");
+    assert_eq!(ntlm_message(&r[3]), ntlm::negotiate());
+
+    // A server that closes the connection after its challenge cannot be signed in to.
+    let closing = format!("{OFFER}{}", challenge(true));
+    let (c, _, _) = client(vec![&closing]);
+    let mut c = c.with_ntlm(hooks());
+    assert!(matches!(c.send("POST", "/ews", &[], b"x"), Err(Error::Status { status: 401, .. })));
+
+    // Without a random source there is no answer.
+    let script = format!("{OFFER}{}", challenge(false));
+    let (c, _, _) = client(vec![&script]);
+    let mut c = c.with_ntlm(ntlm::Hooks { nonce: || None, ..hooks() });
+    assert!(matches!(c.send("POST", "/ews", &[], b"x"), Err(Error::Invalid(_))));
+}
+
+#[test]
+fn ntlm_is_only_tried_when_offered_and_set_up() {
+    // Not set up: the refusal is returned as it is.
+    let (mut c, written, _) = client(vec![OFFER]);
+    assert_eq!(c.send("POST", "/ews", &[], b"x").unwrap().status, 401);
+    assert_eq!(requests(&written).len(), 1);
+    // Set up but not offered.
+    let basic_only = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"x\"\r\nContent-Length: 0\r\n\r\n";
+    let (c, written, _) = client(vec![basic_only]);
+    let mut c = c.with_ntlm(hooks());
+    assert_eq!(c.send("POST", "/ews", &[], b"x").unwrap().status, 401);
+    assert_eq!(requests(&written).len(), 1);
+    // A token client never signs in with NTLM, even when set up.
+    let url = Url::parse("https://cal.example.org/").unwrap();
+    let w: Written = Default::default();
+    let w2 = w.clone();
+    let mut once = Some(Script { reply: io::Cursor::new(OFFER.as_bytes().to_vec()), written: w2 });
+    let mut c = Client::bearer(move || once.take().ok_or_else(|| io::Error::other("no more")), &url, "tok").with_ntlm(hooks());
+    assert_eq!(c.send("POST", "/ews", &[], b"x").unwrap().status, 401);
+    assert_eq!(requests(&w).len(), 1);
+}

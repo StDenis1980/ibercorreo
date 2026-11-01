@@ -590,3 +590,127 @@ fn oauth_token_requests_over_real_tls() {
     assert!(!head.contains("Authorization"), "{head}");
     assert_eq!(form, "grant_type=refresh_token&refresh_token=R");
 }
+
+/// A test HTTPS server that asks for NTLM, the way IIS in front of Exchange does, and checks the
+/// answer itself: the proof against the password, and the binding against its own certificate.
+#[test]
+fn ntlm_sign_in_over_real_tls_is_bound_to_the_certificate() {
+    use hmac::{KeyInit, Mac};
+    use md4::Digest;
+    fn hmac_md5(key: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut m = <hmac::Hmac<md5::Md5> as KeyInit>::new_from_slice(key).unwrap();
+        m.update(data);
+        m.finalize().into_bytes().to_vec()
+    }
+    fn utf16(s: &str) -> Vec<u8> {
+        s.encode_utf16().flat_map(u16::to_le_bytes).collect()
+    }
+    fn le16(b: &[u8], at: usize) -> usize {
+        u16::from_le_bytes([b[at], b[at + 1]]) as usize
+    }
+    fn le32(b: &[u8], at: usize) -> usize {
+        u32::from_le_bytes([b[at], b[at + 1], b[at + 2], b[at + 3]]) as usize
+    }
+    fn read_request<R: BufRead>(r: &mut R) -> Option<(String, Vec<u8>)> {
+        let mut head = String::new();
+        loop {
+            let mut line = String::new();
+            if r.read_line(&mut line).ok()? == 0 {
+                return None;
+            }
+            head.push_str(&line);
+            if line == "\r\n" {
+                break;
+            }
+        }
+        let len = head.lines().find_map(|l| l.strip_prefix("Content-Length: ")).map_or(0, |n| n.trim().parse().unwrap());
+        let mut body = vec![0; len];
+        r.read_exact(&mut body).ok()?;
+        Some((head, body))
+    }
+
+    let c = cert(&["localhost"]);
+    let tls = Tls::with_roots(std::slice::from_ref(&c.der)).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (config, der) = (Arc::clone(&c.server), c.der.clone());
+    let server = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut tls = BufReader::new(StreamOwned::new(ServerConnection::new(config).unwrap(), tcp));
+        let server_challenge = [9u8; 8];
+        let mut seen = Vec::new();
+        while let Some((head, body)) = read_request(&mut tls) {
+            let auth = head.lines().find_map(|l| l.strip_prefix("Authorization: ")).unwrap_or("").to_string();
+            let reply = if auth.starts_with("Basic ") || auth.is_empty() && seen.is_empty() {
+                "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Negotiate\r\nWWW-Authenticate: NTLM\r\nContent-Length: 0\r\n\r\n".to_string()
+            } else if let Some(m) = auth.strip_prefix("NTLM ") {
+                let m = ibercorreo_mime::unbase64(m).unwrap();
+                if m[8] == 1 {
+                    // A challenge with the server's time and names, as Windows sends.
+                    let mut info = Vec::new();
+                    for (id, v) in [(2u16, utf16("CONTOSO")), (1, utf16("EX01")), (7, 0x01d9_1234_5678_9abcu64.to_le_bytes().to_vec())] {
+                        info.extend_from_slice(&id.to_le_bytes());
+                        info.extend_from_slice(&(v.len() as u16).to_le_bytes());
+                        info.extend_from_slice(&v);
+                    }
+                    info.extend_from_slice(&[0; 4]);
+                    let mut t = b"NTLMSSP\0\x02\0\0\0\0\0\0\0\x30\0\0\0".to_vec();
+                    t.extend_from_slice(&0xe28a_8235u32.to_le_bytes());
+                    t.extend_from_slice(&server_challenge);
+                    t.extend_from_slice(&[0; 8]);
+                    t.extend_from_slice(&(info.len() as u16).to_le_bytes());
+                    t.extend_from_slice(&(info.len() as u16).to_le_bytes());
+                    t.extend_from_slice(&48u32.to_le_bytes());
+                    t.extend_from_slice(&info);
+                    format!("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: NTLM {}\r\nContent-Length: 0\r\n\r\n", ibercorreo_mime::base64(&t))
+                } else {
+                    let field = |at: usize| m[le32(&m, at + 4)..le32(&m, at + 4) + le16(&m, at)].to_vec();
+                    let (nt, domain, user) = (field(20), field(28), field(36));
+                    let key = hmac_md5(&md4::Md4::digest(utf16("pässword")), &[utf16("ANA"), domain.clone()].concat());
+                    let proof_ok = hmac_md5(&key, &[&server_challenge[..], &nt[16..]].concat()) == nt[..16];
+                    let mut app = b"tls-server-end-point:".to_vec();
+                    app.extend_from_slice(ring::digest::digest(&ring::digest::SHA256, &der).as_ref());
+                    let mut cb = vec![0u8; 16];
+                    cb.extend_from_slice(&(app.len() as u32).to_le_bytes());
+                    cb.extend_from_slice(&app);
+                    let mut want = vec![10, 0, 16, 0];
+                    want.extend_from_slice(&md5::Md5::digest(&cb));
+                    let bound = nt.windows(want.len()).any(|w| w == want.as_slice());
+                    seen.push(format!("proof={proof_ok} bound={bound} user={} domain={}", String::from_utf8_lossy(&user), domain.len()));
+                    if proof_ok && bound {
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}", body.len(), String::from_utf8_lossy(&body))
+                    } else {
+                        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n".to_string()
+                    }
+                }
+            } else {
+                seen.push("signed in".into());
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{}", body.len(), String::from_utf8_lossy(&body))
+            };
+            let s = tls.get_mut();
+            s.write_all(reply.as_bytes()).unwrap();
+            s.flush().unwrap();
+        }
+        seen
+    });
+    let url = dav::Url::parse(&format!("https://localhost:{port}/EWS/Exchange.asmx")).unwrap();
+    let mut client = dav(&url, &tls, "ana", "pässword");
+    let resp = client.send("POST", "/EWS/Exchange.asmx", &[], b"<first/>").unwrap();
+    assert_eq!((resp.status, resp.body.as_slice()), (200, &b"<first/>"[..]));
+    let resp = client.send("POST", "/EWS/Exchange.asmx", &[], b"<second/>").unwrap();
+    assert_eq!((resp.status, resp.body.as_slice()), (200, &b"<second/>"[..]));
+    drop(client);
+    let seen = server.join().unwrap();
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert!(seen[0].starts_with("proof=true bound=true"), "{seen:?}");
+    assert_eq!(seen[1], "signed in");
+}
+
+#[test]
+fn filetime_counts_from_1601() {
+    assert_eq!(filetime(Duration::ZERO), Some(116_444_736_000_000_000));
+    assert_eq!(filetime(Duration::new(1, 250)), Some(116_444_736_010_000_002));
+    assert_eq!(filetime(Duration::from_secs(u64::MAX)), None);
+    assert!(filetime_now().is_some_and(|t| t > 133_000_000_000_000_000), "after 2022");
+    assert!(ntlm_nonce().is_some());
+}

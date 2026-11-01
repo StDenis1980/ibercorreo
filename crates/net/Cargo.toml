@@ -19,8 +19,13 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+ibercorreo-mime.workspace = true
 ibercorreo-store.workspace = true
 rcgen = "0.14"
+# An independent NTLM check on the test server.
+hmac = "0.13"
+md-5 = "0.11"
+md4 = "0.11"
 
 [lints]
 workspace = true

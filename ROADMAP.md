@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.5b done, NTLM next
+Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.5c done (EWS with NTLM sign-in)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -228,6 +228,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   the `ews` crate has no `SendMeetingInvitations`); a change replaces the item (create, then
   delete) only while its `ChangeKey` is the one last seen, else Exchange's copy wins. No
   invitations or cancellations sent. Turning EWS off forgets that server's calendars and books.
+- 2026-11-01 — M4.5c: NTLM sign-in (NTLMv2, from the published MS-NLMP specification) for
+  Exchange and any HTTPS server: when a server refuses Basic and offers NTLM, the client signs
+  each connection in with NTLM (negotiate, challenge, answer on the same connection) and keeps
+  it. The answer is bound to the server's TLS certificate (`tls-server-end-point`, RFC 5929), as
+  Exchange's Extended Protection requires. `DOMAIN\user` or `user@domain` as the sign-in name.
+  Checked against the specification's test values and a test HTTPS server that verifies the
+  answer itself; no real Exchange server yet. No Kerberos, no message integrity code.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -257,6 +264,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-01 — M4.5a.
 - 2026-11-01 — M4.5b part 1 (Autodiscover).
 - 2026-11-01 — M4.5b part 2 (EWS calendars and contacts).
+- 2026-11-01 — M4.5c (NTLM sign-in).
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

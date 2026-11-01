@@ -86,6 +86,10 @@ impl<S: Read + Write> Conn<S> {
         Conn { stream, buf: Vec::new() }
     }
 
+    pub(crate) fn stream(&self) -> &S {
+        &self.stream
+    }
+
     /// Write `request` and read its reply. `head_only` for a HEAD request, whose reply has no
     /// body whatever its headers say.
     pub(crate) fn exchange(&mut self, request: &[u8], head_only: bool) -> Result<Response> {

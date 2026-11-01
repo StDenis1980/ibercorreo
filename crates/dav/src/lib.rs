@@ -21,6 +21,7 @@ pub mod carddav;
 pub mod ews;
 pub mod graph;
 mod http;
+pub mod ntlm;
 pub mod xml;
 
 use std::io::{Read, Write};
@@ -206,11 +207,21 @@ fn remove_dots(path: &str) -> String {
 
 /// HTTP requests over one connection at a time, opened with `connect` when there is none (at
 /// first, and again after the server closes it).
+///
+/// A client signing in with a password also signs in with NTLM ([`ntlm`]) once a server refuses
+/// Basic and offers NTLM, when it was given the [`ntlm::Hooks`] ([`Client::with_ntlm`]).
 pub struct Client<S, C> {
     connect: C,
     conn: Option<http::Conn<S>>,
     host: String,
     auth: String,
+    /// Who signs in, for NTLM; only clients signing in with a password have one.
+    identity: Option<ntlm::Identity>,
+    hooks: Option<ntlm::Hooks<S>>,
+    /// The server asked for NTLM: every connection signs in with it.
+    ntlm: bool,
+    /// The open connection has signed in with NTLM.
+    signed_in: bool,
 }
 
 impl<S: Read + Write, C: FnMut() -> std::io::Result<S>> Client<S, C> {
@@ -218,37 +229,63 @@ impl<S: Read + Write, C: FnMut() -> std::io::Result<S>> Client<S, C> {
     /// only, which `connect` provides).
     pub fn new(connect: C, url: &Url, user: &str, password: &str) -> Self {
         let token = ibercorreo_mime::base64(format!("{user}:{password}").as_bytes());
-        Client { connect, conn: None, host: url.host_header(), auth: format!("Basic {token}") }
+        let identity = Some(ntlm::Identity::from_login(user, password));
+        Client { connect, conn: None, host: url.host_header(), auth: format!("Basic {token}"), identity, hooks: None, ntlm: false, signed_in: false }
     }
 
     /// A client signing in with an OAuth 2.0 access token (`Authorization: Bearer`). A token
     /// that could break the header is not sent at all.
     pub fn bearer(connect: C, url: &Url, token: &str) -> Self {
         let ok = !token.is_empty() && token.bytes().all(|b| b.is_ascii_graphic());
-        Client { connect, conn: None, host: url.host_header(), auth: if ok { format!("Bearer {token}") } else { String::new() } }
+        let auth = if ok { format!("Bearer {token}") } else { String::new() };
+        Client { connect, conn: None, host: url.host_header(), auth, identity: None, hooks: None, ntlm: false, signed_in: false }
     }
 
     /// A client that sends no credentials (for public files such as a mail configuration).
     pub fn anonymous(connect: C, url: &Url) -> Self {
-        Client { connect, conn: None, host: url.host_header(), auth: String::new() }
+        Client { connect, conn: None, host: url.host_header(), auth: String::new(), identity: None, hooks: None, ntlm: false, signed_in: false }
+    }
+
+    /// Let a client signing in with a password sign in with NTLM too, when a server asks for it.
+    pub fn with_ntlm(mut self, hooks: ntlm::Hooks<S>) -> Self {
+        self.hooks = Some(hooks);
+        self
     }
 
     /// Send one request and read the reply, whatever its status. A connection the server had
     /// quietly closed is opened again once.
     pub fn send(&mut self, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<Response> {
+        if self.ntlm {
+            return self.send_ntlm(method, path, headers, body);
+        }
         let request = http::request(method, path, &self.host, &self.auth, headers, body)?;
         let head_only = method.eq_ignore_ascii_case("HEAD");
+        let resp = self.exchange(|conn, _| Ok((conn.exchange(&request, head_only)?, false)))?;
+        if resp.status == 401 && self.identity.is_some() && self.hooks.is_some() && ntlm::offered(&resp) {
+            self.ntlm = true;
+            return self.send_ntlm(method, path, headers, body);
+        }
+        Ok(resp)
+    }
+
+    /// Run `step` on the open connection, or on a new one; a kept-alive connection the server
+    /// had closed is replaced once. `step` is told whether the connection has signed in with
+    /// NTLM, and says whether it now has.
+    fn exchange(&mut self, mut step: impl FnMut(&mut http::Conn<S>, bool) -> Result<(Response, bool)>) -> Result<Response> {
         for attempt in 0..2 {
             let fresh = self.conn.is_none();
-            let conn = match self.conn.take() {
+            // Only a kept connection can have signed in.
+            let signed_in = self.signed_in;
+            let mut conn = match self.conn.take() {
                 Some(c) => c,
                 None => http::Conn::new((self.connect)()?),
             };
-            let mut conn = conn;
-            match conn.exchange(&request, head_only) {
-                Ok(resp) => {
+            self.signed_in = false;
+            match step(&mut conn, signed_in) {
+                Ok((resp, signed_in)) => {
                     if !resp.close {
                         self.conn = Some(conn);
+                        self.signed_in = signed_in;
                     }
                     return Ok(resp);
                 }
@@ -258,6 +295,52 @@ impl<S: Read + Write, C: FnMut() -> std::io::Result<S>> Client<S, C> {
             }
         }
         Err(Error::Protocol("the server closed the connection twice".into()))
+    }
+
+    /// Send a request signing in with NTLM: on a connection that has not signed in yet, the
+    /// negotiate message first (with no body), then the request with the answer to the
+    /// server's challenge, on the same connection.
+    fn send_ntlm(&mut self, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<Response> {
+        let (Some(identity), Some(hooks)) = (self.identity.clone(), self.hooks) else {
+            return Err(Error::Invalid("NTLM sign-in needs a password".into()));
+        };
+        let host = self.host.clone();
+        let head_only = method.eq_ignore_ascii_case("HEAD");
+        let plain = http::request(method, path, &host, "", headers, body)?;
+        let negotiate = format!("NTLM {}", ibercorreo_mime::base64(&ntlm::negotiate()));
+        let first = http::request(method, path, &host, &negotiate, headers, &[])?;
+        self.exchange(|conn, signed_in| {
+            if signed_in {
+                let resp = conn.exchange(&plain, head_only)?;
+                if resp.status != 401 || resp.close {
+                    let signed_in = resp.status != 401;
+                    return Ok((resp, signed_in));
+                }
+                // The server wants the connection signed in again.
+            }
+            let resp = conn.exchange(&first, head_only)?;
+            if resp.status != 401 {
+                if resp.close {
+                    return Err(Error::Protocol("the server closed the connection before NTLM sign-in".into()));
+                }
+                // Signed in already (or no sign-in needed): now the request itself.
+                let resp = conn.exchange(&plain, head_only)?;
+                return Ok((resp, true));
+            }
+            let Some(challenge) = ntlm::challenge_in(&resp) else { return Ok((resp, false)) };
+            if resp.close {
+                return Err(Error::Status { status: 401, what: "the server closed the connection during NTLM sign-in".into() });
+            }
+            let challenge = ntlm::Challenge::parse(&challenge)?;
+            let client_challenge = (hooks.nonce)().ok_or_else(|| Error::Invalid("no random source for NTLM sign-in".into()))?;
+            let now = (hooks.now)().unwrap_or(0);
+            let binding = (hooks.binding)(conn.stream());
+            let answer = ntlm::Answer { identity: &identity, client_challenge, now, binding: binding.as_deref() };
+            let auth = format!("NTLM {}", ibercorreo_mime::base64(&ntlm::authenticate(&challenge, &answer)?));
+            let resp = conn.exchange(&http::request(method, path, &host, &auth, headers, body)?, head_only)?;
+            let signed_in = resp.status != 401;
+            Ok((resp, signed_in))
+        })
     }
 }
 

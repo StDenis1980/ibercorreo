@@ -1685,8 +1685,11 @@ name = "ibercorreo-dav"
 version = "0.1.0"
 dependencies = [
  "ews",
+ "hmac",
  "ibercorreo-core",
  "ibercorreo-mime",
+ "md-5",
+ "md4",
  "quick-xml 0.38.4",
  "serde_json",
  "thiserror 2.0.21",
@@ -1736,12 +1739,16 @@ dependencies = [
 name = "ibercorreo-net"
 version = "0.1.0"
 dependencies = [
+ "hmac",
  "ibercorreo-core",
  "ibercorreo-dav",
  "ibercorreo-imap",
+ "ibercorreo-mime",
  "ibercorreo-smtp",
  "ibercorreo-store",
  "ibercorreo-sync",
+ "md-5",
+ "md4",
  "rcgen",
  "ring",
  "rustls",
@@ -2120,6 +2127,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ec00bda90c6e645a54506c630c2820cd6b1890cfd2b0a169b50f74b2b8c7c86"
 dependencies = [
  "hashify",
+]
+
+[[package]]
+name = "md-5"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
+dependencies = [
+ "cfg-if",
+ "digest",
+]
+
+[[package]]
+name = "md4"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd76fb0fd6b2e4be62a73f8e0858ca97f81babcb1af322dcaca196f735f17f80"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
