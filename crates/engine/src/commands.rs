@@ -2176,7 +2176,11 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
     let account = account_from_params(s, p, Some(&old))?;
     let mailbox_changed = mailbox_key(&old).is_some() && mailbox_key(&old) != mailbox_key(&account);
     let dav_changed = !old.caldav.is_empty() && old.caldav != account.caldav;
+    let ews_gone = old.mail_over_ews().filter(|o| account.mail_over_ews() != Some(*o)).map(str::to_string);
     *s.store.account_mut(id)? = account;
+    if let Some(ews) = ews_gone {
+        forget_exchange(s, &ews);
+    }
     // Another mailbox: the mail synced from the old one goes, so the two never mix.
     if mailbox_changed {
         s.store.forget_server_mail(id);
@@ -2189,6 +2193,14 @@ fn account_set(s: &mut Session, p: &Value) -> Result<Value> {
     s.fix_selection();
     s.status = "Account saved".into();
     account_get(s, &json!({ "id": id.0 }))
+}
+
+/// Forget the calendars and address books mirrored from the Exchange server at `ews`: an empty
+/// sync of that server's scope removes them.
+fn forget_exchange(s: &mut Session, ews: &str) {
+    let scope = Some(ibercorreo_sync::ews_pim::prefix(ews));
+    ibercorreo_sync::calendar::apply(&mut s.store, ibercorreo_sync::calendar::Batch { scope: scope.clone(), ..Default::default() });
+    ibercorreo_sync::contacts::apply(&mut s.store, ibercorreo_sync::contacts::Batch { scope, ..Default::default() });
 }
 
 fn account_add(s: &mut Session, p: &Value) -> Result<Value> {
@@ -2210,6 +2222,9 @@ fn account_remove(s: &mut Session, p: &Value) -> Result<Value> {
     let id = account_id_param(s, p)?.or_else(|| (!s.store.accounts.is_empty()).then(|| s.current_account()));
     let id = id.ok_or_else(|| Error::not_found("account", "none set up"))?;
     let gone = s.store.remove_account(id)?;
+    if let Some(ews) = gone.mail_over_ews() {
+        forget_exchange(s, ews);
+    }
     if !gone.caldav.is_empty() {
         ibercorreo_sync::calendar::forget(&mut s.store);
         ibercorreo_sync::contacts::forget(&mut s.store);

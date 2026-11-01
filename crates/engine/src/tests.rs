@@ -837,7 +837,14 @@ fn mail_over_ews_takes_the_exchange_address_and_forgets_the_imap_copy() {
     let mut m = Message::new(MessageId(0), inbox);
     m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false, id: Some("AAMk1".into()) });
     let synced = s.store.add_message(m).unwrap();
+    // A calendar mirrored from that Exchange server, and one from CalDAV.
+    let prefix = ibercorreo_sync::ews_pim::prefix("https://mail.contoso.es:8443/ews/exchange.asmx");
+    let exchange =
+        s.store.add_calendar("Calendario", "#123456", Some(ibercorreo_core::CalendarRemote { href: format!("{prefix}CA/"), ctag: None })).unwrap();
+    let dav = s.store.add_calendar("Casa", "#654321", Some(ibercorreo_core::CalendarRemote { href: "/dav/casa/".into(), ctag: None })).unwrap();
     let imap = s.run("account.set", &with(json!({"ews": "", "imapHost": "mail.contoso.es", "smtpHost": "mail.contoso.es"}))).unwrap();
+    let left: Vec<u32> = s.store.calendars().iter().map(|c| c.id).collect();
+    assert!(!left.contains(&exchange) && left.contains(&dav), "Exchange's calendars go with it: {left:?}");
     assert_eq!(imap["ews"], "");
     assert!(s.store.message(synced).is_err());
     assert_eq!(s.store.folder(inbox).unwrap().remote, None);

@@ -174,9 +174,9 @@ fn run_graph(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) ->
 }
 
 /// The mail over Exchange Web Services, for an Exchange Server the organisation runs itself:
-/// the Outbox with `CreateItem` (Exchange files the Sent copies), then the mail, on one
-/// connection signed in to with the password. The calendars and contacts sync over CalDAV
-/// when the account has an address for them.
+/// the Outbox with `CreateItem` (Exchange files the Sent copies), the mail, then Exchange's
+/// calendars and contacts, on one connection signed in to with the password. With a CalDAV
+/// address, the calendars and contacts sync there instead.
 fn run_ews(job: &Job, ews: &str, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
     let fail = |e: String| {
         let sent = job.outbox.iter().map(|m| Sent { id: m.id, outcome: Outcome::Later(e.clone()) }).collect();
@@ -191,11 +191,18 @@ fn run_ews(job: &Job, ews: &str, progress: &mut dyn FnMut(&ibercorreo_sync::Prog
         Ok(s) => s,
         Err(e) => return fail(format!("sign-in: {e}")),
     };
-    let mut ews = crate::dav::ews::Ews::new(crate::dav_with(&url, &job.tls, login, &secret), &url);
-    let sent = ibercorreo_sync::ews_mail::send(&mut ews, &job.outbox);
-    let batch = ibercorreo_sync::ews_mail::run_with(&mut ews, &job.state, &job.limits, progress).map_err(|e| e.to_string());
-    let (calendar, contacts) = if job.account.caldav.trim().is_empty() {
+    let mut client = crate::dav::ews::Ews::new(crate::dav_with(&url, &job.tls, login, &secret), &url);
+    let sent = ibercorreo_sync::ews_mail::send(&mut client, &job.outbox);
+    let batch = ibercorreo_sync::ews_mail::run_with(&mut client, &job.state, &job.limits, progress);
+    let refused = matches!(batch, Err(crate::dav::Error::Auth(_)));
+    let batch = batch.map_err(|e| e.to_string());
+    let (calendar, contacts) = if refused {
         (None, None)
+    } else if job.account.caldav.trim().is_empty() {
+        // Exchange's own calendars and contacts, on the same connection.
+        let calendar = ibercorreo_sync::ews_pim::calendar(&mut client, ews, &job.calendar).map_err(|e| e.to_string());
+        let contacts = ibercorreo_sync::ews_pim::contacts(&mut client, ews, &job.contacts).map_err(|e| e.to_string());
+        (Some(calendar), Some(contacts))
     } else {
         let (calendar, contacts) = sync_dav(job, login, &secret);
         (Some(calendar), Some(contacts))

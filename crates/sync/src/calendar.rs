@@ -64,9 +64,10 @@ impl State {
 /// id); everything else came from a CalDAV server.
 pub const GRAPH_PREFIX: &str = "/v1.0/users/";
 
-/// Whether `href` is a CalDAV calendar's (not one from Microsoft Graph).
+/// Whether `href` is a CalDAV calendar's (not one from Microsoft Graph or Exchange Web
+/// Services, [`crate::ews_pim::EWS_PREFIX`]).
 pub fn is_caldav(href: &str) -> bool {
-    !href.starts_with(GRAPH_PREFIX)
+    !href.starts_with(GRAPH_PREFIX) && !href.starts_with(crate::ews_pim::EWS_PREFIX)
 }
 
 /// Most changes sent in one sync; the rest go in the next.

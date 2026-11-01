@@ -28,6 +28,7 @@ pub use ibercorreo_imap::{Error, Result};
 pub mod calendar;
 pub mod contacts;
 pub mod ews_mail;
+pub mod ews_pim;
 pub mod graph_calendar;
 pub mod graph_contacts;
 pub mod graph_mail;

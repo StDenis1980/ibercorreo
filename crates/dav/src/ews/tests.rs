@@ -124,3 +124,28 @@ fn refusals_faults_and_odd_replies_are_errors_not_crashes() {
     assert!(matches!(e.call(get_folder()), Err(Error::Status { status: 500, .. })));
     assert!(matches!(e.call(get_folder()), Err(Error::Status { status: 302, .. })));
 }
+
+#[test]
+fn a_hand_written_operation_reads_its_messages_as_elements() {
+    let created = r#"<m:CreateItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types"><m:ResponseMessages>
+      <m:CreateItemResponseMessage ResponseClass="Success"><m:ResponseCode>NoError</m:ResponseCode><m:Items><t:CalendarItem><t:ItemId Id="CAL1" ChangeKey="ck1"/></t:CalendarItem></m:Items></m:CreateItemResponseMessage>
+      <m:CreateItemResponseMessage ResponseClass="Error"><m:MessageText>No such folder.</m:MessageText><m:ResponseCode>ErrorFolderNotFound</m:ResponseCode></m:CreateItemResponseMessage>
+    </m:ResponseMessages></m:CreateItemResponse>"#;
+    let busy = r#"<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><s:Fault><faultcode>a:ErrorServerBusy</faultcode><faultstring>Busy.</faultstring><detail><e:ResponseCode xmlns:e="http://schemas.microsoft.com/exchange/services/2006/errors">ErrorServerBusy</e:ResponseCode></detail></s:Fault></s:Body></s:Envelope>"#;
+    let mut e = ews(vec![reply(200, &envelope(created)), reply(500, busy), reply(200, "<html/>"), reply(500, "oops")]);
+    let each = e.call_raw("<CreateItem/>").unwrap();
+    let id = each[0]
+        .as_ref()
+        .unwrap()
+        .child(MESSAGES_NS, "Items")
+        .and_then(|i| i.children.first())
+        .and_then(|c| c.child(TYPES_NS, "ItemId"))
+        .and_then(|i| i.attr("Id"));
+    assert_eq!(id, Some("CAL1"));
+    assert!(matches!(&each[1], Err(Error::Status { status: 404, .. })), "{:?}", each[1]);
+    let (_, _, _, body) = &e.http().asked[0];
+    assert!(body.contains("<soap:Body><CreateItem/></soap:Body>") && body.contains("Exchange2013_SP1"), "{body}");
+    assert!(matches!(e.call_raw("<CreateItem/>"), Err(Error::Busy { .. })));
+    assert!(matches!(e.call_raw("<CreateItem/>"), Err(Error::Protocol(_))));
+    assert!(matches!(e.call_raw("<CreateItem/>"), Err(Error::Status { status: 500, .. })));
+}
