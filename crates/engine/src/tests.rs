@@ -804,6 +804,48 @@ fn mail_over_graph_needs_the_microsoft_sign_in_and_forgets_the_imap_copy() {
 }
 
 #[test]
+fn mail_over_ews_takes_the_exchange_address_and_forgets_the_imap_copy() {
+    let mut s = session();
+    // Just the Exchange server: its usual EWS address, and it stands in for IMAP and SMTP.
+    let v = s.run("account.add", &json!({"email": "ana@contoso.es", "ews": " Mail.Contoso.es ", "smtpHost": ""})).unwrap();
+    assert_eq!(v["ews"], "https://mail.contoso.es/EWS/Exchange.asmx");
+    assert_eq!((v["imapHost"].as_str(), v["smtpHost"].as_str()), (Some("mail.contoso.es"), Some("mail.contoso.es")));
+    let a = AccountId(u32::try_from(v["id"].as_u64().unwrap()).unwrap());
+    assert_eq!(s.store.account(a).unwrap().mail_over_ews(), Some("https://mail.contoso.es/EWS/Exchange.asmx"));
+    let with = |extra: Value| {
+        let mut p = json!({"id": a.0, "email": "ana@contoso.es"});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    let full = s.run("account.set", &with(json!({"ews": "https://mail.contoso.es:8443/ews/exchange.asmx"}))).unwrap();
+    assert_eq!(full["ews"], "https://mail.contoso.es:8443/ews/exchange.asmx");
+    for bad in [
+        json!({"ews": "http://mail.contoso.es/EWS/Exchange.asmx"}),
+        json!({"ews": "https://ana@mail.contoso.es/"}),
+        json!({"ews": 7}),
+        json!({"ews": "mail.contoso.es", "oauth": "microsoft"}),
+        json!({"ews": "mail.contoso.es", "oauth": "microsoft", "graphMail": true}),
+    ] {
+        assert!(s.run("account.set", &with(bad.clone())).is_err(), "{bad}");
+    }
+    // Left out, it stays as it is.
+    assert_eq!(s.run("account.set", &with(json!({"name": "Ana Gil"}))).unwrap()["ews"], "https://mail.contoso.es:8443/ews/exchange.asmx");
+
+    // Exchange's folders and ids are not IMAP's: switching forgets the copy synced the other way.
+    let inbox = s.store.folder_by_role(a, FolderRole::Inbox).unwrap();
+    s.store.folder_mut(inbox).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "AAMkIN".into(), uid_validity: 1 });
+    let mut m = Message::new(MessageId(0), inbox);
+    m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false, id: Some("AAMk1".into()) });
+    let synced = s.store.add_message(m).unwrap();
+    let imap = s.run("account.set", &with(json!({"ews": "", "imapHost": "mail.contoso.es", "smtpHost": "mail.contoso.es"}))).unwrap();
+    assert_eq!(imap["ews"], "");
+    assert!(s.store.message(synced).is_err());
+    assert_eq!(s.store.folder(inbox).unwrap().remote, None);
+    // Without EWS the servers are needed again.
+    assert!(s.run("account.add", &json!({"email": "luis@contoso.es"})).is_err());
+}
+
+#[test]
 fn another_mailbox_for_an_account_forgets_the_old_mail() {
     let mut s = session();
     let base = json!({"email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});

@@ -27,10 +27,12 @@ pub use ibercorreo_imap::{Error, Result};
 
 pub mod calendar;
 pub mod contacts;
+pub mod ews_mail;
 pub mod graph_calendar;
 pub mod graph_contacts;
 pub mod graph_mail;
 pub mod outbox;
+pub mod server_mail;
 
 #[cfg(test)]
 mod tests;

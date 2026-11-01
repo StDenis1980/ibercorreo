@@ -17,3 +17,7 @@ permissive licences; `cargo tree` lists them). Notably:
 - egui / eframe — MIT OR Apache-2.0.
 - rustls — Apache-2.0 OR ISC OR MIT; rustls-platform-verifier — MIT OR Apache-2.0.
 - ring (cryptography) — Apache-2.0 AND ISC.
+- ews, ews_proc_macros, xml_struct, xml_struct_derive (Thunderbird / MZLA Technologies) — MPL-2.0.
+  Used unmodified, for Exchange Web Services; their source is at
+  https://github.com/thunderbird/ews-rs and https://github.com/thunderbird/xml-struct-rs, and on
+  crates.io.

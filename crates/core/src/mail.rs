@@ -138,6 +138,11 @@ pub enum AccountKind {
         /// whose organisation turned IMAP off. Only with the `microsoft` sign-in.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         graph: bool,
+        /// Mail goes over Exchange Web Services at this address
+        /// (`https://mail.example.org/EWS/Exchange.asmx`), not IMAP and SMTP: for an Exchange
+        /// Server the organisation runs itself. Signed in to with the password.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        ews: String,
     },
 }
 
@@ -222,12 +227,21 @@ impl Account {
         }
     }
 
-    /// The sign-in name for an IMAP account: `user`, or the address when that is empty.
     /// Whether the mail goes over Microsoft Graph ([`AccountKind::Imap`]'s `graph`).
     pub fn mail_over_graph(&self) -> bool {
         matches!(&self.kind, AccountKind::Imap { graph: true, oauth, .. } if oauth == "microsoft")
     }
 
+    /// The Exchange Web Services address the mail goes over ([`AccountKind::Imap`]'s `ews`),
+    /// for an account signed in to with a password.
+    pub fn mail_over_ews(&self) -> Option<&str> {
+        match &self.kind {
+            AccountKind::Imap { ews, oauth, .. } if !ews.is_empty() && oauth.is_empty() => Some(ews),
+            _ => None,
+        }
+    }
+
+    /// The sign-in name for an IMAP account: `user`, or the address when that is empty.
     pub fn login(&self) -> Option<&str> {
         match &self.kind {
             AccountKind::Imap { user, .. } if !user.is_empty() => Some(user),
@@ -527,8 +541,14 @@ mod tests {
             smtp_security: Default::default(),
             oauth: String::new(),
             graph: false,
+            ews: String::new(),
         };
         assert_eq!(a.credential_entry(), Some((KEYRING_SERVICE, "login".to_string())));
+        assert_eq!(a.mail_over_ews(), None);
+        if let AccountKind::Imap { ews, .. } = &mut a.kind {
+            *ews = "https://mail.contoso.es/EWS/Exchange.asmx".into();
+        }
+        assert_eq!(a.mail_over_ews(), Some("https://mail.contoso.es/EWS/Exchange.asmx"));
         if let AccountKind::Imap { oauth, .. } = &mut a.kind {
             *oauth = "google".into();
         }

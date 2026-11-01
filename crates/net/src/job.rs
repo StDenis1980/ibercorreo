@@ -1,6 +1,6 @@
 //! One Send/Receive for an account, start to finish on the network: send the Outbox over SMTP,
-//! save the copies to the server's Sent, sync over IMAP (or all of it over Microsoft Graph, for
-//! an account whose mail goes that way), then sync the calendars over CalDAV and
+//! save the copies to the server's Sent, sync over IMAP (or all of it over Microsoft Graph or
+//! Exchange Web Services, for an account whose mail goes that way), then sync the calendars over CalDAV and
 //! the contacts over CardDAV, or a Microsoft account's Outlook calendars and contacts over
 //! Microsoft Graph. It takes a snapshot of what the store needs ([`Job`]) and returns
 //! what happened ([`Finished`]), so it can run on a background thread while the window stays
@@ -57,6 +57,9 @@ pub fn run(job: &Job) -> Finished {
 pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
     if job.account.mail_over_graph() {
         return run_graph(job, progress);
+    }
+    if let Some(ews) = job.account.mail_over_ews() {
+        return run_ews(job, ews, progress);
     }
     let AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. } = &job.account.kind else {
         return Finished { sent: Vec::new(), batch: Err("this account has no mail server".into()), calendar: None, contacts: None };
@@ -167,6 +170,36 @@ fn run_graph(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) ->
         // Renewed at the next try.
         job.credential.forget_graph_access();
     }
+    Finished { sent, batch, calendar, contacts }
+}
+
+/// The mail over Exchange Web Services, for an Exchange Server the organisation runs itself:
+/// the Outbox with `CreateItem` (Exchange files the Sent copies), then the mail, on one
+/// connection signed in to with the password. The calendars and contacts sync over CalDAV
+/// when the account has an address for them.
+fn run_ews(job: &Job, ews: &str, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
+    let fail = |e: String| {
+        let sent = job.outbox.iter().map(|m| Sent { id: m.id, outcome: Outcome::Later(e.clone()) }).collect();
+        Finished { sent, batch: Err(e), calendar: None, contacts: None }
+    };
+    let Some(login) = job.account.login() else { return fail("this account has no sign-in name".into()) };
+    let url = match crate::dav::Url::parse(ews) {
+        Ok(url) => url,
+        Err(e) => return fail(format!("the Exchange address: {e}")),
+    };
+    let secret = match job.credential.secret(&job.tls) {
+        Ok(s) => s,
+        Err(e) => return fail(format!("sign-in: {e}")),
+    };
+    let mut ews = crate::dav::ews::Ews::new(crate::dav_with(&url, &job.tls, login, &secret), &url);
+    let sent = ibercorreo_sync::ews_mail::send(&mut ews, &job.outbox);
+    let batch = ibercorreo_sync::ews_mail::run_with(&mut ews, &job.state, &job.limits, progress).map_err(|e| e.to_string());
+    let (calendar, contacts) = if job.account.caldav.trim().is_empty() {
+        (None, None)
+    } else {
+        let (calendar, contacts) = sync_dav(job, login, &secret);
+        (Some(calendar), Some(contacts))
+    };
     Finished { sent, batch, calendar, contacts }
 }
 

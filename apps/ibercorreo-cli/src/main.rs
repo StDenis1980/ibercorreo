@@ -432,6 +432,7 @@ mod tests {
                 smtp_security: Default::default(),
                 oauth: oauth.into(),
                 graph: false,
+                ews: String::new(),
             },
             caldav: String::new(),
             signature: String::new(),
