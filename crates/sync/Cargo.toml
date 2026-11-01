@@ -14,6 +14,7 @@ ibercorreo-mime.workspace = true
 ibercorreo-smtp.workspace = true
 ibercorreo-store.workspace = true
 ibercorreo-vcard.workspace = true
+ews = "0.1.2"
 serde.workspace = true
 serde_json.workspace = true
 

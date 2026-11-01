@@ -526,7 +526,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\ngraphMail?: boolean — receive and send over Microsoft Graph instead of IMAP and SMTP, for a Microsoft 365 work account whose IMAP is turned off; needs oauth \"microsoft\"; omitted keeps the current choice\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
+        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\ngraphMail?: boolean — receive and send over Microsoft Graph instead of IMAP and SMTP, for a Microsoft 365 work account whose IMAP is turned off; needs oauth \"microsoft\"; omitted keeps the current choice\news?: string — receive and send over Exchange Web Services, for an Exchange Server the organisation runs itself: its EWS address (https://mail.example.org/EWS/Exchange.asmx) or just the server's name; signed in to with the password (no oauth); imapHost and smtpHost may then be left out; omitted keeps the current one, \"\" goes back to IMAP and SMTP\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -2110,18 +2110,51 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
     if graph && oauth != "microsoft" {
         return Err(Error::invalid("graphMail", "mail over Microsoft Graph needs the Microsoft sign-in (oauth \"microsoft\")"));
     }
+    let ews = match str_param(p, "ews")?.map(str::trim) {
+        None => match old.map(|a| &a.kind) {
+            Some(AccountKind::Imap { ews, .. }) => ews.clone(),
+            _ => String::new(),
+        },
+        Some(address) => ews_address(address)?,
+    };
+    if !ews.is_empty() && (graph || !oauth.is_empty()) {
+        return Err(Error::invalid("ews", "Exchange Web Services is signed in to with the password: no oauth, no graphMail"));
+    }
+    // Over EWS the IMAP and SMTP servers are not used: the Exchange server stands in for them.
+    let ews_host = ibercorreo_dav::Url::parse(&ews).map(|u| u.host).ok();
+    let server = |key: &str| match (p.get(key), &ews_host) {
+        (None | Some(Value::Null), Some(host)) => Ok(host.to_ascii_lowercase()),
+        (Some(Value::String(given)), Some(host)) if given.trim().is_empty() => Ok(host.to_ascii_lowercase()),
+        _ => host_param(p, key),
+    };
     let kind = AccountKind::Imap {
-        imap_host: host_param(p, "imapHost")?,
+        imap_host: server("imapHost")?,
         imap_port: port_param(p, "imapPort", imap_security.default_imap_port())?,
-        smtp_host: host_param(p, "smtpHost")?,
+        smtp_host: server("smtpHost")?,
         smtp_port: port_param(p, "smtpPort", smtp_security.default_smtp_port())?,
         user: user.to_string(),
         imap_security,
         smtp_security,
         oauth: oauth.to_string(),
         graph,
+        ews,
     };
     Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav, signature })
+}
+
+/// The Exchange Web Services address `text` names: `""` for none, a full `https://` address, or
+/// just the server's name (`mail.contoso.es`), for its usual `/EWS/Exchange.asmx`.
+fn ews_address(text: &str) -> Result<String> {
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    let full = if text.contains("://") { text.to_string() } else { format!("https://{text}") };
+    let mut url = ibercorreo_dav::Url::parse(&full).map_err(|e| Error::invalid("ews", e.to_string()))?;
+    if url.path == "/" {
+        url.path = "/EWS/Exchange.asmx".into();
+    }
+    let port = if url.port == 443 { String::new() } else { format!(":{}", url.port) };
+    Ok(format!("https://{}{port}{}", url.host.to_ascii_lowercase(), url.path))
 }
 
 /// The mailbox an account reads: its IMAP server and sign-in name. Another one is another
@@ -2130,6 +2163,8 @@ fn mailbox_key(a: &Account) -> Option<(String, u16, String)> {
     match &a.kind {
         // Over Graph the server is Microsoft's: the folders and message ids are not IMAP's.
         AccountKind::Imap { .. } if a.mail_over_graph() => Some(("graph.microsoft.com".into(), 443, a.login()?.to_ascii_lowercase())),
+        // Over EWS, the Exchange server's address: its message ids are not IMAP's either.
+        AccountKind::Imap { .. } if let Some(ews) = a.mail_over_ews() => Some((ews.to_ascii_lowercase(), 443, a.login()?.to_ascii_lowercase())),
         AccountKind::Imap { imap_host, imap_port, .. } => Some((imap_host.to_ascii_lowercase(), *imap_port, a.login()?.to_ascii_lowercase())),
         AccountKind::Local => None,
     }
@@ -2200,6 +2235,7 @@ fn account_json(a: &Account) -> Value {
             ("user", json!(a.login())),
             ("oauth", json!(a.oauth().map_or("", |p| p.id))),
             ("graphMail", json!(a.mail_over_graph())),
+            ("ews", json!(a.mail_over_ews().unwrap_or(""))),
         ] {
             obj.insert(k.into(), val);
         }

@@ -180,6 +180,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +908,9 @@ name = "deranged"
 version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
+dependencies = [
+ "serde_core",
+]
 
 [[package]]
 name = "digest"
@@ -1212,6 +1221,31 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "ews"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4e811b2a45e6150a69f752adeef691a356eb1e07f894fc795876b23c74d3de5"
+dependencies = [
+ "ews_proc_macros",
+ "quick-xml 0.41.0",
+ "serde",
+ "serde_path_to_error",
+ "thiserror 1.0.69",
+ "time",
+ "xml_struct",
+]
+
+[[package]]
+name = "ews_proc_macros"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e74a07e9809826ddfdd105cc32fbab30ca2a68d56406c7d1ab65e7e5ba666ab7"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1650,6 +1684,7 @@ dependencies = [
 name = "ibercorreo-dav"
 version = "0.1.0"
 dependencies = [
+ "ews",
  "ibercorreo-core",
  "ibercorreo-mime",
  "quick-xml 0.38.4",
@@ -1739,6 +1774,7 @@ dependencies = [
 name = "ibercorreo-sync"
 version = "0.1.0"
 dependencies = [
+ "ews",
  "ibercorreo-core",
  "ibercorreo-dav",
  "ibercorreo-ical",
@@ -2914,6 +2950,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
 dependencies = [
  "memchr",
+ "serde",
 ]
 
 [[package]]
@@ -3305,6 +3342,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -4602,6 +4650,29 @@ name = "xml-rs"
 version = "0.8.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
+
+[[package]]
+name = "xml_struct"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43059d8e1ecbf98bccea1f80a43144c76267059b4015018338fc7df53e9181b5"
+dependencies = [
+ "anyhow",
+ "quick-xml 0.41.0",
+ "thiserror 1.0.69",
+ "xml_struct_derive",
+]
+
+[[package]]
+name = "xml_struct_derive"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61cd690908caaece5c3593bf67665d653087209a0a758d318fca92f61dc4656d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "xtask"

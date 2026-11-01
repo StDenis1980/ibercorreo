@@ -250,6 +250,9 @@ struct AccountForm {
     oauth: String,
     /// Mail over Microsoft Graph instead of IMAP and SMTP (with the Microsoft sign-in only).
     graph_mail: bool,
+    /// The Exchange server (its EWS address or name) mail goes over instead of IMAP and SMTP
+    /// (with a password only); empty for none.
+    ews: String,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
 }
@@ -479,6 +482,7 @@ impl App {
             signature: text("signature"),
             oauth: text("oauth"),
             graph_mail: v.get("graphMail").and_then(Value::as_bool).unwrap_or(false),
+            ews: text("ews"),
             note: note.to_string(),
         };
         if self.account_form.user == self.account_form.email {
@@ -614,7 +618,14 @@ impl App {
                         ));
                         ui.end_row();
                     }
-                    let graph_mail = f.oauth == "microsoft" && f.graph_mail;
+                    if f.oauth.is_empty() {
+                        ui.label(tl("Exchange server (EWS)")).on_hover_text(tl(
+                            "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
+                        ));
+                        ui.add(egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
+                        ui.end_row();
+                    }
+                    let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && !f.ews.trim().is_empty());
                     if f.oauth.is_empty() {
                         ui.label(tl("Password"));
                         ui.add(
@@ -641,7 +652,7 @@ impl App {
                         ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
                         ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
                     ];
-                    for (title, host, port, starttls, tls_port, starttls_port) in servers.into_iter().filter(|_| !graph_mail) {
+                    for (title, host, port, starttls, tls_port, starttls_port) in servers.into_iter().filter(|_| !other_server) {
                         ui.label(RichText::new(tl(title)).strong());
                         ui.end_row();
                         ui.label(tl("Server"));
@@ -743,6 +754,7 @@ impl App {
             "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
             "caldav": f.caldav, "oauth": f.oauth, "signature": f.signature,
             "graphMail": f.oauth == "microsoft" && f.graph_mail,
+            "ews": if f.oauth.is_empty() { f.ews.trim() } else { "" },
         });
         if let Some(o) = p.as_object_mut() {
             for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -3423,6 +3435,27 @@ mod tests {
         app.account_form.oauth.clear();
         app.save_account();
         assert!(!app.session.store.account(id).unwrap().mail_over_graph());
+    }
+
+    #[test]
+    fn an_exchange_server_stands_in_for_imap_and_smtp_through_the_dialog() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        app.open_account_settings(None, "");
+        app.account_form.email = "ana@contoso.es".into();
+        app.account_form.ews = "mail.contoso.es".into();
+        // The IMAP and SMTP rows are hidden and left empty.
+        app.save_account();
+        let id = app.session.store.accounts.first().map(|a| a.id).unwrap();
+        assert_eq!(app.session.store.account(id).unwrap().mail_over_ews(), Some("https://mail.contoso.es/EWS/Exchange.asmx"));
+        app.open_account_settings(Some(id), "");
+        assert_eq!(app.account_form.ews, "https://mail.contoso.es/EWS/Exchange.asmx", "the dialog shows it");
+        app.save_account();
+        assert!(app.session.store.account(id).unwrap().mail_over_ews().is_some(), "saving the dialog keeps it");
+        // A browser sign-in is not for EWS: choosing one goes back to IMAP and SMTP.
+        app.open_account_settings(Some(id), "");
+        app.account_form.oauth = "microsoft".into();
+        app.save_account();
+        assert_eq!(app.session.store.account(id).unwrap().mail_over_ews(), None);
     }
 
     #[test]

@@ -287,3 +287,6 @@
 	Open the reports folder	Abrir la carpeta de informes
 	Mail over Microsoft Graph	Correo a través de Microsoft Graph
 	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Para una cuenta de trabajo de Microsoft 365 cuya organización ha desactivado IMAP: el correo, el calendario y los contactos van por Microsoft Graph y no se usan los servidores de abajo
+	Exchange server (EWS)	Servidor Exchange (EWS)
+	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Para un Exchange Server que gestiona tu propia organización: su nombre o su dirección EWS. El correo va por Exchange Web Services con tu contraseña y no se usan los servidores de abajo
+	mail.example.org (optional)	mail.example.org (opcional)

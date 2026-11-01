@@ -8,6 +8,7 @@ description = "Tinta Correo L2: HTTP/1.1, WebDAV, CalDAV (RFC 4791) and CardDAV 
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-mime.workspace = true
+ews = "0.1.2"
 quick-xml = "0.38"
 serde_json.workspace = true
 thiserror.workspace = true

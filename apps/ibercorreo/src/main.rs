@@ -564,8 +564,9 @@ impl Shell {
             return;
         };
         let ibercorreo_core::mail::AccountKind::Imap { imap_host, imap_port, imap_security, .. } = &account.kind else { return };
-        // Mail over Microsoft Graph has no IMAP connection to watch: it comes with the timed syncs.
-        if account.mail_over_graph() {
+        // Mail over Microsoft Graph or Exchange Web Services has no IMAP connection to watch: it
+        // comes with the timed syncs.
+        if account.mail_over_graph() || account.mail_over_ews().is_some() {
             if let Some(w) = self.watchers.remove(&id) {
                 w.stop.store(true, std::sync::atomic::Ordering::Relaxed);
             }

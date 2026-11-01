@@ -17,6 +17,7 @@
 pub mod autoconfig;
 pub mod caldav;
 pub mod carddav;
+pub mod ews;
 pub mod graph;
 mod http;
 pub mod xml;

@@ -27,6 +27,10 @@ Status: 2026-11-01 · Pick from the top.
    (subscriptions; the 5-minute sync instead), sending messages over 4 MB (an upload session),
    a moved message keeping its download (immutable ids would allow it), checking against a real
    tenant with IMAP turned off.
+   On-premises Exchange syncs mail over EWS (M4.5a, an account setting). Missing there: NTLM and
+   Kerberos sign-in (Basic only, which many servers turn off), Autodiscover, calendars and
+   contacts over EWS (M4.5b; CalDAV still works beside it), `SyncFolderItems` deltas and push
+   (streaming notifications), checking against a real server.
 2. **HTML mail, the first pass.** HTML is read into safe formatted text (headings, lists, quotes,
    bold and italic, links with their real address on hover and a ⚠ on phishing-shaped ones);
    scripts, forms, styles and hidden preview text are dropped and remote images are never loaded.
@@ -152,3 +156,4 @@ Status: 2026-11-01 · Pick from the top.
 - 2026-10-30 — gap 12: Outlook calendars over Microsoft Graph (M4.2).
 - 2026-10-30 — gap 14: Outlook contacts over Microsoft Graph (M4.3).
 - 2026-11-01 — gap 1: mail over Microsoft Graph for work accounts without IMAP (M4.4).
+- 2026-11-01 — gap 1: mail over EWS for on-premises Exchange (M4.5a).

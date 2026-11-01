@@ -1939,6 +1939,7 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
                 smtp_security: Default::default(),
                 oauth: String::new(),
                 graph: false,
+                ews: String::new(),
             },
             caldav: String::new(),
             signature: String::new(),

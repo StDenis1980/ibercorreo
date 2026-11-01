@@ -254,9 +254,55 @@ pub fn base64(bytes: &[u8]) -> String {
     out
 }
 
+/// Read standard base64 (RFC 4648 §4), skipping whitespace and line breaks; `None` for anything
+/// else that is not base64 or for misplaced padding.
+pub fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let value = |c: u8| -> Option<u32> {
+        Some(u32::from(match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        }))
+    };
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let (mut acc, mut bits, mut padding) = (0u32, 0u32, 0usize);
+    for c in text.bytes().filter(|c| !c.is_ascii_whitespace()) {
+        if c == b'=' {
+            padding += 1;
+            continue;
+        }
+        if padding > 0 {
+            return None;
+        }
+        acc = ((acc << 6) | value(c)?) & 0xFF_FFFF;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((acc >> bits) & 0xFF) as u8);
+        }
+    }
+    // Two or three characters of a last group and its padding; a single character is not base64.
+    (padding <= 2 && bits != 6 && (padding == 0 || bits > 0)).then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_reads_back() {
+        for sample in [&b""[..], b"f", b"fo", b"foo", b"foob", "Reunión €".as_bytes(), &[0, 255, 128, 7]] {
+            assert_eq!(unbase64(&base64(sample)).as_deref(), Some(sample), "{sample:?}");
+        }
+        assert_eq!(unbase64("Zm9v\r\nYmFy").as_deref(), Some(&b"foobar"[..]), "line breaks are skipped");
+        assert_eq!(unbase64("Zm9vYg"), Some(b"foob".to_vec()), "missing padding is read");
+        for bad in ["Zm9v!", "Zg==Zg==", "Z", "Zm9vY", "Zg==="] {
+            assert_eq!(unbase64(bad), None, "{bad}");
+        }
+    }
 
     const SAMPLE: &str = "From: \"Ana Souza\" <ana@example.org>\r\n\
 To: Denys <denys@example.com>, bob@example.org\r\n\

@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-01 · M3 follow-ups done; M4 (Microsoft Graph) in progress: M4.1–M4.4 done
+Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.4 and M4.5a done
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -203,6 +203,17 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `permanentDelete`); the Outbox goes out with `sendMail` (MIME, Bcc as a header, 4 MB at most)
   and Exchange files the Sent copy. One Graph token for mail, calendar and contacts; no IDLE (the
   5-minute sync). Switching an account to Graph or back forgets the mail synced the other way.
+- 2026-11-01 — M4.5a: mail over Exchange Web Services for an Exchange Server the organisation
+  runs itself (Account settings → Exchange server (EWS): its name or EWS address, password
+  sign-in, IMAP and SMTP not used). Requests and replies are Thunderbird's MPL-2.0 `ews` crate,
+  unmodified; a reply is checked to be a SOAP envelope with a header before that crate reads it
+  (it would stop the program otherwise), and a flag goes back as `PidTagFlagStatus` because the
+  crate writes `item:Flag` outside the EWS namespace. Graph and EWS share one sync
+  (`sync::server_mail::MailServer`): folders from `SyncFolderHierarchy` (mail folders only,
+  Outlook's Outbox left out), `FindItem` pages newest first, `GetItem` MIME, `UpdateItem`,
+  `MoveItem`, `DeleteItem` (`HardDelete`); the Outbox goes out with `CreateItem`
+  (`SendAndSaveCopy`). Throttling (`ErrorServerBusy`, 503) waits for the next sync. Checked
+  against synthetic Exchange 2016 replies only.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -229,6 +240,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-30 — M4.2.
 - 2026-10-30 — M4.3.
 - 2026-11-01 — M4.4.
+- 2026-11-01 — M4.5a.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

@@ -283,3 +283,6 @@
 	Open the reports folder	Відкрити папку звітів
 	Mail over Microsoft Graph	Пошта через Microsoft Graph
 	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Для робочого акаунта Microsoft 365, де організація вимкнула IMAP: пошта, календар і контакти йдуть через Microsoft Graph, а сервери нижче не використовуються
+	Exchange server (EWS)	Сервер Exchange (EWS)
+	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Для сервера Exchange, який ваша організація тримає сама: його назва або адреса EWS. Пошта йде через Exchange Web Services з вашим паролем, а сервери нижче не використовуються
+	mail.example.org (optional)	mail.example.org (необов’язково)
