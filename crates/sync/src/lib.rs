@@ -1,4 +1,5 @@
-//! Mail sync, L3: keeping the local store and an IMAP account in step.
+//! Mail sync, L3: keeping the local store and an IMAP account (or one over Microsoft Graph,
+//! [`graph_mail`]) in step.
 //!
 //! A sync has three parts, so the slow one can run off the interface thread:
 //! 1. [`state`] (fast, on the store): what the store knows per mailbox, and the local changes not
@@ -15,6 +16,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
+use std::sync::Arc;
 
 use ibercorreo_core::{AccountId, FolderId, FolderRole, MessageId, RemoteFolder, RemoteRef};
 use ibercorreo_imap::{Client, Items, Mailbox, uid_set};
@@ -27,6 +29,7 @@ pub mod calendar;
 pub mod contacts;
 pub mod graph_calendar;
 pub mod graph_contacts;
+pub mod graph_mail;
 pub mod outbox;
 
 #[cfg(test)]
@@ -78,6 +81,8 @@ pub struct Known {
     pub uid_validity: u32,
     /// UIDs held here, including deleted ones still waiting for [`Push::Expunge`].
     pub uids: BTreeSet<u32>,
+    /// The server's own id of each UID that has one (mail over Microsoft Graph).
+    pub ids: BTreeMap<u32, Arc<str>>,
 }
 
 /// The input to [`run`].
@@ -92,16 +97,16 @@ pub fn state(store: &Store, account: AccountId) -> State {
     let mut known: BTreeMap<FolderId, Known> = BTreeMap::new();
     for f in store.folders_of(account) {
         if let Some(r) = &f.remote {
-            known.insert(f.id, Known { path: r.path.clone(), uid_validity: r.uid_validity, uids: BTreeSet::new() });
+            known.insert(f.id, Known { path: r.path.clone(), uid_validity: r.uid_validity, uids: BTreeSet::new(), ids: BTreeMap::new() });
         }
     }
     let path = |id: FolderId| known.get(&id).map(|k| k.path.clone());
     let mut pushes = Vec::new();
-    let mut held: Vec<(FolderId, u32)> = Vec::new();
+    let mut held: Vec<(FolderId, u32, Option<Arc<str>>)> = Vec::new();
     for m in store.all_messages() {
-        let Some(r) = m.remote else { continue };
+        let Some(r) = &m.remote else { continue };
         let Some(from) = path(r.folder) else { continue };
-        held.push((r.folder, r.uid));
+        held.push((r.folder, r.uid, r.id.clone()));
         if m.folder != r.folder {
             // Moved here. To a folder that is not on the server: nothing to send.
             if let Some(to) = path(m.folder) {
@@ -113,13 +118,16 @@ pub fn state(store: &Store, account: AccountId) -> State {
     }
     for t in store.tombstones() {
         if let Some(from) = path(t.folder) {
-            held.push((t.folder, t.uid));
+            held.push((t.folder, t.uid, t.id.clone()));
             pushes.push(Push::Expunge { path: from, uid: t.uid });
         }
     }
-    for (folder, uid) in held {
+    for (folder, uid, id) in held {
         if let Some(k) = known.get_mut(&folder) {
             k.uids.insert(uid);
+            if let Some(id) = id {
+                k.ids.insert(uid, id);
+            }
         }
     }
     State { known: known.into_values().collect(), pushes }
@@ -131,6 +139,11 @@ pub struct NewMessage {
     pub uid: u32,
     pub flags: Vec<String>,
     pub raw: Vec<u8>,
+    /// The server's own id, when it is not the UID (Microsoft Graph's).
+    pub id: Option<Arc<str>>,
+    /// Newer than everything held of the mailbox: mail that came in since the last sync, not
+    /// older mail fetched later.
+    pub arrived: bool,
 }
 
 /// What [`run`] found in one mailbox.
@@ -294,12 +307,14 @@ fn folder<S: Read + Write>(
     let take = unseen.len().min(limits.new_per_folder);
     f.remaining = unseen.len().saturating_sub(take);
     let newest = unseen.get(unseen.len().saturating_sub(take)..).unwrap_or(&[]);
+    let top = held.last().copied();
     let mut fetched = 0usize;
     for chunk in newest.chunks(limits.fetch_batch.max(1)) {
         step(fetched, newest.len());
         for item in client.uid_fetch(&uid_set(chunk)?, Items::Full)? {
             if let (Some(uid), Some(raw)) = (item.uid, item.body) {
-                f.new.push(NewMessage { uid, flags: item.flags.unwrap_or_default(), raw });
+                let arrived = top.is_none_or(|t| uid > t);
+                f.new.push(NewMessage { uid, flags: item.flags.unwrap_or_default(), raw, id: None, arrived });
             }
         }
         fetched = fetched.saturating_add(chunk.len());
@@ -381,13 +396,12 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
     for f in batch.folders {
         let Some(&folder) = folder_ids.get(&f.path) else { continue };
         let inbox_seen_before = store.folder(folder).is_ok_and(|l| l.role == FolderRole::Inbox && l.remote.is_some()) && !f.reset;
-        let newest_known = store.all_messages().filter_map(|m| m.remote.filter(|r| r.folder == folder).map(|r| r.uid)).max();
         if let Ok(local) = store.folder_mut(folder) {
             local.remote = Some(RemoteFolder { path: f.path.clone(), uid_validity: f.uid_validity });
         }
         report.remaining = report.remaining.saturating_add(f.remaining);
         if f.reset {
-            let void: Vec<MessageId> = store.all_messages().filter(|m| m.remote.is_some_and(|r| r.folder == folder)).map(|m| m.id).collect();
+            let void: Vec<MessageId> = store.all_messages().filter(|m| m.remote.as_ref().is_some_and(|r| r.folder == folder)).map(|m| m.id).collect();
             for id in void {
                 if store.drop_message(id).is_ok() {
                     report.removed = report.removed.saturating_add(1);
@@ -439,10 +453,10 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             let (seen, flagged) = (has(&n.flags, "\\Seen"), has(&n.flags, "\\Flagged"));
             m.seen = seen;
             m.flagged = flagged;
-            m.remote = Some(RemoteRef { folder, uid: n.uid, seen, flagged });
+            m.remote = Some(RemoteRef { folder, uid: n.uid, seen, flagged, id: n.id });
             if let Ok(id) = store.add_message(m) {
                 report.added = report.added.saturating_add(1);
-                if inbox_seen_before && newest_known.is_none_or(|top| n.uid > top) {
+                if inbox_seen_before && n.arrived {
                     report.arrived.push(id);
                 }
             }

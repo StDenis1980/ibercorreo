@@ -52,8 +52,8 @@ fn first_sync() -> Batch {
                 path: "INBOX".into(),
                 uid_validity: 7,
                 new: vec![
-                    NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("one") },
-                    NewMessage { uid: 2, flags: vec![], raw: raw("two") },
+                    NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("one"), id: None, arrived: true },
+                    NewMessage { uid: 2, flags: vec![], raw: raw("two"), id: None, arrived: true },
                 ],
                 remaining: 3,
                 ..FolderSync::default()
@@ -61,7 +61,7 @@ fn first_sync() -> Batch {
             FolderSync {
                 path: "Sent Items".into(),
                 uid_validity: 9,
-                new: vec![NewMessage { uid: 5, flags: vec!["\\Seen".into()], raw: raw("sent") }],
+                new: vec![NewMessage { uid: 5, flags: vec!["\\Seen".into()], raw: raw("sent"), id: None, arrived: true }],
                 ..FolderSync::default()
             },
             FolderSync { path: "Work/2026".into(), uid_validity: 1, ..FolderSync::default() },
@@ -86,7 +86,7 @@ fn first_sync_links_standard_folders_and_adds_mail() {
     assert_eq!(store.folder_by_path(A, "Work/2026").map(|f| store.folder(f).unwrap().name.clone()).as_deref(), Some("Work/2026"));
     let one = by_subject(&store, "one");
     assert!(one.seen && one.folder == inbox);
-    assert_eq!(one.remote, Some(RemoteRef { folder: inbox, uid: 1, seen: true, flagged: false }));
+    assert_eq!(one.remote, Some(RemoteRef { folder: inbox, uid: 1, seen: true, flagged: false, id: None }));
     // Applying the same batch again changes nothing.
     let again = apply(&mut store, A, first_sync());
     assert_eq!((again.added, again.folders_added), (0, 0));
@@ -147,7 +147,7 @@ fn second_sync_updates_flags_removes_vanished_and_keeps_unsent_changes() {
     assert!(store.message(one).is_err());
     let m = store.message(two).unwrap();
     assert!(m.seen && m.flagged, "the local read survives, the server's flag arrives");
-    assert_eq!(m.remote.map(|r| (r.seen, r.flagged)), Some((false, true)));
+    assert_eq!(m.remote.as_ref().map(|r| (r.seen, r.flagged)), Some((false, true)));
 }
 
 #[test]
@@ -164,7 +164,7 @@ fn uidvalidity_change_voids_held_messages() {
             path: "INBOX".into(),
             uid_validity: 8,
             reset: true,
-            new: vec![NewMessage { uid: 1, flags: vec![], raw: raw("renumbered") }],
+            new: vec![NewMessage { uid: 1, flags: vec![], raw: raw("renumbered"), id: None, arrived: true }],
             ..FolderSync::default()
         }],
         ..Batch::default()
@@ -239,6 +239,7 @@ a8 OK fetched
     assert_eq!(inbox.vanished, [1]);
     assert_eq!(inbox.remaining, 1, "UID 3 waits for the next sync; the newest come first");
     assert_eq!(inbox.new.iter().map(|n| n.uid).collect::<Vec<_>>(), [4, 10]);
+    assert!(inbox.new.iter().all(|n| n.arrived && n.id.is_none()), "both newer than UID 2, the newest held");
     assert_eq!(
         sent(c),
         "a1 SELECT INBOX
@@ -383,13 +384,13 @@ fn only_mail_newer_than_an_inbox_already_synced_counts_as_arrived() {
             FolderSync {
                 path: "INBOX".into(),
                 uid_validity: 7,
-                new: uids.iter().map(|&uid| NewMessage { uid, flags: vec![], raw: raw(&format!("uid {uid}")) }).collect(),
+                new: uids.iter().map(|&uid| NewMessage { uid, flags: vec![], raw: raw(&format!("uid {uid}")), id: None, arrived: uid > 2 }).collect(),
                 ..FolderSync::default()
             },
             FolderSync {
                 path: "Sent Items".into(),
                 uid_validity: 9,
-                new: vec![NewMessage { uid: 6, flags: vec![], raw: raw("sent 6") }],
+                new: vec![NewMessage { uid: 6, flags: vec![], raw: raw("sent 6"), id: None, arrived: true }],
                 ..FolderSync::default()
             },
         ],

@@ -110,7 +110,9 @@ Dovecot and Postfix.
 
 ## Not yet
 - OAuth for Google calendars and contacts: Google's CalDAV and CardDAV need their own scopes, so a
-  Gmail account syncs mail only. Microsoft's calendar and contacts come through Graph (M4.2, M4.3).
+  Gmail account syncs mail only. Microsoft's calendar and contacts come through Graph (M4.2, M4.3),
+  and so does the mail of an account set to Mail over Microsoft Graph (M4.4: `Mail.ReadWrite`,
+  `Mail.Send`).
 - Other OAuth providers (Yahoo, AOL, Fastmail, Yandex) and `OAUTHBEARER` (RFC 7628).
 - Microsoft 365 may file sent mail in Sent Items itself, giving two copies there (Gmail is known
   and gets none).
@@ -119,3 +121,4 @@ Dovecot and Postfix.
 - 2026-10-23 — created (M3.2).
 - 2026-10-26 — several accounts, each with its own grant; choosing a provider fills in its servers (M3.3).
 - 2026-10-30 — Microsoft Graph consent and a separate Graph token (M4.1).
+- 2026-11-01 — Mail over Graph uses the same token (M4.4).

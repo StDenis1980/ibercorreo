@@ -287,3 +287,5 @@
 	Delete my reports from the server	Supprimer mes rapports du serveur
 	Deletion requested: it completes the next time the app is online.	Suppression demandée : elle aura lieu la prochaine fois que l'application sera en ligne.
 	Open the reports folder	Ouvrir le dossier des rapports
+	Mail over Microsoft Graph	Courrier via Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Pour un compte professionnel Microsoft 365 dont l'organisation a désactivé IMAP : le courrier, le calendrier et les contacts passent par Microsoft Graph, et les serveurs ci-dessous ne sont pas utilisés

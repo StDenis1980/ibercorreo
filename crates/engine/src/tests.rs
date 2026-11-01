@@ -774,6 +774,36 @@ fn folders_go_in_and_out_of_favorites_with_undo() {
 }
 
 #[test]
+fn mail_over_graph_needs_the_microsoft_sign_in_and_forgets_the_imap_copy() {
+    let mut s = session();
+    let ms = json!({"email": "ana@contoso.es", "imapHost": "outlook.office365.com", "smtpHost": "smtp.office365.com", "oauth": "microsoft"});
+    let v = s.run("account.add", &ms).unwrap();
+    assert_eq!(v["graphMail"], false, "IMAP by default");
+    let a = AccountId(u32::try_from(v["id"].as_u64().unwrap()).unwrap());
+    let with = |extra: Value| {
+        let mut p = ms.clone();
+        p.as_object_mut().unwrap().insert("id".into(), json!(a.0));
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    for bad in [json!({"graphMail": "yes"}), json!({"graphMail": true, "oauth": "google"}), json!({"graphMail": true, "oauth": ""})] {
+        assert!(s.run("account.set", &with(bad.clone())).is_err(), "{bad}");
+    }
+    let inbox = s.store.folder_by_role(a, FolderRole::Inbox).unwrap();
+    s.store.folder_mut(inbox).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "INBOX".into(), uid_validity: 1 });
+    let mut m = Message::new(MessageId(0), inbox);
+    m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false, id: None });
+    let synced = s.store.add_message(m).unwrap();
+    // Graph's folders and ids are not IMAP's: the IMAP copy goes, so the two never mix.
+    assert_eq!(s.run("account.set", &with(json!({"graphMail": true}))).unwrap()["graphMail"], true);
+    assert!(s.store.message(synced).is_err());
+    assert_eq!(s.store.folder(inbox).unwrap().remote, None);
+    // Left out, it stays as it is.
+    assert_eq!(s.run("account.set", &with(json!({"name": "Ana Gil"}))).unwrap()["graphMail"], true);
+    assert!(s.store.account(a).unwrap().mail_over_graph());
+}
+
+#[test]
 fn another_mailbox_for_an_account_forgets_the_old_mail() {
     let mut s = session();
     let base = json!({"email": "ana@example.org", "imapHost": "imap.example.org", "smtpHost": "smtp.example.org"});
@@ -781,7 +811,7 @@ fn another_mailbox_for_an_account_forgets_the_old_mail() {
     let inbox = s.store.folder_by_role(a, FolderRole::Inbox).unwrap();
     s.store.folder_mut(inbox).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "INBOX".into(), uid_validity: 1 });
     let mut m = Message::new(MessageId(0), inbox);
-    m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false });
+    m.remote = Some(ibercorreo_core::RemoteRef { folder: inbox, uid: 1, seen: false, flagged: false, id: None });
     let synced = s.store.add_message(m).unwrap();
     // A new name for the same mailbox keeps the mail.
     s.run(
@@ -887,7 +917,13 @@ fn rules_run_on_mail_that_arrives_by_sync_only() {
             uid_validity: 1,
             new: uids
                 .iter()
-                .map(|(uid, subject)| NewMessage { uid: *uid, flags: Vec::new(), raw: raw("Promo <promo@spam.test>", subject) })
+                .map(|(uid, subject)| NewMessage {
+                    uid: *uid,
+                    flags: Vec::new(),
+                    raw: raw("Promo <promo@spam.test>", subject),
+                    id: None,
+                    arrived: true,
+                })
                 .collect(),
             ..FolderSync::default()
         }],
