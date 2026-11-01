@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-10-30 · M3 follow-ups done; M4 (Microsoft Graph) in progress
+Status: 2026-11-01 · M3 follow-ups done; M4 (Microsoft Graph) in progress: M4.1–M4.4 done
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -194,6 +194,15 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   addresses, mobile, work and home numbers, company, job title, notes and birthday; changes sent
   as `POST`/`PATCH`/`DELETE` with `If-Match`; what Outlook cannot keep is reported. One Graph
   token serves the calendars and the contacts; CardDAV and Graph books never remove each other.
+- 2026-11-01 — M4.4: mail over Microsoft Graph for Microsoft 365 work accounts whose IMAP is
+  turned off (Account settings → Mail over Microsoft Graph, Microsoft sign-in only). Folders and
+  subfolders by id, the standard ones by their well-known names (Exchange's Outbox left out);
+  messages listed newest first with read and flag state and downloaded as MIME, so the IMAP store
+  side and the rules are shared; Graph ids are immutable ones, kept beside a number given here
+  (`RemoteRef::id`, tombstones too). Read, flagged, moves and deletions go back (`PATCH`, `move`,
+  `permanentDelete`); the Outbox goes out with `sendMail` (MIME, Bcc as a header, 4 MB at most)
+  and Exchange files the Sent copy. One Graph token for mail, calendar and contacts; no IDLE (the
+  5-minute sync). Switching an account to Graph or back forgets the mail synced the other way.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -219,6 +228,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-30 — M4.1.
 - 2026-10-30 — M4.2.
 - 2026-10-30 — M4.3.
+- 2026-11-01 — M4.4.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

@@ -287,3 +287,5 @@
 	Delete my reports from the server	Elimina le mie segnalazioni dal server
 	Deletion requested: it completes the next time the app is online.	Eliminazione richiesta: verrà completata la prossima volta che l'app sarà online.
 	Open the reports folder	Apri la cartella delle segnalazioni
+	Mail over Microsoft Graph	Posta tramite Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Per un account di lavoro Microsoft 365 la cui organizzazione ha disattivato IMAP: posta, calendario e contatti passano da Microsoft Graph e i server qui sotto non vengono usati

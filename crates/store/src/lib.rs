@@ -266,7 +266,8 @@ impl Store {
         let synced: std::collections::HashSet<FolderId> =
             self.folders.iter().filter(|f| f.account == id && f.remote.is_some()).map(|f| f.id).collect();
         let before = self.messages.len();
-        self.messages.retain(|m| !(m.remote.is_some_and(|r| synced.contains(&r.folder)) || (m.remote.is_some() && synced.contains(&m.folder))));
+        self.messages
+            .retain(|m| !(m.remote.as_ref().is_some_and(|r| synced.contains(&r.folder)) || (m.remote.is_some() && synced.contains(&m.folder))));
         let dropped = before.saturating_sub(self.messages.len());
         self.tombstones.retain(|t| !synced.contains(&t.folder));
         let held: std::collections::HashSet<FolderId> = self.messages.iter().map(|m| m.folder).collect();
@@ -420,7 +421,7 @@ impl Store {
 
     /// The message whose server copy is `uid` in `folder`'s mailbox.
     pub fn find_remote(&self, folder: FolderId, uid: u32) -> Option<MessageId> {
-        self.messages.iter().find(|m| m.remote.is_some_and(|r| r.folder == folder && r.uid == uid)).map(|m| m.id)
+        self.messages.iter().find(|m| m.remote.as_ref().is_some_and(|r| r.folder == folder && r.uid == uid)).map(|m| m.id)
     }
 
     /// Synced messages deleted here and not yet on the server.
@@ -521,8 +522,8 @@ impl Store {
     /// the next sync deletes it on the server too.
     pub fn remove_message(&mut self, id: MessageId) -> Result<Message> {
         let m = self.drop_message(id)?;
-        if let Some(r) = m.remote {
-            self.tombstones.push(r);
+        if let Some(r) = &m.remote {
+            self.tombstones.push(r.clone());
         }
         Ok(m)
     }
@@ -534,7 +535,7 @@ impl Store {
             return Err(Error::invalid("message", format!("id {} already present", m.id.0)));
         }
         self.next_message = self.next_message.max(m.id.0.saturating_add(1));
-        if let Some(r) = m.remote {
+        if let Some(r) = &m.remote {
             self.forget_tombstone(r.folder, r.uid);
         }
         self.stamps.touch(m.id);
@@ -1122,7 +1123,7 @@ impl Store {
         let folders: std::collections::HashSet<FolderId> = self.folders.iter().map(|f| f.id).collect();
         let mut ids = std::collections::HashSet::new();
         let before = self.messages.len();
-        self.messages.retain(|m| folders.contains(&m.folder) && m.remote.is_none_or(|r| folders.contains(&r.folder)) && ids.insert(m.id));
+        self.messages.retain(|m| folders.contains(&m.folder) && m.remote.as_ref().is_none_or(|r| folders.contains(&r.folder)) && ids.insert(m.id));
         before.saturating_sub(self.messages.len())
     }
 
@@ -1198,7 +1199,7 @@ impl Store {
                 return Err(Error::invalid("store file", format!("duplicate message id {}", m.id.0)));
             }
             self.folder(m.folder)?;
-            if let Some(r) = m.remote {
+            if let Some(r) = &m.remote {
                 self.folder(r.folder)?;
             }
         }
@@ -1804,7 +1805,7 @@ END:VCALENDAR\r\n";
         let mut s = Store::new();
         let inbox = s.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
         let mut m = msg(&s, "synced", 1);
-        m.remote = Some(RemoteRef { folder: inbox, uid: 42, seen: false, flagged: false });
+        m.remote = Some(RemoteRef { folder: inbox, uid: 42, seen: false, flagged: false, id: None });
         let id = s.add_message(m).unwrap();
         assert_eq!(s.find_remote(inbox, 42), Some(id));
         let removed = s.remove_message(id).unwrap();
@@ -1816,6 +1817,30 @@ END:VCALENDAR\r\n";
         let local = s.add_message(msg(&s, "local", 2)).unwrap();
         s.remove_message(local).unwrap();
         assert!(s.tombstones().is_empty());
+    }
+
+    #[test]
+    fn a_servers_own_message_id_is_saved_and_kept_by_tombstones() {
+        let path = temp("graph-ids");
+        let mut s = Store::new();
+        let inbox = s.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let remote = |uid: u32, id: &str| Some(RemoteRef { folder: inbox, uid, seen: false, flagged: false, id: Some(Arc::from(id)) });
+        let mut m = msg(&s, "kept", 1);
+        m.remote = remote(1, "AAMkAD=1");
+        s.add_message(m).unwrap();
+        let mut m = msg(&s, "deleted", 2);
+        m.remote = remote(2, "AAMkAD=2");
+        let gone = s.add_message(m).unwrap();
+        s.remove_message(gone).unwrap();
+        s.save(&path).unwrap();
+        let back = Store::load(&path).unwrap();
+        let kept = back.all_messages().find(|m| m.subject == "kept").unwrap();
+        assert_eq!(kept.remote, remote(1, "AAMkAD=1"));
+        assert_eq!(back.tombstones(), [remote(2, "AAMkAD=2").unwrap()], "the id it is deleted by on the server");
+        // IMAP messages write no id at all.
+        let json = serde_json::to_string(&RemoteRef { folder: inbox, uid: 3, seen: true, flagged: false, id: None }).unwrap();
+        assert!(!json.contains("\"id\""), "{json}");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]
@@ -1913,6 +1938,7 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
                 imap_security: Default::default(),
                 smtp_security: Default::default(),
                 oauth: String::new(),
+                graph: false,
             },
             caldav: String::new(),
             signature: String::new(),
@@ -1922,7 +1948,7 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
     fn synced(s: &mut Store, folder: FolderId, uid: u32, subject: &str) -> MessageId {
         let mut m = Message::new(MessageId(0), folder);
         m.set_subject(subject);
-        m.remote = Some(RemoteRef { folder, uid, seen: false, flagged: false });
+        m.remote = Some(RemoteRef { folder, uid, seen: false, flagged: false, id: None });
         s.add_message(m).unwrap()
     }
 

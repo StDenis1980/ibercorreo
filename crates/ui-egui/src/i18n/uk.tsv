@@ -281,3 +281,5 @@
 	Delete my reports from the server	Видалити мої звіти із сервера
 	Deletion requested: it completes the next time the app is online.	Видалення запитано: воно завершиться, коли програма наступного разу буде в мережі.
 	Open the reports folder	Відкрити папку звітів
+	Mail over Microsoft Graph	Пошта через Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Для робочого акаунта Microsoft 365, де організація вимкнула IMAP: пошта, календар і контакти йдуть через Microsoft Graph, а сервери нижче не використовуються

@@ -431,6 +431,7 @@ mod tests {
                 imap_security: Default::default(),
                 smtp_security: Default::default(),
                 oauth: oauth.into(),
+                graph: false,
             },
             caldav: String::new(),
             signature: String::new(),

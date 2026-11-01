@@ -72,13 +72,18 @@ pub struct RemoteFolder {
 
 /// What the server last reported for a message. Where the message's own fields differ (it was
 /// read, flagged or moved here), the change is still to be sent to the server.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RemoteRef {
     /// The folder whose server mailbox holds the message.
     pub folder: FolderId,
+    /// The IMAP UID; for a message synced over Microsoft Graph, a number given here in the order
+    /// messages were first seen, with the server's own id in [`RemoteRef::id`].
     pub uid: u32,
     pub seen: bool,
     pub flagged: bool,
+    /// The server's id for the message, when it is not the UID (Microsoft Graph's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<Arc<str>>,
 }
 
 /// How a connection to a server is encrypted. There is no unencrypted choice: passwords never
@@ -129,6 +134,10 @@ pub enum AccountKind {
         /// empty means a password.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         oauth: String,
+        /// Mail goes over Microsoft Graph, not IMAP and SMTP: for a Microsoft 365 work account
+        /// whose organisation turned IMAP off. Only with the `microsoft` sign-in.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        graph: bool,
     },
 }
 
@@ -214,6 +223,11 @@ impl Account {
     }
 
     /// The sign-in name for an IMAP account: `user`, or the address when that is empty.
+    /// Whether the mail goes over Microsoft Graph ([`AccountKind::Imap`]'s `graph`).
+    pub fn mail_over_graph(&self) -> bool {
+        matches!(&self.kind, AccountKind::Imap { graph: true, oauth, .. } if oauth == "microsoft")
+    }
+
     pub fn login(&self) -> Option<&str> {
         match &self.kind {
             AccountKind::Imap { user, .. } if !user.is_empty() => Some(user),
@@ -512,6 +526,7 @@ mod tests {
             imap_security: Default::default(),
             smtp_security: Default::default(),
             oauth: String::new(),
+            graph: false,
         };
         assert_eq!(a.credential_entry(), Some((KEYRING_SERVICE, "login".to_string())));
         if let AccountKind::Imap { oauth, .. } = &mut a.kind {

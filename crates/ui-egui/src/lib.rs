@@ -248,6 +248,8 @@ struct AccountForm {
     signature: String,
     /// The OAuth provider signed in with (its id), or empty for a password.
     oauth: String,
+    /// Mail over Microsoft Graph instead of IMAP and SMTP (with the Microsoft sign-in only).
+    graph_mail: bool,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
 }
@@ -476,6 +478,7 @@ impl App {
             caldav: text("caldav"),
             signature: text("signature"),
             oauth: text("oauth"),
+            graph_mail: v.get("graphMail").and_then(Value::as_bool).unwrap_or(false),
             note: note.to_string(),
         };
         if self.account_form.user == self.account_form.email {
@@ -604,6 +607,14 @@ impl App {
                         }
                     });
                     ui.end_row();
+                    if f.oauth == "microsoft" {
+                        ui.label("");
+                        ui.checkbox(&mut f.graph_mail, tl("Mail over Microsoft Graph")).on_hover_text(tl(
+                            "For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used",
+                        ));
+                        ui.end_row();
+                    }
+                    let graph_mail = f.oauth == "microsoft" && f.graph_mail;
                     if f.oauth.is_empty() {
                         ui.label(tl("Password"));
                         ui.add(
@@ -626,10 +637,11 @@ impl App {
                     ui.label(tl("Sign-in name"));
                     ui.add(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
                     ui.end_row();
-                    for (title, host, port, starttls, tls_port, starttls_port) in [
+                    let servers = [
                         ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
                         ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
-                    ] {
+                    ];
+                    for (title, host, port, starttls, tls_port, starttls_port) in servers.into_iter().filter(|_| !graph_mail) {
                         ui.label(RichText::new(tl(title)).strong());
                         ui.end_row();
                         ui.label(tl("Server"));
@@ -730,6 +742,7 @@ impl App {
             "imapHost": f.imap_host, "imapSecurity": if f.imap_starttls { "starttls" } else { "tls" },
             "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
             "caldav": f.caldav, "oauth": f.oauth, "signature": f.signature,
+            "graphMail": f.oauth == "microsoft" && f.graph_mail,
         });
         if let Some(o) = p.as_object_mut() {
             for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -3388,6 +3401,28 @@ mod tests {
         other.imap_host = "imap.example.org".into();
         app.apply_autoconfig(Ok(other));
         assert_eq!(app.account_form.oauth, "", "another provider's servers take a password");
+    }
+
+    #[test]
+    fn graph_mail_is_a_microsoft_choice_kept_through_the_dialog() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let work = json!({"email": "ana@contoso.es", "imapHost": "outlook.office365.com", "smtpHost": "smtp.office365.com", "oauth": "microsoft", "graphMail": true});
+        let id = AccountId(app.session.run("account.set", &work).unwrap()["id"].as_u64().unwrap() as u32);
+        app.open_account_settings(Some(id), "");
+        assert!(app.account_form.graph_mail, "the dialog shows it");
+        app.save_account();
+        assert!(app.session.store.account(id).unwrap().mail_over_graph(), "saving the dialog keeps it");
+        app.open_account_settings(Some(id), "");
+        app.account_form.graph_mail = false;
+        app.save_account();
+        assert!(!app.session.store.account(id).unwrap().mail_over_graph());
+        // Only with the Microsoft sign-in: changed to a password, the account stops asking Graph.
+        app.session.run("account.set", &work).unwrap();
+        app.open_account_settings(Some(id), "");
+        app.account_form.graph_mail = true;
+        app.account_form.oauth.clear();
+        app.save_account();
+        assert!(!app.session.store.account(id).unwrap().mail_over_graph());
     }
 
     #[test]

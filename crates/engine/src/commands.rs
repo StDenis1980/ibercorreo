@@ -526,7 +526,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
+        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\ngraphMail?: boolean — receive and send over Microsoft Graph instead of IMAP and SMTP, for a Microsoft 365 work account whose IMAP is turned off; needs oauth \"microsoft\"; omitted keeps the current choice\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -2101,6 +2101,15 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
         let known: Vec<_> = ibercorreo_core::mail::OAUTH_PROVIDERS.iter().map(|p| p.id).collect();
         return Err(Error::invalid("oauth", format!("{oauth:?} is not one of {}", known.join(", "))));
     }
+    // Kept as it was when left out, so a form that does not show it does not turn it off.
+    let graph = match p.get("graphMail") {
+        None | Some(Value::Null) => old.is_some_and(|a| matches!(a.kind, AccountKind::Imap { graph: true, .. })),
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Error::invalid("graphMail", "not true or false")),
+    };
+    if graph && oauth != "microsoft" {
+        return Err(Error::invalid("graphMail", "mail over Microsoft Graph needs the Microsoft sign-in (oauth \"microsoft\")"));
+    }
     let kind = AccountKind::Imap {
         imap_host: host_param(p, "imapHost")?,
         imap_port: port_param(p, "imapPort", imap_security.default_imap_port())?,
@@ -2110,6 +2119,7 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
         imap_security,
         smtp_security,
         oauth: oauth.to_string(),
+        graph,
     };
     Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav, signature })
 }
@@ -2118,6 +2128,8 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
 /// person's (or another provider's) mail.
 fn mailbox_key(a: &Account) -> Option<(String, u16, String)> {
     match &a.kind {
+        // Over Graph the server is Microsoft's: the folders and message ids are not IMAP's.
+        AccountKind::Imap { .. } if a.mail_over_graph() => Some(("graph.microsoft.com".into(), 443, a.login()?.to_ascii_lowercase())),
         AccountKind::Imap { imap_host, imap_port, .. } => Some((imap_host.to_ascii_lowercase(), *imap_port, a.login()?.to_ascii_lowercase())),
         AccountKind::Local => None,
     }
@@ -2187,6 +2199,7 @@ fn account_json(a: &Account) -> Value {
             ("smtpSecurity", json!(sec(smtp_security))),
             ("user", json!(a.login())),
             ("oauth", json!(a.oauth().map_or("", |p| p.id))),
+            ("graphMail", json!(a.mail_over_graph())),
         ] {
             obj.insert(k.into(), val);
         }

@@ -7,6 +7,7 @@
 //!   a few times and never for long ([`MAX_WAIT`]); after that it is [`Error::Busy`].
 //! - [`Graph::list`]: a collection read page by page (`@odata.nextLink`), with its
 //!   `@odata.deltaLink` when it is a delta query. Every page stays on the Graph host.
+//! - [`Graph::raw`]: the same for a body that is not JSON, such as a message's MIME text.
 //! - [`Graph::me`]: who the token belongs to.
 //!
 //! The access token is a separate one from the mail token (Microsoft issues a token for one
@@ -85,26 +86,38 @@ impl<H: Http> Graph<H> {
     /// Send one request with an optional JSON body; the reply's JSON (`None` when it has no
     /// body, as `204 No Content`).
     pub fn call(&mut self, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&Value>) -> Result<Option<Value>> {
-        let path = self.path(path)?;
         let body = match body {
             Some(v) => serde_json::to_vec(v).map_err(|e| Error::Invalid(e.to_string()))?,
             None => Vec::new(),
         };
-        let mut all: Vec<(&str, &str)> = vec![("Accept", "application/json")];
-        if !body.is_empty() {
-            all.push(("Content-Type", "application/json"));
+        let content_type = (!body.is_empty()).then_some("application/json");
+        let resp = self.send(method, path, "application/json", headers, &body, content_type)?;
+        if resp.iter().all(u8::is_ascii_whitespace) {
+            return Ok(None);
+        }
+        serde_json::from_slice(&resp).map(Some).map_err(|e| Error::Protocol(format!("Microsoft Graph sent JSON that does not read: {e}")))
+    }
+
+    /// Send one request with a body that is not JSON (`content_type`, as a message's MIME text),
+    /// or none; the reply's body as it came (a message's MIME text for `…/$value`).
+    pub fn raw(&mut self, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8], content_type: &str) -> Result<Vec<u8>> {
+        let content_type = (!body.is_empty()).then_some(content_type);
+        self.send(method, path, "*/*", headers, body, content_type)
+    }
+
+    /// The request, sent again while it is throttled; the body of a successful reply.
+    fn send(&mut self, method: &str, path: &str, accept: &str, headers: &[(&str, &str)], body: &[u8], content_type: Option<&str>) -> Result<Vec<u8>> {
+        let path = self.path(path)?;
+        let mut all: Vec<(&str, &str)> = vec![("Accept", accept)];
+        if let Some(t) = content_type {
+            all.push(("Content-Type", t));
         }
         all.extend_from_slice(headers);
         let mut attempt: u32 = 0;
         loop {
-            let resp = self.http.send(method, &path, &all, &body)?;
+            let resp = self.http.send(method, &path, &all, body)?;
             if resp.is_success() {
-                if resp.body.iter().all(u8::is_ascii_whitespace) {
-                    return Ok(None);
-                }
-                return serde_json::from_slice(&resp.body)
-                    .map(Some)
-                    .map_err(|e| Error::Protocol(format!("Microsoft Graph sent JSON that does not read: {e}")));
+                return Ok(resp.body);
             }
             if !matches!(resp.status, 429 | 503 | 504) {
                 return Err(error(&resp));
@@ -238,6 +251,23 @@ mod tests {
         assert!(headers.iter().any(|(n, v)| n == "Content-Type" && v == "application/json"), "{headers:?}");
         assert!(headers.iter().any(|(n, v)| n == "If-Match" && v == "W/\"1\""), "{headers:?}");
         assert_eq!(sent, r#"{"subject":"Reunión"}"#);
+    }
+
+    #[test]
+    fn raw_bodies_go_and_come_as_they_are() {
+        let mime = "From: ana@contoso.es\r\nSubject: Hola\r\n\r\nCuerpo\r\n";
+        let mut g = graph(vec![reply(200, mime, &[]), reply(202, "", &[]), reply(429, "", &[("Retry-After", "2")]), reply(404, "", &[])]);
+        assert_eq!(g.raw("GET", "me/messages/AAk=/$value", &[], b"", "text/plain").unwrap(), mime.as_bytes());
+        let (_, path, headers, body) = &g.http.asked[0];
+        assert_eq!((path.as_str(), body.as_str()), ("/v1.0/me/messages/AAk=/$value", ""));
+        assert_eq!(headers, &[("Accept".to_string(), "*/*".to_string())], "no type for no body");
+        assert_eq!(g.raw("POST", "me/sendMail", &[], b"RnJvbTo=", "text/plain").unwrap(), b"");
+        let (method, _, headers, body) = &g.http.asked[1];
+        assert_eq!((method.as_str(), body.as_str()), ("POST", "RnJvbTo="));
+        assert!(headers.iter().any(|(n, v)| n == "Content-Type" && v == "text/plain"), "{headers:?}");
+        // Throttled and failed the same way as JSON calls.
+        assert!(matches!(g.raw("GET", "me/messages/x/$value", &[], b"", ""), Err(Error::Status { status: 404, .. })));
+        assert_eq!(g.waited, Duration::from_secs(2));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! One Send/Receive for an account, start to finish on the network: send the Outbox over SMTP,
-//! save the copies to the server's Sent, sync over IMAP, then sync the calendars over CalDAV and
+//! save the copies to the server's Sent, sync over IMAP (or all of it over Microsoft Graph, for
+//! an account whose mail goes that way), then sync the calendars over CalDAV and
 //! the contacts over CardDAV, or a Microsoft account's Outlook calendars and contacts over
 //! Microsoft Graph. It takes a snapshot of what the store needs ([`Job`]) and returns
 //! what happened ([`Finished`]), so it can run on a background thread while the window stays
@@ -54,6 +55,9 @@ pub fn run(job: &Job) -> Finished {
 
 /// [`run`], telling `progress` how the mail sync comes along ([`ibercorreo_sync::Progress`]).
 pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
+    if job.account.mail_over_graph() {
+        return run_graph(job, progress);
+    }
     let AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. } = &job.account.kind else {
         return Finished { sent: Vec::new(), batch: Err("this account has no mail server".into()), calendar: None, contacts: None };
     };
@@ -122,6 +126,50 @@ pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress))
     Finished { sent, batch, calendar, contacts }
 }
 
+/// Everything over Microsoft Graph, for an account whose mail goes that way: the Outbox with
+/// `sendMail` (Exchange files the Sent copies), the mail, then the calendars and contacts unless
+/// they sync with a CalDAV server. One token, one connection.
+fn run_graph(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress)) -> Finished {
+    let token = match job.credential.graph_token(&job.tls) {
+        Ok(t) => t,
+        Err(e) => {
+            let e = match e {
+                crate::oauth::Error::Network { .. } => e.to_string(),
+                other => format!("sign-in: {other}"),
+            };
+            let sent = job.outbox.iter().map(|m| Sent { id: m.id, outcome: Outcome::Later(e.clone()) }).collect();
+            return Finished { sent, batch: Err(e), calendar: None, contacts: None };
+        }
+    };
+    let mut graph = crate::graph(&job.tls, &token);
+    let sent = ibercorreo_sync::graph_mail::send(&mut graph, &job.outbox);
+    let batch = ibercorreo_sync::graph_mail::run_with(&mut graph, &job.state, &job.limits, progress);
+    let refused = matches!(batch, Err(crate::dav::Error::Auth(_)));
+    let batch = batch.map_err(|e| e.to_string());
+    let (calendar, contacts) = if refused {
+        (None, None)
+    } else if job.account.caldav.trim().is_empty() {
+        let (calendar, contacts) = graph_dav(job, &mut graph);
+        (Some(calendar), Some(contacts))
+    } else {
+        match job.account.login() {
+            Some(login) => match job.credential.secret(&job.tls) {
+                Ok(secret) => {
+                    let (calendar, contacts) = sync_dav(job, login, &secret);
+                    (Some(calendar), Some(contacts))
+                }
+                Err(e) => (Some(Err(e.to_string())), Some(Err(e.to_string()))),
+            },
+            None => (None, None),
+        }
+    };
+    if refused {
+        // Renewed at the next try.
+        job.credential.forget_graph_access();
+    }
+    Finished { sent, batch, calendar, contacts }
+}
+
 /// The Outlook calendars and contacts over Microsoft Graph, with the account's Graph token. A
 /// grant from before Tinta Correo asked for Graph says to sign in again; mail is not affected.
 /// The calendars failing does not stop the contacts.
@@ -133,13 +181,21 @@ fn sync_graph(job: &Job) -> (Result<calendar::Batch, String>, Result<contacts::B
             return (Err(e.clone()), Err(e));
         }
     };
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
     let mut graph = crate::graph(&job.tls, &token);
+    graph_dav(job, &mut graph)
+}
+
+/// The calendars and contacts over an open Graph connection.
+fn graph_dav<H: crate::dav::caldav::Http>(
+    job: &Job,
+    graph: &mut crate::dav::graph::Graph<H>,
+) -> (Result<calendar::Batch, String>, Result<contacts::Batch, String>) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
     let calendar = match ibercorreo_core::DateTime::from_unix(now) {
-        Ok(now) => ibercorreo_sync::graph_calendar::run(&mut graph, &job.calendar, now),
+        Ok(now) => ibercorreo_sync::graph_calendar::run(graph, &job.calendar, now),
         Err(e) => Err(crate::dav::Error::Invalid(e.to_string())),
     };
-    let contacts = ibercorreo_sync::graph_contacts::run(&mut graph, &job.contacts);
+    let contacts = ibercorreo_sync::graph_contacts::run(graph, &job.contacts);
     if matches!(calendar, Err(crate::dav::Error::Auth(_))) || matches!(contacts, Err(crate::dav::Error::Auth(_))) {
         // Renewed at the next try.
         job.credential.forget_graph_access();

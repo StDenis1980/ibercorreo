@@ -285,3 +285,5 @@
 	Delete my reports from the server	Borrar os meus informes do servidor
 	Deletion requested: it completes the next time the app is online.	Borrado solicitado: completarase a próxima vez que o programa teña conexión.
 	Open the reports folder	Abrir o cartafol de informes
+	Mail over Microsoft Graph	Correo a través de Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Para unha conta de traballo de Microsoft 365 na que a organización desactivou IMAP: o correo, o calendario e os contactos van por Microsoft Graph e non se usan os servidores de abaixo

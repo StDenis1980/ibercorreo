@@ -74,7 +74,9 @@ impl Mailbox {
     /// What the folder is for: the RFC 6154 special-use attribute if the server sends one, else a
     /// guess from common names (English, Spanish, Ukrainian), else [`FolderRole::Other`].
     pub fn role(&self) -> FolderRole {
-        if self.raw == "INBOX" {
+        // `\Inbox` is not an IMAP attribute: it marks the Inbox of mail over Microsoft Graph,
+        // whose folders are named by id.
+        if self.raw == "INBOX" || self.has("\\Inbox") {
             return FolderRole::Inbox;
         }
         for (attribute, role) in [

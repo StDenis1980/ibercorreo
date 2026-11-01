@@ -285,3 +285,5 @@
 	Delete my reports from the server	Esborra els meus informes del servidor
 	Deletion requested: it completes the next time the app is online.	Esborrament sol·licitat: es completarà la propera vegada que el programa tingui connexió.
 	Open the reports folder	Obre la carpeta d'informes
+	Mail over Microsoft Graph	Correu a través de Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Per a un compte de feina de Microsoft 365 on l'organització ha desactivat l'IMAP: el correu, el calendari i els contactes van per Microsoft Graph i no s'utilitzen els servidors de sota

@@ -285,3 +285,5 @@
 	Delete my reports from the server	Ezabatu nire txostenak zerbitzaritik
 	Deletion requested: it completes the next time the app is online.	Ezabatzea eskatuta: programak konexioa duen hurrengo aldian osatuko da.
 	Open the reports folder	Ireki txostenen karpeta
+	Mail over Microsoft Graph	Posta Microsoft Graph bidez
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Erakundeak IMAP desaktibatu duen Microsoft 365 laneko kontu baterako: posta, egutegia eta kontaktuak Microsoft Graph bidez doaz, eta beheko zerbitzariak ez dira erabiltzen
