@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.4, M4.5a and Autodiscover done
+Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.5b done, NTLM next
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -219,6 +219,15 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `https://autodiscover.<domain>/…`, signed in with the name and password, follows address, URL
   and HTTP redirects (HTTPS only, at most 10) and takes the outside EWS address first. No DNS SRV
   or plain-HTTP redirect step.
+- 2026-11-01 — M4.5b, part 2: Exchange calendars and contacts over EWS, both ways, for an
+  account whose mail goes over EWS (no CalDAV address needed). Calendar folders of class
+  `IPF.Appointment` and contacts folders of `IPF.Contact` (Exchange's hidden ones and the
+  birthday calendar left out); items read as Exchange exports them (`MimeContent`: iCalendar,
+  vCard, or a message with a `text/calendar` part) so the CalDAV/CardDAV store side is shared;
+  written back as Exchange imports them (`CreateItem` with `MimeContent`, written by hand since
+  the `ews` crate has no `SendMeetingInvitations`); a change replaces the item (create, then
+  delete) only while its `ChangeKey` is the one last seen, else Exchange's copy wins. No
+  invitations or cancellations sent. Turning EWS off forgets that server's calendars and books.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -247,6 +256,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-01 — M4.4.
 - 2026-11-01 — M4.5a.
 - 2026-11-01 — M4.5b part 1 (Autodiscover).
+- 2026-11-01 — M4.5b part 2 (EWS calendars and contacts).
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

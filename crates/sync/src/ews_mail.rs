@@ -73,7 +73,7 @@ fn item_id(id: &str) -> BaseItemId {
 }
 
 /// The message inside any kind of item; `None` for a kind the `ews` crate adds later.
-fn message(item: RealItem) -> Option<Message> {
+pub(crate) fn message(item: RealItem) -> Option<Message> {
     Some(match item {
         RealItem::Item(m)
         | RealItem::Message(m)
@@ -116,6 +116,31 @@ impl<H: Http> EwsMail<'_, H> {
     }
 }
 
+/// Every folder of the mailbox (created or changed since nothing: all of them), page by page,
+/// until `limit` are read.
+pub(crate) fn hierarchy<H: Http>(e: &mut Ews<H>, limit: usize) -> Result<Vec<Folder>> {
+    let mut all = Vec::new();
+    let mut sync_state = None;
+    for _ in 0..MAX_HIERARCHY_PAGES {
+        let op = SyncFolderHierarchy {
+            folder_shape: FolderShape { base_shape: BaseShape::AllProperties },
+            sync_folder_id: Some(BaseFolderId::new_distinguished("msgfolderroot")),
+            sync_state: sync_state.take(),
+        };
+        let Some(page) = e.call(op)?.into_iter().next() else { break };
+        for change in page.changes.inner {
+            if let Change::Create { folder } | Change::Update { folder } = change {
+                all.push(folder);
+            }
+        }
+        if page.includes_last_folder_in_range || all.len() > limit {
+            break;
+        }
+        sync_state = Some(page.sync_state);
+    }
+    Ok(all)
+}
+
 /// A folder's id, parent id, class and name, whatever kind it is; `true` for a mail folder.
 fn folder_parts(f: &Folder) -> (Option<&str>, Option<&str>, Option<&str>, bool) {
     match f {
@@ -141,23 +166,9 @@ impl<H: Http> MailServer for EwsMail<'_, H> {
         let roles = self.roles()?;
         // id → (parent id, name), mail folders only.
         let mut all: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
-        let mut sync_state = None;
-        for _ in 0..MAX_HIERARCHY_PAGES {
-            let op = SyncFolderHierarchy {
-                folder_shape: FolderShape { base_shape: BaseShape::AllProperties },
-                sync_folder_id: Some(BaseFolderId::new_distinguished("msgfolderroot")),
-                sync_state: sync_state.take(),
-            };
-            let Some(page) = self.0.call(op)?.into_iter().next() else { break };
-            for change in page.changes.inner {
-                let (Change::Create { folder } | Change::Update { folder }) = change else { continue };
-                let (Some(id), parent, name, true) = folder_parts(&folder) else { continue };
-                all.insert(id.to_string(), (parent.map(str::to_string), name.unwrap_or(id).to_string()));
-            }
-            if page.includes_last_folder_in_range || all.len() > max.saturating_mul(4) {
-                break;
-            }
-            sync_state = Some(page.sync_state);
+        for folder in hierarchy(self.0, max.saturating_mul(4))? {
+            let (Some(id), parent, name, true) = folder_parts(&folder) else { continue };
+            all.insert(id.to_string(), (parent.map(str::to_string), name.unwrap_or(id).to_string()));
         }
         let mut out: Vec<Mailbox> = Vec::new();
         for (id, (parent, name)) in &all {
