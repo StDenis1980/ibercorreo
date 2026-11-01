@@ -323,6 +323,15 @@ impl AccountForm {
     }
 }
 
+/// What Autodiscover asks with: the address and the sign-in (the password is never kept).
+#[derive(Clone)]
+pub struct ExchangeQuery {
+    pub email: String,
+    /// The sign-in name: the address when the form leaves it empty.
+    pub login: String,
+    pub password: String,
+}
+
 /// Server settings found for an address (by the shell, which can reach the network), to fill
 /// Account settings with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -357,6 +366,11 @@ pub struct App {
     pub autoconfig_request: Option<String>,
     /// Set by the shell while it looks for server settings.
     pub autoconfig_running: bool,
+    /// An address whose Exchange server the person asked to find with Autodiscover, with the
+    /// sign-in to ask with; the shell takes it.
+    pub exchange_request: Option<ExchangeQuery>,
+    /// Set by the shell while Autodiscover runs.
+    pub exchange_running: bool,
     /// The OAuth providers this build can sign in with (ids), set by the shell.
     pub oauth_ready: Vec<String>,
     /// Account settings asks the shell to sign in in the browser to this account (its provider).
@@ -420,6 +434,8 @@ impl App {
             sync_progress: None,
             autoconfig_request: None,
             autoconfig_running: false,
+            exchange_request: None,
+            exchange_running: false,
             oauth_ready: Vec::new(),
             oauth_request: None,
             oauth_cancel: false,
@@ -528,6 +544,19 @@ impl App {
         }
     }
 
+    /// Fill Account settings with the EWS address Autodiscover found (or say what failed).
+    pub fn apply_exchange(&mut self, found: Result<String, String>) {
+        let f = &mut self.account_form;
+        match found {
+            Ok(ews) => {
+                f.ews = ews;
+                f.oauth.clear();
+                f.note = tl("Exchange server found. Check the address and save.").to_string();
+            }
+            Err(e) => f.note = tf("No Exchange server found: {error}. Enter its address by hand.", &[("error", &e)]),
+        }
+    }
+
     /// Whether Account settings is open (the shell does not open it over itself).
     pub fn account_settings_open(&self) -> bool {
         self.account_form.open
@@ -623,6 +652,19 @@ impl App {
                             "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
                         ));
                         ui.add(egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
+                        ui.end_row();
+                        ui.label("");
+                        let label = tl(if self.exchange_running { "🔍 Looking…" } else { "🔍 Find the Exchange server" });
+                        let can = !self.exchange_running && f.email.contains('@') && !f.password.is_empty();
+                        if ui
+                            .add_enabled(can, egui::Button::new(label))
+                            .on_hover_text(tl("Ask the organisation's Autodiscover for it, signed in with the name and password below"))
+                            .on_disabled_hover_text(tl("Enter the email address and the password first"))
+                            .clicked()
+                        {
+                            let login = if f.user.trim().is_empty() { f.email.trim() } else { f.user.trim() };
+                            self.exchange_request = Some(ExchangeQuery { email: f.email.trim().to_string(), login: login.to_string(), password: f.password.clone() });
+                        }
                         ui.end_row();
                     }
                     let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && !f.ews.trim().is_empty());
@@ -3456,6 +3498,21 @@ mod tests {
         app.account_form.oauth = "microsoft".into();
         app.save_account();
         assert_eq!(app.session.store.account(id).unwrap().mail_over_ews(), None);
+    }
+
+    #[test]
+    fn autodiscover_fills_the_exchange_server() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        app.open_account_settings(None, "");
+        app.account_form.email = "ana@contoso.es".into();
+        app.account_form.oauth = "microsoft".into();
+        app.apply_exchange(Ok("https://mail.contoso.es/EWS/Exchange.asmx".into()));
+        assert_eq!(app.account_form.ews, "https://mail.contoso.es/EWS/Exchange.asmx");
+        assert_eq!(app.account_form.oauth, "", "EWS signs in with the password");
+        assert!(app.account_form.note.contains("found"), "{}", app.account_form.note);
+        app.apply_exchange(Err("HTTP 404".into()));
+        assert_eq!(app.account_form.ews, "https://mail.contoso.es/EWS/Exchange.asmx", "a failure keeps what is there");
+        assert!(app.account_form.note.contains("HTTP 404"), "{}", app.account_form.note);
     }
 
     #[test]

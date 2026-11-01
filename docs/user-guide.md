@@ -261,7 +261,9 @@ Microsoft Graph, той самий шлях, яким працює Outlook в і
 Якщо організація тримає власний сервер Exchange (не Microsoft 365), впишіть у налаштуваннях (⚙),
 при вході **Password**, у поле **Exchange server (EWS)** назву сервера, наприклад
 `mail.firma.es`, або повну адресу EWS, яку дав адміністратор
-(`https://mail.firma.es/EWS/Exchange.asmx`). Поля серверів IMAP і SMTP тоді ховаються, а пошта
+(`https://mail.firma.es/EWS/Exchange.asmx`). Якщо адреси не знаєте, введіть адресу пошти й пароль
+і натисніть **🔍 Find the Exchange server**: програма запитає сервер Exchange вашої організації
+(Autodiscover) і впише адресу сама. Поля серверів IMAP і SMTP тоді ховаються, а пошта
 йде через Exchange Web Services, той самий шлях, яким працюють Outlook для Mac і Thunderbird.
 - Ім'я для входу часто має вигляд `ДОМЕН\ім'я` або `ім'я@firma.es`; його можна вписати в
   **Sign-in name**.
@@ -365,3 +367,4 @@ Refresh token бережіть як пароль. Microsoft замінює йо�
 - 2026-10-30 — Outlook contacts for Microsoft accounts (M4.3).
 - 2026-11-01 — Mail over Microsoft Graph for work accounts without IMAP (M4.4).
 - 2026-11-01 — Mail over EWS for an organisation's own Exchange Server (M4.5a).
+- 2026-11-01 — Find the Exchange server (Autodiscover).

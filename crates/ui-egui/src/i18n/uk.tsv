@@ -286,3 +286,8 @@
 	Exchange server (EWS)	Сервер Exchange (EWS)
 	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Для сервера Exchange, який ваша організація тримає сама: його назва або адреса EWS. Пошта йде через Exchange Web Services з вашим паролем, а сервери нижче не використовуються
 	mail.example.org (optional)	mail.example.org (необов’язково)
+	🔍 Find the Exchange server	🔍 Знайти сервер Exchange
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Запитати Autodiscover організації, увійшовши з іменем і паролем нижче
+	Enter the email address and the password first	Спершу введіть адресу пошти й пароль
+	Exchange server found. Check the address and save.	Сервер Exchange знайдено. Перевірте адресу й збережіть.
+	No Exchange server found: {error}. Enter its address by hand.	Сервер Exchange не знайдено: {error}. Введіть його адресу вручну.
