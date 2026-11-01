@@ -27,8 +27,9 @@ Status: 2026-11-01 · Pick from the top.
    (subscriptions; the 5-minute sync instead), sending messages over 4 MB (an upload session),
    a moved message keeping its download (immutable ids would allow it), checking against a real
    tenant with IMAP turned off.
-   On-premises Exchange syncs mail over EWS (M4.5a, an account setting). Missing there: NTLM and
-   Kerberos sign-in (Basic only, which many servers turn off), Autodiscover's DNS SRV and
+   On-premises Exchange syncs mail over EWS (M4.5a, an account setting). Sign-in is Basic or NTLM
+   (M4.5c, bound to the certificate for Extended Protection). Missing there: Kerberos sign-in
+   (servers that offer only Negotiate without NTLM), Autodiscover's DNS SRV and
    plain-HTTP redirect steps (the two HTTPS places are asked), meeting invitations sent from
    here over EWS (changes go with SendToNone), keeping an item's id when it is changed here (it
    is replaced), `SyncFolderItems` deltas and push
@@ -161,3 +162,4 @@ Status: 2026-11-01 · Pick from the top.
 - 2026-11-01 — gap 1: mail over EWS for on-premises Exchange (M4.5a).
 - 2026-11-01 — gap 1: Exchange Autodiscover (M4.5b).
 - 2026-11-01 — gap 1: Exchange calendars and contacts over EWS (M4.5b).
+- 2026-11-01 — gap 1: NTLM sign-in (M4.5c).
