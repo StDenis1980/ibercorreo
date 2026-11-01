@@ -83,6 +83,8 @@ struct Shell {
     passwords: HashMap<String, String>,
     /// The running search for an address's server settings, if any.
     finder: Option<Receiver<Result<ibercorreo_ui_egui::Discovered, String>>>,
+    /// Autodiscover looking for an Exchange server.
+    exchange_finder: Option<Receiver<Result<String, String>>>,
     /// The threads that keep an `IDLE` session open on each account's Inbox, once a sync has
     /// signed in to it.
     watchers: HashMap<AccountId, Watcher>,
@@ -654,6 +656,42 @@ impl Shell {
         self.app.autoconfig_running = self.finder.is_some();
     }
 
+    /// Start Autodiscover for the address Account settings asked about, or take the answer.
+    fn exchange(&mut self) {
+        if let Some(q) = self.app.exchange_request.take()
+            && self.exchange_finder.is_none()
+        {
+            match tls() {
+                Ok(tls) => {
+                    let (tx, rx) = mpsc::channel();
+                    let spawned = std::thread::Builder::new().name("autodiscover".into()).spawn(move || {
+                        let found = ibercorreo_net::autodiscover::find(&q.email, &q.login, &q.password, &tls).map_err(|tried| tried.join("; "));
+                        let _ = tx.send(found);
+                    });
+                    match spawned {
+                        Ok(_) => self.exchange_finder = Some(rx),
+                        Err(e) => self.app.apply_exchange(Err(e.to_string())),
+                    }
+                }
+                Err(e) => self.app.apply_exchange(Err(e)),
+            }
+        }
+        if let Some(rx) = &self.exchange_finder {
+            match rx.try_recv() {
+                Ok(found) => {
+                    self.exchange_finder = None;
+                    self.app.apply_exchange(found);
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.exchange_finder = None;
+                    self.app.apply_exchange(Err("the search stopped unexpectedly".into()));
+                }
+            }
+        }
+        self.app.exchange_running = self.exchange_finder.is_some();
+    }
+
     /// Write the store if it changed, on another thread; one save runs at a time.
     fn save_if_dirty(&mut self) {
         self.last_save = Instant::now();
@@ -711,6 +749,7 @@ impl eframe::App for Shell {
         self.watched();
         self.app.syncing = self.worker.is_some();
         self.autoconfig();
+        self.exchange();
         self.app.ui(ui);
         self.keep_password();
         self.sign_in();
@@ -722,7 +761,8 @@ impl eframe::App for Shell {
             self.save_if_dirty();
         }
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
-        let busy = self.worker.is_some() || self.finder.is_some() || self.sign_in.is_some() || self.saving.is_some();
+        let busy =
+            self.worker.is_some() || self.finder.is_some() || self.exchange_finder.is_some() || self.sign_in.is_some() || self.saving.is_some();
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
         tinta_report::idle();
     }
@@ -894,6 +934,7 @@ fn main() -> eframe::Result {
                 outcome: Vec::new(),
                 more: false,
                 finder: None,
+                exchange_finder: None,
                 watchers: HashMap::new(),
                 ctx: None,
                 credentials: HashMap::new(),

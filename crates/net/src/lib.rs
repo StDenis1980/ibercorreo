@@ -19,6 +19,7 @@ use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use thiserror::Error;
 
 pub mod autoconfig;
+pub mod autodiscover;
 pub mod idle;
 pub mod job;
 pub mod oauth;

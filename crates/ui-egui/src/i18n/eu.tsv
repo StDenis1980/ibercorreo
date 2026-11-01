@@ -290,3 +290,8 @@
 	Exchange server (EWS)	Exchange zerbitzaria (EWS)
 	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Zure erakundeak berak kudeatzen duen Exchange Server baterako: haren izena edo EWS helbidea. Posta Exchange Web Services bidez doa zure pasahitzarekin, eta beheko zerbitzariak ez dira erabiltzen
 	mail.example.org (optional)	mail.example.org (aukerakoa)
+	🔍 Find the Exchange server	🔍 Bilatu Exchange zerbitzaria
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Galdetu erakundearen Autodiscover-i, beheko izen eta pasahitzarekin
+	Enter the email address and the password first	Idatzi lehenik posta helbidea eta pasahitza
+	Exchange server found. Check the address and save.	Exchange zerbitzaria aurkitu da. Egiaztatu helbidea eta gorde.
+	No Exchange server found: {error}. Enter its address by hand.	Ez da Exchange zerbitzaririk aurkitu: {error}. Idatzi haren helbidea eskuz.

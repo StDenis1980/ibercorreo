@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.4 and M4.5a done
+Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.4, M4.5a and Autodiscover done
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -214,6 +214,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `MoveItem`, `DeleteItem` (`HardDelete`); the Outbox goes out with `CreateItem`
   (`SendAndSaveCopy`). Throttling (`ErrorServerBusy`, 503) waits for the next sync. Checked
   against synthetic Exchange 2016 replies only.
+- 2026-11-01 — M4.5b, part 1: Exchange Autodiscover (plain-XML form, MS-OXDSCLI). Account
+  settings → Find the Exchange server asks `https://<domain>/autodiscover/autodiscover.xml`, then
+  `https://autodiscover.<domain>/…`, signed in with the name and password, follows address, URL
+  and HTTP redirects (HTTPS only, at most 10) and takes the outside EWS address first. No DNS SRV
+  or plain-HTTP redirect step.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -241,6 +246,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-30 — M4.3.
 - 2026-11-01 — M4.4.
 - 2026-11-01 — M4.5a.
+- 2026-11-01 — M4.5b part 1 (Autodiscover).
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

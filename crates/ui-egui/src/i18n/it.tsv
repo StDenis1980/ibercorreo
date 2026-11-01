@@ -292,3 +292,8 @@
 	Exchange server (EWS)	Server Exchange (EWS)
 	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Per un Exchange Server gestito dalla tua organizzazione: il suo nome o indirizzo EWS. La posta passa per Exchange Web Services con la tua password e i server qui sotto non vengono usati
 	mail.example.org (optional)	mail.example.org (facoltativo)
+	🔍 Find the Exchange server	🔍 Trova il server Exchange
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Chiedi all’Autodiscover dell’organizzazione, con il nome e la password qui sotto
+	Enter the email address and the password first	Inserisci prima l’indirizzo email e la password
+	Exchange server found. Check the address and save.	Server Exchange trovato. Controlla l’indirizzo e salva.
+	No Exchange server found: {error}. Enter its address by hand.	Nessun server Exchange trovato: {error}. Inserisci l’indirizzo a mano.
