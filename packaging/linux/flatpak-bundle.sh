@@ -47,13 +47,15 @@ case "$ARCH" in
 esac
 BASENAME="$SLUG-$VERSION-linux-$ARCH"
 TARBALL="${TARBALL:-$DIST/$BASENAME.tar.gz}"
+# A tarball named on the command line names the bundle, so its version is the bundle's.
+BASENAME="$(basename "$TARBALL" .tar.gz)"
 [[ -f "$TARBALL" ]] || { echo "error: $TARBALL not found (run packaging/linux/package.sh --formats tar first)" >&2; exit 1; }
 for tool in flatpak flatpak-builder; do
   command -v "$tool" >/dev/null || { echo "error: $tool not found (apt install flatpak flatpak-builder librsvg2-common)" >&2; exit 1; }
 done
 mkdir -p "$DIST"
 
-echo "==> Tinta Correo $VERSION Flatpak bundle for $ARCH from $(basename "$TARBALL")"
+echo "==> Tinta Correo Flatpak bundle $BASENAME.flatpak from $(basename "$TARBALL")"
 
 WORK="$CARGO_TARGET_DIR/flatpak-bundle"
 rm -rf "$WORK"
