@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import
+Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -243,6 +243,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   their subject). Contacts, appointments and tasks saved as `.msg` are refused. Command
   `message.importMsg`; opening a `.msg` file imports it (Windows "Open with", Linux MIME type);
   `ibercorreo-cli msg FILE`. A body kept only as compressed RTF is not read yet.
+- 2026-11-03 — M5.1b: bodies Outlook kept only as compressed RTF. `ibercorreo-outlook::rtf`
+  unpacks `PidTagRtfCompressed` (MS-OXRTFCP: LZFu with its checksum, and stored `MELA` data;
+  the specification's examples pass) and takes the RTF apart (MS-OXRTFEX): HTML mail comes back
+  as its original HTML (`\fromhtml1`, `\htmltag` groups, `\htmlrtf` parts dropped), plain-text
+  and RTF-native mail as text in the RTF's code page, with `\uN` characters. An HTML property
+  still wins, and the plain text Outlook saved stays the text. Formatting of RTF-native mail is
+  not kept.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -274,6 +281,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-01 — M4.5b part 2 (EWS calendars and contacts).
 - 2026-11-01 — M4.5c (NTLM sign-in).
 - 2026-11-03 — M5.1 (.msg import).
+- 2026-11-03 — M5.1b (compressed-RTF bodies).
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

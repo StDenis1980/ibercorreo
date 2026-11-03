@@ -188,3 +188,65 @@ pub fn uni(id: u16, text: &str) -> Node {
 pub fn mail(subject: &str, sender: &str, body: &str) -> Vec<u8> {
     build(vec![props(32, &[]), uni(0x001a, "IPM.Note"), uni(0x0037, subject), uni(0x0c1f, sender), uni(0x0c1e, "SMTP"), uni(0x1000, body)], 9)
 }
+
+/// Packs `rtf` as `PidTagRtfCompressed` does (MS-OXRTFCP), with greedy dictionary references.
+pub fn compress_rtf(rtf: &[u8]) -> Vec<u8> {
+    const DICT: usize = 4096;
+    let mut dict = [0u8; DICT];
+    dict[..crate::rtf::PREFIX.len()].copy_from_slice(crate::rtf::PREFIX);
+    let mut write = crate::rtf::PREFIX.len();
+    let mut payload = Vec::new();
+    let (mut control_at, mut bit) = (0usize, 8u8);
+    let mut pos = 0;
+    let mut item = |payload: &mut Vec<u8>, reference: bool, bytes: &[u8]| {
+        if bit == 8 {
+            control_at = payload.len();
+            payload.push(0);
+            bit = 0;
+        }
+        if reference {
+            payload[control_at] |= 1 << bit;
+        }
+        bit += 1;
+        payload.extend_from_slice(bytes);
+    };
+    while pos < rtf.len() {
+        // The longest match, reading bytes this very copy writes as it goes.
+        let (mut best, mut best_len) = (0, 0);
+        for offset in (0..DICT).filter(|&o| o != write) {
+            let mut len = 0;
+            while len < 17 && pos + len < rtf.len() {
+                let j = (offset + len) % DICT;
+                let back = (j + DICT - write) % DICT;
+                let b = if back < len { rtf[pos + back] } else { dict[j] };
+                if b != rtf[pos + len] {
+                    break;
+                }
+                len += 1;
+            }
+            if len > best_len {
+                (best, best_len) = (offset, len);
+            }
+        }
+        let n = if best_len >= 2 {
+            item(&mut payload, true, &(((best as u16) << 4) | (best_len as u16 - 2)).to_be_bytes());
+            best_len
+        } else {
+            item(&mut payload, false, &[rtf[pos]]);
+            1
+        };
+        for &b in &rtf[pos..pos + n] {
+            dict[write] = b;
+            write = (write + 1) % DICT;
+        }
+        pos += n;
+    }
+    item(&mut payload, true, &((write as u16) << 4).to_be_bytes());
+    let mut out = Vec::new();
+    out.extend_from_slice(&(payload.len() as u32 + 12).to_le_bytes());
+    out.extend_from_slice(&(rtf.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"LZFu");
+    out.extend_from_slice(&crate::rtf::crc(&payload).to_le_bytes());
+    out.extend_from_slice(&payload);
+    out
+}

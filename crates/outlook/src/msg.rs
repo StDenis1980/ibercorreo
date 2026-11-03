@@ -5,7 +5,8 @@
 //! sender and recipients (the SMTP address where Exchange gives one, else what the original
 //! headers say), subject, date, read state, plain and HTML body, and the attachment list.
 //! Contacts, appointments and tasks saved as `.msg` are refused, so they are not taken for mail.
-//! A body kept only as compressed RTF is not read yet: the plain text Outlook also saves is used.
+//! A body kept only as compressed RTF is read through [`crate::rtf`]: the HTML of mail that arrived
+//! as HTML, the text of the rest.
 
 use std::sync::Arc;
 
@@ -13,6 +14,7 @@ use ibercorreo_core::mail::Attachment;
 use ibercorreo_core::{Address, Content, DateTime, Error, FolderId, Message, MessageId, Result, clamp_text};
 
 use crate::cfb::{Cfb, Kind, u32_at, u64_at};
+use crate::rtf;
 
 /// Largest `.msg` read.
 pub const MAX_MSG_BYTES: usize = 64 * 1024 * 1024;
@@ -43,6 +45,7 @@ mod tag {
     pub const DELIVERY_TIME: u16 = 0x0e06;
     pub const MESSAGE_FLAGS: u16 = 0x0e07;
     pub const BODY: u16 = 0x1000;
+    pub const RTF_COMPRESSED: u16 = 0x1009;
     pub const HTML: u16 = 0x1013;
     pub const DISPLAY_NAME: u16 = 0x3001;
     pub const EMAIL: u16 = 0x3003;
@@ -132,7 +135,7 @@ impl<'c, 'a> Props<'c, 'a> {
 
 /// Text in a Windows code page, through the MIME reader's character sets (UTF-8 and Windows-1252
 /// for a code page it does not know).
-fn decode(bytes: &[u8], codepage: u32) -> String {
+pub(crate) fn decode(bytes: &[u8], codepage: u32) -> String {
     let name = match codepage {
         65001 | 0 => return String::from_utf8_lossy(bytes).into_owned(),
         874 => "windows-874".to_string(),
@@ -243,9 +246,19 @@ fn message(cfb: &Cfb<'_>, storage: usize, header: usize, id: MessageId, folder: 
         .or_else(|| p.time(tag::CREATION_TIME));
     m.seen = p.int(tag::MESSAGE_FLAGS).is_some_and(|f| f & READ != 0);
 
-    let html = p.binary(tag::HTML).map(|b| decode(&b, p.codepage)).or_else(|| p.text(tag::HTML)).filter(|h| !h.trim().is_empty());
+    let filled = |t: &String| !t.trim().is_empty();
+    let mut html = p.binary(tag::HTML).map(|b| decode(&b, p.codepage)).or_else(|| p.text(tag::HTML)).filter(filled);
+    let mut text = p.text(tag::BODY).filter(filled);
+    // Outlook often keeps the formatted body only as compressed RTF, HTML mail wrapped in it.
+    if html.is_none() {
+        match p.binary(tag::RTF_COMPRESSED).and_then(|c| rtf::decompress(&c).ok()).and_then(|r| rtf::body(&r)) {
+            Some(rtf::Body::Html(h)) => html = Some(h).filter(filled),
+            Some(rtf::Body::Text(t)) if text.is_none() => text = Some(t).filter(filled),
+            _ => {}
+        }
+    }
     let rich = html.as_deref().map(ibercorreo_mime::html::to_rich);
-    let body = match (p.text(tag::BODY).filter(|b| !b.trim().is_empty()), &rich) {
+    let body = match (text, &rich) {
         (Some(b), _) => b,
         (None, Some(r)) => r.to_text(),
         (None, None) => String::new(),
