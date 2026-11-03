@@ -36,11 +36,17 @@ Earlier: Google verification, decided 2026-10-28: Gmail signs in with an app pas
 Outside the milestones, for Vilna OS (2026-11-03): Correo as the GNOME desktop's mail and calendar app: `mailto:` links and files, one window per mailbox, its events in the clock panel and accounts from GNOME Settings (`docs/gnome.md`).
 
 Suite plan revision 2 (2026-11-03, approved by the owner): Preview 3 for all five apps on
-10–14 November, then a closed beta in Spain. For Correo that means finishing M5 in November
+12 November (date decided 2026-11-03), then a closed beta in Spain. For Correo that means finishing M5 in November
 (calendar and contacts from `.pst`, export, the Outlook migration guide, translated import status
 texts); in stage 2 (December – January) a check against a real Exchange server at a pilot gestoría
 and less memory on very large mailboxes (about 2 GB with 67,000 messages today); M6 in 2027.
 Correo stays a preview without promotion in the public beta (February 2027).
+
+Owner decisions of 2026-11-03 for the whole suite: Windows installers are signed with Certum Open
+Source, registered at the start of January 2027 (Preview 3 and the closed beta ship unsigned, signed
+builds before the February public beta); testers sign up for the closed beta with the form at
+[tintaoffice.com/beta](https://tintaoffice.com/beta/), which also links a testers' guide. Correo
+testers are welcome there, but Correo is not promoted.
 
 Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (December 2026 – January 2027), M6 in 2027. The suite-wide work (releases, Linux, signing, tests, user guides) is in the Tinta Office roadmaps of the sibling repos (`docs/tinta-roadmap.md`).
 
@@ -88,3 +94,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-03 — M5.2 `.pst` from the window landed.
 - 2026-11-03 — M5.2b `.pst` calendar and contacts landed.
 - 2026-11-03 — Suite plan revision 2: M5 finishes in November, real Exchange check and memory in stage 2.
+- 2026-11-03 — Owner decisions recorded: Preview 3 on 12 November, Certum signing from January, beta sign-up form on tintaoffice.com/beta.
