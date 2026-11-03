@@ -132,3 +132,26 @@ fn a_server_folder_of_the_same_name_is_left_alone() {
     assert_eq!(r.folders, 3, "local copies are made; imported mail is never put in a folder the server mirrors");
     assert!(s.store.messages_in(synced).is_empty());
 }
+
+#[test]
+fn an_imported_folder_can_be_deleted_and_brought_back() {
+    let mut s = Session::new(sample::store(today()).unwrap(), today());
+    s.apply_pst(None, read(&Pst::open(archive("A")).unwrap(), |_, _| {}).unwrap()).unwrap();
+    let inbox = s.store.folders().iter().find(|f| f.name == "A/Bandeja de entrada").map(|f| f.id).unwrap();
+    s.run("folder.favorite", &json!({ "folder": inbox.0 })).unwrap();
+    assert_eq!(s.folder, inbox);
+    let v = s.run("folder.delete", &json!({})).unwrap();
+    assert_eq!(v, json!({ "folder": inbox.0, "messages": 2 }));
+    assert!(s.store.folder(inbox).is_err() && !s.store.is_favorite(inbox));
+    assert_ne!(s.folder, inbox, "the selection moves off the deleted folder");
+    assert!(s.store.all_messages().all(|m| m.folder != inbox));
+    s.run("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.store.messages_in(inbox).len(), 2, "undo brings the folder and its mail back");
+
+    let real_inbox = s.store.folder_by_role(s.store.first_account(), FolderRole::Inbox).unwrap();
+    assert!(s.run("folder.delete", &json!({ "folder": real_inbox.0 })).is_err(), "a standard folder stays");
+    let synced = s.store.add_folder(s.store.first_account(), "Server", FolderRole::Other);
+    s.store.folder_mut(synced).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "Server".into(), uid_validity: 1 });
+    assert!(s.run("folder.delete", &json!({ "folder": synced.0 })).is_err(), "a folder the server mirrors stays");
+    assert!(s.run("folder.delete", &json!({ "folder": 9999 })).is_err());
+}

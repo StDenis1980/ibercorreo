@@ -6,8 +6,8 @@
 
   Per-machine install into Program Files\Tinta Office\Tinta Correo, a Start Menu shortcut, a
   desktop shortcut (on by default, optional, and an update keeps it only if it is still there), an
-  App Paths entry, and Tinta Correo offered under "Open with" for .eml, .msg, .ics and .vcf files (never
-  made the default; the app imports files given on its command line).
+  App Paths entry, and Tinta Correo offered under "Open with" for .eml, .msg, .pst, .ics and .vcf
+  files (never made the default; the app imports files given on its command line).
 
   The mailbox, settings and saved passwords live outside the install folder (the user's data
   folder and the system credential store), so uninstalling or upgrading keeps them.
@@ -81,18 +81,21 @@
         <RegistryValue Root="HKLM" Key="Software\Classes\.ics\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\.vcf\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\.msg\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.pst\OpenWithProgids" Name="TintaCorreo.File" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe" Name="FriendlyAppName" Value="Tinta Correo" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\shell\open\command" Value="&quot;[#TintaCorreoExe]&quot; &quot;%1&quot;" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".eml" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".ics" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".vcf" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".msg" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\ibercorreo.exe\SupportedTypes" Name=".pst" Value="" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities" Name="ApplicationName" Value="Tinta Correo" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities" Name="ApplicationDescription" Value="Open-source mail, calendar and contacts" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".eml" Value="TintaCorreo.File" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".ics" Value="TintaCorreo.File" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".vcf" Value="TintaCorreo.File" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".msg" Value="TintaCorreo.File" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Tinta Office\Tinta Correo\Capabilities\FileAssociations" Name=".pst" Value="TintaCorreo.File" Type="string" />
         <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="Tinta Correo" Value="Software\Tinta Office\Tinta Correo\Capabilities" Type="string" />
       </Component>
 

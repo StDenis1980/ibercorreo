@@ -88,6 +88,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: folder_favorite,
     },
     CommandSpec {
+        id: "folder.delete",
+        label: "Delete folder",
+        group: "Folder/Actions",
+        shortcut: None,
+        params: "folder?: number — default the open folder; only your own folders kept on this computer (not a standard folder or one the server mirrors), with the mail in them",
+        edits: true,
+        run: folder_delete,
+    },
+    CommandSpec {
         id: "message.list",
         label: "List messages",
         group: "Home/Find",
@@ -986,6 +995,15 @@ fn folder_favorite(s: &mut Session, p: &Value) -> Result<Value> {
     let name = s.store.folder(f)?.name.clone();
     s.status = if favorite { format!("{name} added to Favorites") } else { format!("{name} removed from Favorites") };
     Ok(json!({ "folder": f.0, "favorite": favorite }))
+}
+
+fn folder_delete(s: &mut Session, p: &Value) -> Result<Value> {
+    let f = folder_param(s, p, "folder")?.unwrap_or(s.folder);
+    let name = s.store.folder(f)?.name.clone();
+    let messages = s.store.remove_folder(f)?;
+    s.fix_selection();
+    s.status = format!("Deleted {name} and its {messages} messages (Ctrl+Z brings them back)");
+    Ok(json!({ "folder": f.0, "messages": messages }))
 }
 
 fn message_list(s: &mut Session, p: &Value) -> Result<Value> {

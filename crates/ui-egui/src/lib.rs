@@ -1780,6 +1780,10 @@ impl App {
                 self.run("folder.favorite", json!({ "folder": id.0, "favorite": !favorite }));
                 ui.close();
             }
+            if self.session.store.can_delete_folder(id) && ui.button(tl("Delete folder")).clicked() {
+                self.run("folder.delete", json!({ "folder": id.0 }));
+                ui.close();
+            }
         });
     }
 

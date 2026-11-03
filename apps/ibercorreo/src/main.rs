@@ -1,7 +1,7 @@
 //! The Tinta Correo desktop app.
 //!
 //! ```text
-//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.ics | FILE.vcf | file://… | mailto:…]...
+//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.pst | FILE.ics | FILE.vcf | file://… | mailto:…]...
 //! ```
 //!
 //! The mailbox is one store file in the platform's data folder (`--store` picks another).
@@ -111,6 +111,21 @@ struct Shell {
     gnome_finder: Option<Receiver<Result<Vec<ibercorreo_ui_egui::GnomeAccount>, String>>>,
     /// Whether Account settings was open last frame (it lists GNOME's accounts as it opens).
     settings_open: bool,
+    /// Outlook data files to import, one at a time, and the one being read.
+    pst_queue: Vec<PathBuf>,
+    pst: Option<PstImport>,
+}
+
+/// An Outlook data file (`.pst`) read on another thread: archives run to gigabytes.
+struct PstImport {
+    name: String,
+    rx: Receiver<PstEvent>,
+}
+
+enum PstEvent {
+    /// Items read, out of how many the folders hold.
+    Read(usize, usize),
+    Done(Result<ibercorreo_engine::pst::Batch, String>),
 }
 
 /// What the Send/Receive thread reports: each account's result, then that it is done.
@@ -640,11 +655,76 @@ impl Shell {
         let _ = inbox.ctx.set(ctx.clone());
         let requests: Vec<_> = inbox.rx.try_iter().collect();
         for request in requests {
-            if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request) {
+            if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request, &mut self.pst_queue) {
                 self.app.session.status = e;
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// Files dropped on the window open like files opened with the app.
+    fn dropped(&mut self, ctx: &egui::Context) {
+        let imports: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| p.is_absolute()).collect());
+        if imports.is_empty() {
+            return;
+        }
+        let request = single_instance::Request { imports, mailto: Vec::new() };
+        if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request, &mut self.pst_queue) {
+            self.app.session.status = e;
+        }
+    }
+
+    /// Start reading the next `.pst` waiting, or take what the one being read reports.
+    fn pst_import(&mut self) {
+        if self.pst.is_none() && !self.pst_queue.is_empty() {
+            let path = self.pst_queue.remove(0);
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let (tx, rx) = mpsc::channel();
+            let ctx = self.ctx.clone();
+            let spawned = std::thread::Builder::new().name("pst import".into()).spawn(move || {
+                let wake = || {
+                    if let Some(c) = &ctx {
+                        c.request_repaint();
+                    }
+                };
+                let result = read_pst(&path, |done, total| {
+                    let _ = tx.send(PstEvent::Read(done, total));
+                    wake();
+                });
+                let _ = tx.send(PstEvent::Done(result));
+                wake();
+            });
+            match spawned {
+                Ok(_) => {
+                    self.app.session.status = format!("Importing {name}…");
+                    self.pst = Some(PstImport { name, rx });
+                }
+                Err(e) => self.app.session.status = format!("{name}: {e}"),
+            }
+        }
+        let Some(import) = &self.pst else { return };
+        let mut done = None;
+        loop {
+            match import.rx.try_recv() {
+                Ok(PstEvent::Read(n, total)) => self.app.session.status = format!("Importing {}: {n} of {total} items read…", import.name),
+                Ok(PstEvent::Done(result)) => {
+                    done = Some(result);
+                    break;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    done = Some(Err("the import stopped unexpectedly".into()));
+                    break;
+                }
+            }
+        }
+        let Some(result) = done else { return };
+        let name = import.name.clone();
+        self.pst = None;
+        let applied = result.and_then(|batch| self.app.session.apply_pst(None, batch).map_err(|e| e.to_string()));
+        if let Err(e) = applied {
+            self.app.session.status = format!("{name}: {e}");
         }
     }
 
@@ -821,6 +901,8 @@ impl eframe::App for Shell {
             self.ctx = Some(ui.ctx().clone());
         }
         self.handed_over(ui.ctx());
+        self.dropped(ui.ctx());
+        self.pst_import();
         self.finish_save(false);
         self.finish_sync();
         self.watched();
@@ -848,6 +930,7 @@ impl eframe::App for Shell {
             || self.gnome_finder.is_some()
             || self.sign_in.is_some()
             || self.saving.is_some()
+            || self.pst.is_some()
             || self.gnome.as_ref().is_some_and(gnome_calendar::Exporter::waiting);
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
         tinta_report::idle();
@@ -870,19 +953,33 @@ fn warm_search(store: &Store) {
     let _ = std::thread::Builder::new().name("search index".into()).spawn(job);
 }
 
+/// Reads an Outlook data file from disk as it goes, reporting progress.
+fn read_pst(path: &std::path::Path, progress: impl FnMut(usize, usize)) -> Result<ibercorreo_engine::pst::Batch, String> {
+    use ibercorreo_engine::pst::{FileSource, Pst, read};
+    FileSource::open(path).and_then(Pst::open).and_then(|pst| read(&pst, progress)).map_err(|e| e.to_string())
+}
+
 /// Imports the files and opens a draft for each `mailto:` link (never sends); the last error, if
-/// any, for the status bar.
+/// any, for the status bar. Outlook data files (`.pst`, `.ost`) are added to `pst`, to be read on
+/// another thread.
 fn open_requested(
     run: &mut dyn FnMut(&str, &serde_json::Value) -> ibercorreo_core::Result<serde_json::Value>,
     request: &single_instance::Request,
+    pst: &mut Vec<PathBuf>,
 ) -> Option<String> {
     let mut status = None;
     for path in &request.imports {
+        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        if matches!(ext.as_deref(), Some("pst" | "ost")) {
+            if !pst.contains(path) {
+                pst.push(path.clone());
+            }
+            continue;
+        }
         let result = std::fs::metadata(path)
             .map_err(|e| e.to_string())
             .and_then(|m| if m.len() > MAX_IMPORT_BYTES { Err("file too large".to_string()) } else { Ok(()) })
             .and_then(|()| std::fs::read(path).map_err(|e| e.to_string()));
-        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
         let outcome = match (result, ext.as_deref()) {
             (Ok(bytes), Some("ics")) => run("calendar.importIcs", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ()),
             (Ok(bytes), Some("vcf" | "vcard")) => {
@@ -935,7 +1032,7 @@ fn main() -> eframe::Result {
             Some("--view") => view = args.next().and_then(|v| v.into_string().ok()),
             Some("--help" | "-h") => {
                 println!(
-                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.ics | FILE.vcf | mailto:…]..."
+                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.pst | FILE.ics | FILE.vcf | mailto:…]..."
                 );
                 return Ok(());
             }
@@ -1012,7 +1109,8 @@ fn main() -> eframe::Result {
             session.dirty = true;
         }
     }
-    if let Some(e) = open_requested(&mut |id, p| session.run(id, p), &request) {
+    let mut pst_queue = Vec::new();
+    if let Some(e) = open_requested(&mut |id, p| session.run(id, p), &request, &mut pst_queue) {
         status = e;
     }
     if let Some(v) = view {
@@ -1078,7 +1176,49 @@ fn main() -> eframe::Result {
                 eds_refresh: None,
                 gnome_finder: None,
                 settings_open: false,
+                pst_queue,
+                pst: None,
             }))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn outlook_data_files_are_queued_not_read_in_the_window() {
+        let dir = std::env::temp_dir().join(format!("ibercorreo-open-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let eml = dir.join("a.eml");
+        std::fs::write(&eml, "Subject: hi\r\n\r\nbody").unwrap();
+        let request = single_instance::Request {
+            imports: vec![dir.join("Archive.PST"), eml, dir.join("old.ost"), dir.join("Archive.PST")],
+            mailto: Vec::new(),
+        };
+        let mut ran = Vec::new();
+        let mut queue = Vec::new();
+        let status = open_requested(
+            &mut |id, _| {
+                ran.push(id.to_string());
+                Ok(serde_json::Value::Null)
+            },
+            &request,
+            &mut queue,
+        );
+        assert_eq!(status, None, "missing archives are not opened here, so no error yet");
+        assert_eq!(ran, ["message.importEml"]);
+        assert_eq!(queue, [dir.join("Archive.PST"), dir.join("old.ost")], "once each, in order");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_or_foreign_file_is_an_error_not_a_panic() {
+        assert!(read_pst(std::path::Path::new("/nonexistent/x.pst"), |_, _| {}).is_err());
+        let file = std::env::temp_dir().join(format!("ibercorreo-notpst-{}.pst", std::process::id()));
+        std::fs::write(&file, b"not an archive").unwrap();
+        assert!(read_pst(&file, |_, _| {}).unwrap_err().contains(".pst"));
+        let _ = std::fs::remove_file(&file);
+    }
 }
