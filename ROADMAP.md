@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-01 · M3 follow-ups done; M4 (Exchange) in progress: M4.1–M4.5c done (EWS with NTLM sign-in)
+Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -235,6 +235,14 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Exchange's Extended Protection requires. `DOMAIN\user` or `user@domain` as the sign-in name.
   Checked against the specification's test values and a test HTTPS server that verifies the
   answer itself; no real Exchange server yet. No Kerberos, no message integrity code.
+- 2026-11-03 — M5.1: Outlook `.msg` import. New crate `ibercorreo-outlook` reads compound files
+  (MS-CFB: both sector sizes, DIFAT, mini stream; loops, overlong sizes and broken chains
+  refused) and `.msg` messages (MS-OXMSG): SMTP sender and recipients (Exchange-only addresses
+  filled from the saved Internet headers), subject and text in the message's code page, date,
+  read state, plain and HTML body, attachment names, types and sizes (attached messages named by
+  their subject). Contacts, appointments and tasks saved as `.msg` are refused. Command
+  `message.importMsg`; opening a `.msg` file imports it (Windows "Open with", Linux MIME type);
+  `ibercorreo-cli msg FILE`. A body kept only as compressed RTF is not read yet.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -265,6 +273,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-01 — M4.5b part 1 (Autodiscover).
 - 2026-11-01 — M4.5b part 2 (EWS calendars and contacts).
 - 2026-11-01 — M4.5c (NTLM sign-in).
+- 2026-11-03 — M5.1 (.msg import).
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

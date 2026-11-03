@@ -10,6 +10,7 @@ ibercorreo-core.workspace = true
 ibercorreo-dav.workspace = true
 ibercorreo-ical.workspace = true
 ibercorreo-mime.workspace = true
+ibercorreo-outlook.workspace = true
 ibercorreo-store.workspace = true
 ibercorreo-sync.workspace = true
 ibercorreo-vcard.workspace = true
@@ -17,6 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+ibercorreo-outlook = { workspace = true, features = ["testing"] }
 ibercorreo-imap.workspace = true
 
 [lints]

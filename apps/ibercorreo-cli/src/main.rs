@@ -4,6 +4,7 @@
 //! ibercorreo-cli commands                         every command id, label, shortcut and parameters
 //! ibercorreo-cli run [--store FILE | --sample] [--save] --cmd 'id={json}'...
 //! ibercorreo-cli eml FILE.eml                     a message as JSON
+//! ibercorreo-cli msg FILE.msg                     a message saved from Outlook, as JSON
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
 //! ibercorreo-cli sync --store FILE [--account ID] [--ca CERT.der]
 //!                                                 Send/Receive for one of the store's accounts
@@ -48,12 +49,15 @@ fn now() -> DateTime {
 }
 
 fn read(path: &str) -> Result<String, String> {
+    Ok(String::from_utf8_lossy(&read_bytes(path)?).into_owned())
+}
+
+fn read_bytes(path: &str) -> Result<Vec<u8>, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("{path}: {e}"))?;
     if meta.len() > MAX_INPUT_BYTES {
         return Err(format!("{path}: larger than {MAX_INPUT_BYTES} bytes"));
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    std::fs::read(path).map_err(|e| format!("{path}: {e}"))
 }
 
 /// One JSON line on stdout. A closed pipe (`… | head`) is not an error worth a crash.
@@ -64,7 +68,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH]"
     );
     ExitCode::from(2)
 }
@@ -87,6 +91,13 @@ fn main() -> ExitCode {
             Some(path) => read(path).and_then(|raw| {
                 let mut s = Session::new(Store::new(), now().date);
                 s.run("message.importEml", &json!({ "raw": raw })).map(|v| print(&v)).map_err(|e| e.to_string())
+            }),
+            None => return usage(),
+        },
+        Some("msg") => match args.get(1) {
+            Some(path) => read_bytes(path).and_then(|bytes| {
+                let mut s = Session::new(Store::new(), now().date);
+                s.run("message.importMsg", &json!({ "data": ibercorreo_mime::base64(&bytes) })).map(|v| print(&v)).map_err(|e| e.to_string())
             }),
             None => return usage(),
         },
