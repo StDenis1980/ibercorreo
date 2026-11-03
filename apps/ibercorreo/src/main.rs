@@ -26,6 +26,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod gnome_calendar;
+mod goa;
 mod single_instance;
 mod tinta_report;
 
@@ -103,6 +104,13 @@ struct Shell {
     inbox: Option<single_instance::Inbox>,
     /// The events shown in the GNOME clock panel, where EDS is in use.
     gnome: Option<gnome_calendar::Exporter>,
+    /// The GNOME Online Accounts account whose calendars EDS fetches again once the running
+    /// Send/Receive has sent Correo's changes to them.
+    eds_refresh: Option<String>,
+    /// The accounts of GNOME Settings, being listed for Account settings.
+    gnome_finder: Option<Receiver<Result<Vec<ibercorreo_ui_egui::GnomeAccount>, String>>>,
+    /// Whether Account settings was open last frame (it lists GNOME's accounts as it opens).
+    settings_open: bool,
 }
 
 /// What the Send/Receive thread reports: each account's result, then that it is done.
@@ -268,6 +276,10 @@ impl Shell {
     /// should ask for.
     fn credential(&mut self, account: &ibercorreo_core::mail::Account) -> Result<Credential, String> {
         let Some(login) = account.login().map(str::to_owned) else { return Err("This account has no sign-in name.".into()) };
+        // GNOME Settings is asked at each sign-in.
+        if !account.goa.is_empty() {
+            return Ok(Credential::External(std::sync::Arc::new(goa::GoaSecret { id: account.goa.clone(), dav: false })));
+        }
         let Some(provider) = account.oauth() else {
             let password = self.passwords.get(&login).cloned().or_else(|| keyring_entry(&login).and_then(|e| e.get_password().ok()));
             return password.map(Credential::Password).ok_or_else(|| format!("Enter the password for {}.", account.address.email));
@@ -416,6 +428,8 @@ impl Shell {
                 state: s.sync_state(id),
                 outbox: s.outbox(id),
                 sent_path: s.sent_path(id),
+                dav_credential: (!account.dav_goa.is_empty())
+                    .then(|| Credential::External(std::sync::Arc::new(goa::GoaSecret { id: account.dav_goa.clone(), dav: true }))),
                 account,
                 credential,
                 tls: tls.clone(),
@@ -427,6 +441,10 @@ impl Shell {
         if jobs.is_empty() {
             return;
         }
+        // Changes to calendars EDS mirrors through GNOME Online Accounts: EDS fetches them again
+        // once this Send/Receive has sent them.
+        self.eds_refresh = gnome_calendar::linked_goa(&self.app.session.store)
+            .filter(|_| self.gnome.is_some() && !self.app.session.calendar_sync_state().changes.is_empty());
         self.outcome.clear();
         self.more = false;
         let (tx, rx) = mpsc::channel();
@@ -472,6 +490,9 @@ impl Shell {
                 Ok(Progress::Done) => {
                     self.worker = None;
                     self.app.sync_progress = None;
+                    if let (Some(g), Some(goa)) = (&self.gnome, self.eds_refresh.take()) {
+                        g.refresh(&goa);
+                    }
                     if !self.outcome.is_empty() {
                         self.app.session.status = self.outcome.join("; ");
                     }
@@ -547,6 +568,8 @@ impl Shell {
         let Ok(account) = self.app.session.store.account(id) else { return };
         let Some(login) = account.login().map(str::to_owned) else { return };
         let note = match account.oauth() {
+            // GNOME Settings said why; it is where to sign in again.
+            None if !account.goa.is_empty() => e.trim_start_matches("sign-in: ").to_string(),
             Some(provider) => {
                 let key = format!("{}:{login}", provider.id);
                 match self.credentials.get(&key) {
@@ -741,6 +764,36 @@ impl Shell {
         }
     }
 
+    /// As Account settings opens, list the accounts of GNOME Settings for it (on a thread: GNOME
+    /// Online Accounts may have to start first); take the list when it comes.
+    fn gnome_accounts(&mut self) {
+        let open = self.app.account_settings_open();
+        if open && !self.settings_open && self.gnome_finder.is_none() {
+            let (tx, rx) = mpsc::channel();
+            let ctx = self.ctx.clone();
+            let spawned = std::thread::Builder::new().name("gnome-accounts".into()).spawn(move || {
+                let _ = tx.send(goa::list());
+                if let Some(ctx) = &ctx {
+                    ctx.request_repaint();
+                }
+            });
+            if spawned.is_ok() {
+                self.gnome_finder = Some(rx);
+            }
+        }
+        self.settings_open = open;
+        let Some(rx) = &self.gnome_finder else { return };
+        match rx.try_recv() {
+            // Not answering is no GNOME here: Account settings shows nothing of it.
+            Ok(found) => {
+                self.app.gnome_accounts = found.ok();
+                self.gnome_finder = None;
+            }
+            Err(TryRecvError::Empty) => {}
+            Err(TryRecvError::Disconnected) => self.gnome_finder = None,
+        }
+    }
+
     /// Take the result of the running save: a failed one leaves the store to be saved again.
     fn finish_save(&mut self, wait: bool) {
         let Some(rx) = &self.saving else { return };
@@ -774,9 +827,10 @@ impl eframe::App for Shell {
         self.app.syncing = self.worker.is_some();
         self.autoconfig();
         self.exchange();
+        self.gnome_accounts();
         self.app.ui(ui);
         if let Some(g) = &mut self.gnome {
-            g.tick(&self.app.session);
+            g.tick(&mut self.app.session, self.worker.is_some());
         }
         self.keep_password();
         self.sign_in();
@@ -788,8 +842,13 @@ impl eframe::App for Shell {
             self.save_if_dirty();
         }
         // Poll a running Send/Receive often; otherwise wake for autosave and the next sync.
-        let busy =
-            self.worker.is_some() || self.finder.is_some() || self.exchange_finder.is_some() || self.sign_in.is_some() || self.saving.is_some();
+        let busy = self.worker.is_some()
+            || self.finder.is_some()
+            || self.exchange_finder.is_some()
+            || self.gnome_finder.is_some()
+            || self.sign_in.is_some()
+            || self.saving.is_some()
+            || self.gnome.as_ref().is_some_and(gnome_calendar::Exporter::waiting);
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
         tinta_report::idle();
     }
@@ -1015,6 +1074,9 @@ fn main() -> eframe::Result {
                 passwords: HashMap::new(),
                 inbox,
                 gnome: if persist { gnome_calendar::Exporter::start() } else { None },
+                eds_refresh: None,
+                gnome_finder: None,
+                settings_open: false,
             }))
         }),
     )

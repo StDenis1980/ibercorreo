@@ -295,3 +295,16 @@
 	Enter the email address and the password first	Escribe primeiro o enderezo de correo e o contrasinal
 	Exchange server found. Check the address and save.	Servidor Exchange atopado. Revisa o enderezo e garda.
 	No Exchange server found: {error}. Enter its address by hand.	Non se atopou ningún servidor Exchange: {error}. Escribe o seu enderezo a man.
+	GNOME Settings	Configuración de GNOME
+	From GNOME Settings	Da Configuración de GNOME
+	Choose an account…	Escolla unha conta…
+	GNOME Settings ({account})	Configuración de GNOME ({account})
+	Unlink	Desvincular
+	Sign in with a password or in the browser instead	Iniciar sesión con contrasinal ou no navegador no seu lugar
+	Signed in through GNOME Settings ({account})	Sesión iniciada a través da Configuración de GNOME ({account})
+	Sign in to the calendars as the mail does	Iniciar sesión nos calendarios igual que no correo
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Unha conta engadida en Contas en liña da Configuración de GNOME: énchense os seus servidores e a Configuración de GNOME inicia a sesión, así que aquí non se garda ningún contrasinal
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} desde a Configuración de GNOME: os servidores están enchidos e a Configuración de GNOME inicia a sesión, así que aquí non se garda ningún contrasinal. Garde.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Os calendarios e contactos de {provider} sincronízanse con esta conta, e a Configuración de GNOME inicia a sesión neles. Garde.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Os calendarios e contactos xa se sincronizan con outra conta; só unha conta á vez pode sincronizalos.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	A Configuración de GNOME pide que antes volva iniciar sesión nesta conta, en Contas en liña.

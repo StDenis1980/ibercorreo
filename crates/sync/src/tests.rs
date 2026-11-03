@@ -346,6 +346,8 @@ fn two_accounts_sync_into_their_own_folders() {
         kind: ibercorreo_core::mail::AccountKind::Local,
         caldav: String::new(),
         signature: String::new(),
+        goa: String::new(),
+        dav_goa: String::new(),
     };
     let a = store.add_account(account("ana@example.org")).unwrap();
     let b = store.add_account(account("bo@example.net")).unwrap();

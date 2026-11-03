@@ -297,3 +297,16 @@
 	Enter the email address and the password first	Najpierw wpisz adres e-mail i hasło
 	Exchange server found. Check the address and save.	Znaleziono serwer Exchange. Sprawdź adres i zapisz.
 	No Exchange server found: {error}. Enter its address by hand.	Nie znaleziono serwera Exchange: {error}. Wpisz jego adres ręcznie.
+	GNOME Settings	Ustawienia GNOME
+	From GNOME Settings	Z Ustawień GNOME
+	Choose an account…	Wybierz konto…
+	GNOME Settings ({account})	Ustawienia GNOME ({account})
+	Unlink	Odłącz
+	Sign in with a password or in the browser instead	Zamiast tego loguj się hasłem lub w przeglądarce
+	Signed in through GNOME Settings ({account})	Zalogowano przez Ustawienia GNOME ({account})
+	Sign in to the calendars as the mail does	Loguj się do kalendarzy tak jak do poczty
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Konto dodane w Kontach online w Ustawieniach GNOME: jego serwery zostają wypełnione, a logują Ustawienia GNOME, więc hasło nie jest tu przechowywane
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} z Ustawień GNOME: serwery są wypełnione, a logują Ustawienia GNOME, więc hasło nie jest tu przechowywane. Zapisz.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Kalendarze i kontakty {provider} synchronizują się z tym kontem, a logują do nich Ustawienia GNOME. Zapisz.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Kalendarze i kontakty synchronizują się już z innym kontem; tylko jedno konto naraz może je synchronizować.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Ustawienia GNOME proszą najpierw o ponowne zalogowanie się do tego konta, w Kontach online.

@@ -295,3 +295,16 @@
 	Enter the email address and the password first	Idatzi lehenik posta helbidea eta pasahitza
 	Exchange server found. Check the address and save.	Exchange zerbitzaria aurkitu da. Egiaztatu helbidea eta gorde.
 	No Exchange server found: {error}. Enter its address by hand.	Ez da Exchange zerbitzaririk aurkitu: {error}. Idatzi haren helbidea eskuz.
+	GNOME Settings	GNOMEren ezarpenak
+	From GNOME Settings	GNOMEren ezarpenetatik
+	Choose an account…	Aukeratu kontu bat…
+	GNOME Settings ({account})	GNOMEren ezarpenak ({account})
+	Unlink	Deslotu
+	Sign in with a password or in the browser instead	Hasi saioa pasahitzarekin edo nabigatzailean horren ordez
+	Signed in through GNOME Settings ({account})	Saioa GNOMEren ezarpenen bidez hasita ({account})
+	Sign in to the calendars as the mail does	Hasi saioa egutegietan postan bezala
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	GNOMEren ezarpenetako Lineako kontuetan gehitutako kontu bat: bere zerbitzariak betetzen dira eta GNOMEren ezarpenek hasten dute saioa, beraz hemen ez da pasahitzik gordetzen
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} GNOMEren ezarpenetatik: zerbitzariak beteta daude eta GNOMEren ezarpenek hasten dute saioa, beraz hemen ez da pasahitzik gordetzen. Gorde.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	{provider}(r)en egutegiak eta kontaktuak kontu honekin sinkronizatzen dira, eta GNOMEren ezarpenek hasten dute saioa haietan. Gorde.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Egutegiak eta kontaktuak beste kontu batekin sinkronizatzen dira dagoeneko; kontu bakar batek sinkroniza ditzake aldi berean.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	GNOMEren ezarpenek kontu honetan berriro saioa hasteko eskatzen dute lehenik, Lineako kontuetan.

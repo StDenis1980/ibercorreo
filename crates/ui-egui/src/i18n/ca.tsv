@@ -295,3 +295,16 @@
 	Enter the email address and the password first	Escriu primer l’adreça de correu i la contrasenya
 	Exchange server found. Check the address and save.	Servidor Exchange trobat. Revisa l’adreça i desa.
 	No Exchange server found: {error}. Enter its address by hand.	No s’ha trobat cap servidor Exchange: {error}. Escriu-ne l’adreça a mà.
+	GNOME Settings	Configuració del GNOME
+	From GNOME Settings	De la Configuració del GNOME
+	Choose an account…	Trieu un compte…
+	GNOME Settings ({account})	Configuració del GNOME ({account})
+	Unlink	Desvincula
+	Sign in with a password or in the browser instead	Inicia la sessió amb contrasenya o al navegador
+	Signed in through GNOME Settings ({account})	Sessió iniciada a través de la Configuració del GNOME ({account})
+	Sign in to the calendars as the mail does	Inicia la sessió als calendaris com al correu
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Un compte afegit a Comptes en línia de la Configuració del GNOME: s'emplenen els seus servidors i la Configuració del GNOME inicia la sessió, de manera que aquí no es desa cap contrasenya
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} des de la Configuració del GNOME: els servidors són emplenats i la Configuració del GNOME inicia la sessió, de manera que aquí no es desa cap contrasenya. Deseu.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Els calendaris i contactes de {provider} se sincronitzen amb aquest compte, i la Configuració del GNOME hi inicia la sessió. Deseu.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Els calendaris i contactes ja se sincronitzen amb un altre compte; només un compte alhora els pot sincronitzar.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	La Configuració del GNOME demana que abans torneu a iniciar la sessió en aquest compte, a Comptes en línia.

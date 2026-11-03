@@ -13,8 +13,15 @@
 //! through its D-Bus API (`SourceManager.CreateSources`), which it picks up at once; otherwise
 //! the key file is written and read at the next login.
 //!
-//! The writing happens on a thread of its own; the window only compares its events with the last
-//! ones written, once a second.
+//! Calendars that already reach EDS another way are left out of the file, so the panel never
+//! shows an event twice: those of a CalDAV server Correo signs in to through GNOME Online
+//! Accounts (`Account::goa`, `Account::dav_goa`), which EDS mirrors itself. For those, a change
+//! made in Correo is sent to the server at once (a Send/Receive within seconds), and EDS is then
+//! asked to fetch the calendar again ([`Exporter::refresh`]), so the panel shows it without
+//! waiting for EDS's own refresh.
+//!
+//! The writing and the D-Bus calls happen on a thread of their own; the window only compares its
+//! events with the last ones written, once a second.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Sender, channel};
@@ -22,11 +29,15 @@ use std::time::{Duration, Instant};
 
 use ibercorreo_core::calendar::Event;
 use ibercorreo_engine::Session;
+use ibercorreo_store::Store;
 
 /// The EDS source's id and file name.
 pub const SOURCE_UID: &str = "tinta-correo";
 /// How often the window looks for changed events.
 const EVERY: Duration = Duration::from_secs(1);
+/// A change to a calendar EDS mirrors itself is sent at once, but not more often than this (a
+/// server out of reach is not asked every second).
+const PUSH_EVERY: Duration = Duration::from_secs(15);
 
 /// Where the files go: the host's folders, also inside Flatpak.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,11 +97,39 @@ fn file_uri(path: &Path) -> String {
     out
 }
 
+/// The GNOME Online Accounts account whose CalDAV calendars EDS already shows (the one the
+/// calendars sign in through), if any.
+pub fn linked_goa(store: &Store) -> Option<String> {
+    let a = store.accounts.iter().find(|a| !a.caldav.trim().is_empty())?;
+    [&a.dav_goa, &a.goa].into_iter().find(|id| !id.is_empty()).cloned()
+}
+
+/// The calendar file's text: every event but those of the CalDAV calendars EDS shows itself.
+fn export(store: &Store, linked: bool) -> String {
+    let skipped: Vec<u32> = if linked {
+        store.calendars().iter().filter(|c| c.remote.as_ref().is_some_and(|r| ibercorreo_sync::calendar::is_caldav(&r.href))).map(|c| c.id).collect()
+    } else {
+        Vec::new()
+    };
+    ibercorreo_ical::write(store.events().iter().filter(|e| !skipped.contains(&e.calendar)))
+}
+
+/// What the writer thread does.
+enum Task {
+    Write(String),
+    /// Ask EDS to fetch the calendars of this GNOME Online Accounts account again.
+    Refresh(String),
+}
+
 /// The window's side: notices changed events and hands them to the writer thread.
 pub struct Exporter {
-    tx: Sender<String>,
+    tx: Sender<Task>,
     last: Option<Vec<Event>>,
     checked: Option<Instant>,
+    /// When a Send/Receive was last asked for, to send a change to a linked server.
+    pushed: Option<Instant>,
+    /// A change to a linked server waits for its Send/Receive.
+    push_pending: bool,
 }
 
 impl Exporter {
@@ -101,41 +140,101 @@ impl Exporter {
         if !paths.sources.is_dir() {
             return None;
         }
-        let (tx, rx) = channel::<String>();
+        let (tx, rx) = channel::<Task>();
         std::thread::Builder::new()
             .name("gnome-calendar".into())
             .spawn(move || {
                 let mut registered = false;
-                while let Ok(mut ics) = rx.recv() {
-                    // Only the newest of a burst of changes.
-                    while let Ok(newer) = rx.try_recv() {
-                        ics = newer;
+                while let Ok(first) = rx.recv() {
+                    // Only the newest file of a burst of changes; each refresh once.
+                    let (mut ics, mut refresh) = (None, Vec::new());
+                    for task in std::iter::once(first).chain(rx.try_iter()) {
+                        match task {
+                            Task::Write(text) => ics = Some(text),
+                            Task::Refresh(id) if !refresh.contains(&id) => refresh.push(id),
+                            Task::Refresh(_) => {}
+                        }
                     }
-                    if write_private(&paths.ics, ics.as_bytes()).is_err() {
-                        continue;
-                    }
-                    if !registered {
+                    if let Some(ics) = ics
+                        && write_private(&paths.ics, ics.as_bytes()).is_ok()
+                        && !registered
+                    {
                         registered = register(&paths, create_through_registry);
+                    }
+                    for id in refresh {
+                        refresh_through_eds(&id);
                     }
                 }
             })
             .ok()?;
-        Some(Exporter { tx, last: None, checked: None })
+        Some(Exporter { tx, last: None, checked: None, pushed: None, push_pending: false })
     }
 
-    /// Each frame: once a second, writes the events again if they changed.
-    pub fn tick(&mut self, session: &Session) {
+    /// Each frame: once a second, writes the events again if they changed. A change to a calendar
+    /// EDS mirrors from the server asks for a Send/Receive, so it reaches the server (and then the
+    /// panel) at once.
+    pub fn tick(&mut self, session: &mut Session, syncing: bool) {
         if self.checked.is_some_and(|t| t.elapsed() < EVERY) {
             return;
         }
         self.checked = Some(Instant::now());
+        let linked = linked_goa(&session.store).is_some();
         let events = session.store.events();
-        if self.last.as_deref() == Some(events) {
-            return;
+        if self.last.as_deref() != Some(events) {
+            self.last = Some(events.to_vec());
+            let _ = self.tx.send(Task::Write(export(&session.store, linked)));
+            // Only changes made here wait to be sent; what a Send/Receive brought does not.
+            self.push_pending = linked && !session.calendar_sync_state().changes.is_empty();
         }
-        self.last = Some(events.to_vec());
-        let _ = self.tx.send(session.store.export_ics(None));
+        if self.push_pending && !syncing && self.pushed.is_none_or(|t| t.elapsed() >= PUSH_EVERY) {
+            self.push_pending = false;
+            self.pushed = Some(Instant::now());
+            session.sync_requested = true;
+        }
     }
+
+    /// A change waits to be sent: the window wakes for it.
+    pub fn waiting(&self) -> bool {
+        self.push_pending
+    }
+
+    /// After a Send/Receive that sent calendar changes to a linked server: EDS fetches that
+    /// account's calendars again.
+    pub fn refresh(&self, goa: &str) {
+        let _ = self.tx.send(Task::Refresh(goa.to_string()));
+    }
+}
+
+/// The EDS calendars made from GNOME Online Accounts account `goa`, by their EDS ids: the
+/// children of its collection source (`[GNOME Online Accounts] AccountId=…`), given each
+/// source's id and key file.
+pub fn goa_calendars(sources: &[(String, String)], goa: &str) -> Vec<String> {
+    let value = |data: &str, section: &str, key: &str| -> Option<String> {
+        let mut inside = false;
+        for line in data.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                inside = line == format!("[{section}]");
+            } else if inside
+                && let Some((k, v)) = line.split_once('=')
+                && k.trim() == key
+            {
+                return Some(v.trim().to_string());
+            }
+        }
+        None
+    };
+    let has = |data: &str, section: &str| data.lines().any(|l| l.trim() == format!("[{section}]"));
+    let collections: Vec<&str> = sources
+        .iter()
+        .filter(|(_, data)| value(data, "GNOME Online Accounts", "AccountId").as_deref() == Some(goa))
+        .map(|(uid, _)| uid.as_str())
+        .collect();
+    sources
+        .iter()
+        .filter(|(_, data)| has(data, "Calendar") && value(data, "Data Source", "Parent").is_some_and(|p| collections.contains(&p.as_str())))
+        .map(|(uid, _)| uid.clone())
+        .collect()
 }
 
 /// Writes through a temporary file and a rename (EDS never reads half a file), readable only by
@@ -192,6 +291,52 @@ fn create_through_registry(_data: &str) -> bool {
     false
 }
 
+/// Asks the calendar factory to open each of the account's EDS calendars and fetch it again
+/// from the server (`Calendar.Refresh`). What fails is left: EDS refreshes on its own later.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn refresh_through_eds(goa: &str) {
+    use std::collections::HashMap;
+    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+    let Ok(bus) = zbus::blocking::Connection::session() else { return };
+    let Ok(reply) = bus.call_method(
+        Some("org.gnome.evolution.dataserver.Sources5"),
+        "/org/gnome/evolution/dataserver/SourceManager",
+        Some("org.freedesktop.DBus.ObjectManager"),
+        "GetManagedObjects",
+        &(),
+    ) else {
+        return;
+    };
+    let Ok(objects) = reply.body().deserialize::<HashMap<OwnedObjectPath, HashMap<String, HashMap<String, OwnedValue>>>>() else { return };
+    let text = |props: &HashMap<String, OwnedValue>, key: &str| match props.get(key).map(|v| &**v) {
+        Some(Value::Str(s)) => s.to_string(),
+        _ => String::new(),
+    };
+    let sources: Vec<(String, String)> = objects
+        .values()
+        .filter_map(|ifaces| ifaces.get("org.gnome.evolution.dataserver.Source"))
+        .map(|props| (text(props, "UID"), text(props, "Data")))
+        .collect();
+    for uid in goa_calendars(&sources, goa) {
+        let opened = bus.call_method(
+            Some("org.gnome.evolution.dataserver.Calendar8"),
+            "/org/gnome/evolution/dataserver/CalendarFactory",
+            Some("org.gnome.evolution.dataserver.CalendarFactory"),
+            "OpenCalendar",
+            &(uid.as_str(),),
+        );
+        let Ok((path, name)) = opened.and_then(|r| r.body().deserialize::<(String, String)>()) else { continue };
+        let call = |method: &str| bus.call_method(Some(name.as_str()), path.as_str(), Some("org.gnome.evolution.dataserver.Calendar"), method, &());
+        if call("Open").is_ok() {
+            let _ = call("Refresh");
+        }
+        let _ = call("Close");
+    }
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn refresh_through_eds(_goa: &str) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,6 +364,68 @@ mod tests {
         assert!(data.contains("Selected=true\n"), "{data}");
         assert!(data.contains("CustomFile=file:///home/ana%20mar%C3%ADa/.local/share/tinta-correo/calendar.ics\n"), "{data}");
         assert!(data.starts_with("[Data Source]\n"));
+    }
+
+    #[test]
+    fn eds_calendars_of_a_gnome_account_are_found_by_their_collection() {
+        let sources = vec![
+            ("goa-1".to_string(), "[Data Source]\nDisplayName=ana@cloud\nParent=\n\n[Collection]\nBackendName=webdav\n\n[GNOME Online Accounts]\nAccountId=account_1700000000_0\n".to_string()),
+            ("cal-1".to_string(), "[Data Source]\nParent=goa-1\n\n[Calendar]\nBackendName=caldav\n".to_string()),
+            ("book-1".to_string(), "[Data Source]\nParent=goa-1\n\n[Address Book]\nBackendName=carddav\n".to_string()),
+            ("other".to_string(), "[Data Source]\nParent=goa-2\n\n[Calendar]\n".to_string()),
+            ("goa-2".to_string(), "[GNOME Online Accounts]\nAccountId=account_1700000000_2\n".to_string()),
+            // The id named in another section is not the account's.
+            ("decoy".to_string(), "[Data Source]\nParent=x\nAccountId=account_1700000000_0\n\n[Calendar]\n".to_string()),
+        ];
+        assert_eq!(goa_calendars(&sources, "account_1700000000_0"), ["cal-1"]);
+        assert_eq!(goa_calendars(&sources, "account_1700000000_2"), ["other"]);
+        assert!(goa_calendars(&sources, "nobody").is_empty());
+        assert!(goa_calendars(&[], "account_1700000000_0").is_empty());
+    }
+
+    #[test]
+    fn calendars_eds_mirrors_itself_are_left_out_of_the_file() {
+        use ibercorreo_core::CalendarRemote;
+        use serde_json::json;
+        let today = ibercorreo_core::Date::new(2026, 11, 3).unwrap();
+        let mut s = Session::new(ibercorreo_engine::sample::store(today).unwrap(), today);
+        let local = s.store.calendars().first().unwrap().id;
+        let remote = s
+            .store
+            .add_calendar("Nextcloud", "#0082c9", Some(CalendarRemote { href: "/remote.php/dav/calendars/ana/personal/".into(), ctag: None }))
+            .unwrap();
+        s.run("event.add", &json!({"summary": "Dentista", "start": "2026-11-04T10:00", "calendar": local})).unwrap();
+        s.run("event.add", &json!({"summary": "Reunión de equipo", "start": "2026-11-04T12:00", "calendar": remote})).unwrap();
+        // No account signs in to its calendars through GNOME: everything goes in the file.
+        assert_eq!(linked_goa(&s.store), None);
+        let all = export(&s.store, false);
+        assert!(all.contains("Dentista") && all.contains("Reunión de equipo"), "{all}");
+        let id = s.store.first_account();
+        let a = s.store.account_mut(id).unwrap();
+        a.caldav = "https://cloud.example.org/remote.php/dav".into();
+        a.dav_goa = "account_1700000000_0".into();
+        assert_eq!(linked_goa(&s.store).as_deref(), Some("account_1700000000_0"));
+        let file = export(&s.store, true);
+        assert!(file.contains("Dentista"), "Correo's own calendar stays: {file}");
+        assert!(!file.contains("Reunión de equipo"), "EDS shows it from GNOME's account: {file}");
+        // The new event waits to be sent, so the exporter asks for a Send/Receive at once, and
+        // not again for what that Send/Receive brings.
+        assert!(!s.calendar_sync_state().changes.is_empty());
+        let (tx, rx) = channel();
+        let mut e = Exporter { tx, last: None, checked: None, pushed: None, push_pending: false };
+        s.sync_requested = false;
+        e.tick(&mut s, true);
+        assert!(!s.sync_requested && e.waiting(), "a Send/Receive running: after it");
+        e.checked = None;
+        e.tick(&mut s, false);
+        assert!(s.sync_requested && !e.waiting());
+        assert!(matches!(rx.try_recv(), Ok(Task::Write(text)) if text.contains("Dentista") && !text.contains("Reunión de equipo")));
+        s.sync_requested = false;
+        e.checked = None;
+        e.tick(&mut s, false);
+        assert!(!s.sync_requested, "nothing changed since");
+        e.refresh("account_1700000000_0");
+        assert!(matches!(rx.try_recv(), Ok(Task::Refresh(id)) if id == "account_1700000000_0"));
     }
 
     #[test]

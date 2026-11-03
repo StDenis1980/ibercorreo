@@ -1,6 +1,6 @@
 # Tinta Correo — milestones
 
-Status: 2026-11-01 · Current focus: M4 (Microsoft Graph)
+Status: 2026-11-03 · Current focus: M4 (Microsoft Graph)
 
 | Milestone | Scope | State |
 |---|---|---|
@@ -27,6 +27,8 @@ on-premises servers require instead of Basic, tied to the server's certificate f
 Protection. Next: checking EWS against a real Exchange server when one is available, then M5.
 
 Earlier: Google verification, decided 2026-10-28: Gmail signs in with an app password for now (offered first in Account settings, with a link to make one); browser sign-in stays as the second choice: the Google OAuth app is published unverified (2026-10-28, owner's step in the Cloud Console), so no 7-day re-sign-in, an "unverified app" page the app explains, and at most 100 Google users. Google's verification and the paid CASA assessment wait until after the public release and the first support sales. Outlook.com browser sign-in works on a real account (checked 2026-10-28).
+
+Outside the milestones, for Vilna OS (2026-11-03): Correo as the GNOME desktop's mail and calendar app: `mailto:` links and files, one window per mailbox, its events in the clock panel and accounts from GNOME Settings (`docs/gnome.md`).
 
 Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (December 2026 – January 2027), M6 in 2027. The suite-wide work (releases, Linux, signing, tests, user guides) is in the Tinta Office roadmaps of the sibling repos (`docs/tinta-roadmap.md`).
 
@@ -66,3 +68,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-01 — M4.5b: Autodiscover landed.
 - 2026-11-01 — M4.5b: EWS calendars and contacts landed.
 - 2026-11-01 — M4.5c: NTLM sign-in landed.
+- 2026-11-03 — GNOME desktop integration for Vilna OS (clock panel, accounts from GNOME Settings).

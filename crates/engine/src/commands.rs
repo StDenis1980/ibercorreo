@@ -535,7 +535,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Account settings",
         group: "File/Account",
         shortcut: None,
-        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\ngraphMail?: boolean — receive and send over Microsoft Graph instead of IMAP and SMTP, for a Microsoft 365 work account whose IMAP is turned off; needs oauth \"microsoft\"; omitted keeps the current choice\news?: string — receive and send over Exchange Web Services, for an Exchange Server the organisation runs itself: its EWS address (https://mail.example.org/EWS/Exchange.asmx) or just the server's name; signed in to with the password (no oauth); imapHost and smtpHost may then be left out; omitted keeps the current one, \"\" goes back to IMAP and SMTP\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
+        params: "id?: number — the account to change (account.list); default the one whose folder is open, or a new one when there is none\nemail: string — the address mail is sent from\nname?: string — shown to recipients\nimapHost: string\nimapPort?: number — default 993 (TLS) or 143 (STARTTLS)\nimapSecurity?: \"tls\" | \"starttls\" — default tls\nsmtpHost: string\nsmtpPort?: number — default 465 (TLS) or 587 (STARTTLS)\nsmtpSecurity?: \"tls\" | \"starttls\" — default tls\nuser?: string — sign-in name, default the email address\ncaldav?: string — CalDAV address (https://…: the server, your principal or one calendar), signed in to with the same name and password; omitted keeps the current one, \"\" stops syncing calendars\noauth?: \"google\" | \"microsoft\" | \"\" — sign in through the provider in the browser (OAuth 2.0) instead of with a password; default \"\" (a password)\ngraphMail?: boolean — receive and send over Microsoft Graph instead of IMAP and SMTP, for a Microsoft 365 work account whose IMAP is turned off; needs oauth \"microsoft\"; omitted keeps the current choice\news?: string — receive and send over Exchange Web Services, for an Exchange Server the organisation runs itself: its EWS address (https://mail.example.org/EWS/Exchange.asmx) or just the server's name; signed in to with the password (no oauth); imapHost and smtpHost may then be left out; omitted keeps the current one, \"\" goes back to IMAP and SMTP\nsignature?: string — plain text added to new messages, replies and forwards (at most 8 KB); omitted keeps the current one, \"\" none\ngoa?: string — the GNOME Online Accounts account (its id, account_…) the mail signs in through: GNOME Settings is asked for the password or token at each sign-in and nothing is kept here; no oauth or ews with it; omitted keeps the current one, \"\" none\ndavGoa?: string — the GNOME Online Accounts account the calendars and contacts (caldav) sign in through, with its own name, when it is not the mail's (Nextcloud in GNOME Settings); omitted keeps the current one, \"\" none\n(Neither the password nor OAuth tokens are parameters: the app keeps them in the system's credential store.)",
         edits: true,
         run: account_set,
     },
@@ -2112,6 +2112,8 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
             text.trim_end().replace("\r\n", "\n")
         }
     };
+    let goa = goa_param(p, "goa", old.map(|a| a.goa.as_str()))?;
+    let dav_goa = if caldav.is_empty() { String::new() } else { goa_param(p, "davGoa", old.map(|a| a.dav_goa.as_str()))? };
     let oauth = str_param(p, "oauth")?.map(str::trim).unwrap_or("");
     if !oauth.is_empty() && ibercorreo_core::mail::OAuthProvider::get(oauth).is_none() {
         let known: Vec<_> = ibercorreo_core::mail::OAUTH_PROVIDERS.iter().map(|p| p.id).collect();
@@ -2136,6 +2138,9 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
     if !ews.is_empty() && (graph || !oauth.is_empty()) {
         return Err(Error::invalid("ews", "Exchange Web Services is signed in to with the password: no oauth, no graphMail"));
     }
+    if !goa.is_empty() && (!oauth.is_empty() || !ews.is_empty()) {
+        return Err(Error::invalid("goa", "an account signed in through GNOME Settings has no oauth or ews of its own"));
+    }
     // Over EWS the IMAP and SMTP servers are not used: the Exchange server stands in for them.
     let ews_host = ibercorreo_dav::Url::parse(&ews).map(|u| u.host).ok();
     let server = |key: &str| match (p.get(key), &ews_host) {
@@ -2155,7 +2160,17 @@ fn account_from_params(s: &Session, p: &Value, old: Option<&Account>) -> Result<
         graph,
         ews,
     };
-    Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav, signature })
+    Ok(Account { id: old.map(|a| a.id).unwrap_or_default(), name: address.display().to_string(), address, kind, caldav, signature, goa, dav_goa })
+}
+
+/// A GNOME Online Accounts id parameter (`account_1700000000_0`): kept as `old` when left out,
+/// `""` for none.
+fn goa_param(p: &Value, key: &'static str, old: Option<&str>) -> Result<String> {
+    match str_param(p, key)?.map(str::trim) {
+        None => Ok(old.unwrap_or("").to_string()),
+        Some(id) if id.len() <= 128 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') => Ok(id.to_string()),
+        Some(_) => Err(Error::invalid(key, "not a GNOME Online Accounts id")),
+    }
 }
 
 /// The Exchange Web Services address `text` names: `""` for none, a full `https://` address, or
@@ -2251,7 +2266,7 @@ fn account_remove(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn account_json(a: &Account) -> Value {
-    let mut v = json!({ "id": a.id.0, "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav, "signature": a.signature });
+    let mut v = json!({ "id": a.id.0, "name": a.name, "email": a.address.email, "displayName": a.address.name, "caldav": a.caldav, "signature": a.signature, "goa": a.goa, "davGoa": a.dav_goa });
     if let (AccountKind::Imap { imap_host, imap_port, smtp_host, smtp_port, imap_security, smtp_security, .. }, Some(obj)) =
         (&a.kind, v.as_object_mut())
     {

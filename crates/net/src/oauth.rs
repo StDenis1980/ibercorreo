@@ -66,6 +66,9 @@ pub enum Error {
     /// Random numbers or the listener on this machine were unavailable.
     #[error("sign-in: {0}")]
     Local(String),
+    /// Where the account's secret comes from ([`SecretSource`]) gave none: why, in a sentence.
+    #[error("{0}")]
+    External(String),
 }
 
 /// A provider's OAuth endpoints and this app's registration with it.
@@ -570,11 +573,31 @@ impl Grant {
     }
 }
 
+/// Somewhere else that holds an account's secret and is asked for it at each use, such as GNOME
+/// Online Accounts: the app keeps no copy.
+pub trait SecretSource: Send + Sync {
+    /// The secret for the incoming mail server (and CalDAV, CardDAV): a password or an access
+    /// token.
+    fn secret(&self) -> Result<Secret, Error>;
+    /// The secret for the outgoing mail server, when it can differ from [`SecretSource::secret`].
+    fn smtp_secret(&self) -> Result<Secret, Error> {
+        self.secret()
+    }
+    /// The sign-in name it goes with, when the source knows it (otherwise the account's).
+    fn login(&self) -> Option<String> {
+        None
+    }
+    /// Who holds the secret, for messages ("GNOME Settings").
+    fn name(&self) -> &'static str;
+}
+
 /// How an account signs in, shared by the threads that use it (Send/Receive, the Inbox watch).
 #[derive(Clone)]
 pub enum Credential {
     Password(String),
     OAuth(Arc<Mutex<Grant>>),
+    /// Asked of a [`SecretSource`] each time.
+    External(Arc<dyn SecretSource>),
 }
 
 impl std::fmt::Debug for Credential {
@@ -582,6 +605,7 @@ impl std::fmt::Debug for Credential {
         f.write_str(match self {
             Credential::Password(_) => "Credential::Password(…)",
             Credential::OAuth(_) => "Credential::OAuth(…)",
+            Credential::External(_) => "Credential::External(…)",
         })
     }
 }
@@ -604,6 +628,7 @@ impl Credential {
     pub fn secret_with(&self, post: &mut dyn Post) -> Result<Secret, Error> {
         let grant = match self {
             Credential::Password(p) => return Ok(Secret::Password(p.clone())),
+            Credential::External(source) => return source.secret(),
             Credential::OAuth(g) => g,
         };
         let mut g = grant.lock().unwrap_or_else(PoisonError::into_inner);
@@ -630,6 +655,9 @@ impl Credential {
     pub fn graph_token_with(&self, post: &mut dyn Post) -> Result<String, Error> {
         let grant = match self {
             Credential::Password(_) => return Err(Error::Protocol("a password account has no Microsoft Graph sign-in".into())),
+            Credential::External(source) => {
+                return Err(Error::Protocol(format!("an account signed in through {} has no Microsoft Graph sign-in", source.name())));
+            }
             Credential::OAuth(g) => g,
         };
         let mut g = grant.lock().unwrap_or_else(PoisonError::into_inner);
@@ -652,7 +680,7 @@ impl Credential {
     /// Whether this account can use Microsoft Graph (a Microsoft sign-in).
     pub fn has_graph(&self) -> bool {
         match self {
-            Credential::Password(_) => false,
+            Credential::Password(_) | Credential::External(_) => false,
             Credential::OAuth(g) => g.lock().unwrap_or_else(PoisonError::into_inner).app.graph_scope.is_some(),
         }
     }
@@ -667,6 +695,24 @@ impl Credential {
     /// [`Credential::secret_with`] the network.
     pub fn secret(&self, tls: &Tls) -> Result<Secret, Error> {
         self.secret_with(&mut Net { tls })
+    }
+
+    /// The secret for the outgoing mail server: the same as [`Credential::secret`], except where
+    /// a [`SecretSource`] keeps a separate one.
+    pub fn smtp_secret(&self, tls: &Tls) -> Result<Secret, Error> {
+        match self {
+            Credential::External(source) => source.smtp_secret(),
+            _ => self.secret(tls),
+        }
+    }
+
+    /// The sign-in name the secret goes with, when it is not the account's own (a
+    /// [`SecretSource`] that knows it).
+    pub fn login(&self) -> Option<String> {
+        match self {
+            Credential::External(source) => source.login(),
+            _ => None,
+        }
     }
 
     /// Drop the access token (the server refused it), so the next use renews it.
@@ -686,7 +732,7 @@ impl Credential {
     /// Whether the provider said this grant is gone (the stored refresh token is useless).
     pub fn revoked(&self) -> bool {
         match self {
-            Credential::Password(_) => false,
+            Credential::Password(_) | Credential::External(_) => false,
             Credential::OAuth(g) => g.lock().unwrap_or_else(PoisonError::into_inner).revoked,
         }
     }
@@ -695,6 +741,7 @@ impl Credential {
     pub fn provider(&self) -> Option<&'static str> {
         match self {
             Credential::Password(_) => None,
+            Credential::External(source) => Some(source.name()),
             Credential::OAuth(g) => Some(g.lock().unwrap_or_else(PoisonError::into_inner).app.provider.name),
         }
     }
