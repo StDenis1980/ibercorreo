@@ -8,6 +8,8 @@
 //! `--sample` opens the sample mailbox instead, without touching the store. `.eml`, `.ics` and
 //! `.vcf` files on the command line (or from the file manager's "Open with", also as `file://`
 //! URIs) are imported, and each `mailto:` link opens a new draft (`message.composeMailto`).
+//! While a window is open on the mailbox, a later start hands its files and links to that window
+//! and exits (`single_instance`).
 //!
 //! Send/Receive runs on a background thread (`ibercorreo_net::job`, one job per account, one
 //! after another), at start, every five minutes and on request; each account's result is applied
@@ -23,6 +25,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod single_instance;
 mod tinta_report;
 
 use std::collections::HashMap;
@@ -95,6 +98,8 @@ struct Shell {
     credentials: HashMap<String, Credential>,
     /// The running browser sign-in, if any.
     sign_in: Option<SignIn>,
+    /// Files and links that later starts handed over (one window per mailbox).
+    inbox: Option<single_instance::Inbox>,
 }
 
 /// What the Send/Receive thread reports: each account's result, then that it is done.
@@ -603,6 +608,20 @@ impl Shell {
     }
 
     /// A change a watcher saw asks for a Send/Receive.
+    /// Opens what a later start handed over and brings the window to the front.
+    fn handed_over(&mut self, ctx: &egui::Context) {
+        let Some(inbox) = &self.inbox else { return };
+        let _ = inbox.ctx.set(ctx.clone());
+        let requests: Vec<_> = inbox.rx.try_iter().collect();
+        for request in requests {
+            if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request) {
+                self.app.session.status = e;
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
     fn watched(&mut self) {
         let mut gone = Vec::new();
         for (id, w) in &self.watchers {
@@ -745,6 +764,7 @@ impl eframe::App for Shell {
         if self.ctx.is_none() {
             self.ctx = Some(ui.ctx().clone());
         }
+        self.handed_over(ui.ctx());
         self.finish_save(false);
         self.finish_sync();
         self.watched();
@@ -783,6 +803,40 @@ impl eframe::App for Shell {
 fn warm_search(store: &Store) {
     let job = store.search_warmup();
     let _ = std::thread::Builder::new().name("search index".into()).spawn(job);
+}
+
+/// Imports the files and opens a draft for each `mailto:` link (never sends); the last error, if
+/// any, for the status bar.
+fn open_requested(
+    run: &mut dyn FnMut(&str, &serde_json::Value) -> ibercorreo_core::Result<serde_json::Value>,
+    request: &single_instance::Request,
+) -> Option<String> {
+    let mut status = None;
+    for path in &request.imports {
+        let result = std::fs::metadata(path)
+            .map_err(|e| e.to_string())
+            .and_then(|m| if m.len() > MAX_IMPORT_BYTES { Err("file too large".to_string()) } else { Ok(()) })
+            .and_then(|()| std::fs::read(path).map_err(|e| e.to_string()));
+        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        let outcome = match (result, ext.as_deref()) {
+            (Ok(bytes), Some("ics")) => run("calendar.importIcs", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ()),
+            (Ok(bytes), Some("vcf" | "vcard")) => {
+                run("contact.importVcf", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
+            }
+            (Ok(bytes), _) => run("message.importEml", &serde_json::json!({ "raw": String::from_utf8_lossy(&bytes) })).map(|_| ()),
+            (Err(e), _) => Err(ibercorreo_core::Error::Storage(e)),
+        };
+        if let Err(e) = outcome {
+            status = Some(format!("{}: {e}", path.display()));
+        }
+    }
+    // The last link's draft is the one showing.
+    for link in &request.mailto {
+        if let Err(e) = run("message.composeMailto", &serde_json::json!({ "uri": link })) {
+            status = Some(format!("mailto: {e}"));
+        }
+    }
+    status
 }
 
 /// A path from a `file://` URI's bytes.
@@ -828,6 +882,14 @@ fn main() -> eframe::Result {
     let zone = ibercorreo_core::Zone::system();
     let today = zone.from_utc(now()).date;
     let store_path = store_path.or_else(|| data_dir().map(|d| d.join("store.json")));
+    let request = single_instance::Request { imports, mailto };
+    // A window already open on this mailbox takes the files and links, and this start ends
+    // there (never two windows saving the same store).
+    let inbox = match store_path.as_deref().filter(|_| !sample).map(|p| single_instance::start(p, &request)) {
+        Some(single_instance::Start::Forwarded) => return Ok(()),
+        Some(single_instance::Start::First(inbox)) => Some(inbox),
+        Some(single_instance::Start::Alone) | None => None,
+    };
     let mut status = String::new();
     // Off when a mailbox that could not be read could not be moved aside either: never save over it.
     let mut writable = true;
@@ -884,31 +946,8 @@ fn main() -> eframe::Result {
             session.dirty = true;
         }
     }
-    for path in imports {
-        let result = std::fs::metadata(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|m| if m.len() > MAX_IMPORT_BYTES { Err("file too large".to_string()) } else { Ok(()) })
-            .and_then(|()| std::fs::read(&path).map_err(|e| e.to_string()));
-        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
-        let outcome = match (result, ext.as_deref()) {
-            (Ok(bytes), Some("ics")) => {
-                session.run("calendar.importIcs", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
-            }
-            (Ok(bytes), Some("vcf" | "vcard")) => {
-                session.run("contact.importVcf", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
-            }
-            (Ok(bytes), _) => session.run("message.importEml", &serde_json::json!({ "raw": String::from_utf8_lossy(&bytes) })).map(|_| ()),
-            (Err(e), _) => Err(ibercorreo_core::Error::Storage(e)),
-        };
-        if let Err(e) = outcome {
-            status = format!("{}: {e}", path.display());
-        }
-    }
-    // Each link opens a draft (never sends); the last one is the one showing.
-    for link in mailto {
-        if let Err(e) = session.run("message.composeMailto", &serde_json::json!({ "uri": link })) {
-            status = format!("mailto: {e}");
-        }
+    if let Some(e) = open_requested(&mut |id, p| session.run(id, p), &request) {
+        status = e;
     }
     if let Some(v) = view {
         // The calendar's own views open the calendar on that view.
@@ -968,6 +1007,7 @@ fn main() -> eframe::Result {
                 // A first Send/Receive right after start.
                 next_sync: Instant::now(),
                 passwords: HashMap::new(),
+                inbox,
             }))
         }),
     )
