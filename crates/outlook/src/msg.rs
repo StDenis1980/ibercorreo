@@ -73,7 +73,10 @@ struct Props<'c, 'a> {
     cfb: &'c Cfb<'a>,
     storage: usize,
     fixed: Vec<(u16, u16, u64)>,
+    /// The code page of 8-bit text properties.
     codepage: u32,
+    /// The code page of the HTML body, which can differ (`PidTagInternetCodepage`).
+    internet: u32,
 }
 
 impl<'c, 'a> Props<'c, 'a> {
@@ -87,8 +90,9 @@ impl<'c, 'a> Props<'c, 'a> {
                 fixed.push(((tag >> 16) as u16, (tag & 0xffff) as u16, value));
             }
         }
-        let mut props = Props { cfb, storage, fixed, codepage };
+        let mut props = Props { cfb, storage, fixed, codepage, internet: codepage };
         props.codepage = props.int(tag::MESSAGE_CODEPAGE).or_else(|| props.int(tag::INTERNET_CODEPAGE)).unwrap_or(codepage);
+        props.internet = props.int(tag::INTERNET_CODEPAGE).unwrap_or(props.codepage);
         Ok(props)
     }
 
@@ -247,7 +251,7 @@ fn message(cfb: &Cfb<'_>, storage: usize, header: usize, id: MessageId, folder: 
     m.seen = p.int(tag::MESSAGE_FLAGS).is_some_and(|f| f & READ != 0);
 
     let filled = |t: &String| !t.trim().is_empty();
-    let mut html = p.binary(tag::HTML).map(|b| decode(&b, p.codepage)).or_else(|| p.text(tag::HTML)).filter(filled);
+    let mut html = p.binary(tag::HTML).map(|b| decode(&b, p.internet)).or_else(|| p.text(tag::HTML)).filter(filled);
     let mut text = p.text(tag::BODY).filter(filled);
     // Outlook often keeps the formatted body only as compressed RTF, HTML mail wrapped in it.
     if html.is_none() {

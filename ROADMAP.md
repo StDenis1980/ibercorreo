@@ -250,6 +250,10 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   and RTF-native mail as text in the RTF's code page, with `\uN` characters. An HTML property
   still wins, and the plain text Outlook saved stays the text. Formatting of RTF-native mail is
   not kept.
+- 2026-11-03 — `.msg`: the HTML body is read in `PidTagInternetCodepage`, which can differ from
+  the code page of the other text (found on a real Ukrainian message: text in Windows-1251, HTML
+  in KOI8-U). Seven real messages from the owner (English and Ukrainian, HTML, RTF, attachments)
+  now import correctly; the files are not kept.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -282,6 +286,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-01 — M4.5c (NTLM sign-in).
 - 2026-11-03 — M5.1 (.msg import).
 - 2026-11-03 — M5.1b (compressed-RTF bodies).
+- 2026-11-03 — .msg HTML bodies read in the Internet code page.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

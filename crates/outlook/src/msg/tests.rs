@@ -267,3 +267,20 @@ fn bodies_kept_only_as_compressed_rtf_are_read() {
     let (body, rich) = note(vec![uni(tag::BODY, "plain"), bin(tag::RTF_COMPRESSED, &broken)]);
     assert_eq!((body.as_str(), rich), ("plain", None));
 }
+
+#[test]
+fn the_html_body_follows_the_internet_code_page() {
+    // Outlook saved the text properties in Windows-1251 but the HTML in KOI8-U, as received.
+    let bytes = build(
+        vec![
+            props(32, &[(tag::MESSAGE_CODEPAGE, LONG, 1251), (tag::INTERNET_CODEPAGE, LONG, 21866)]),
+            s8(tag::MESSAGE_CLASS, b"IPM.Note"),
+            s8(tag::SUBJECT, b"\xcf\xf0\xe8\xe2\xb3\xf2"),
+            bin(tag::HTML, b"<p>\xf0\xd2\xc9\xd7\xa6\xd4</p>"),
+        ],
+        9,
+    );
+    let m = read(&bytes, MessageId(1), FolderId(1)).unwrap();
+    assert_eq!(m.subject, "Привіт", "text properties in the message code page");
+    assert_eq!(m.content().unwrap().body.trim(), "Привіт", "the HTML in the Internet code page");
+}
