@@ -25,6 +25,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod gnome_calendar;
 mod single_instance;
 mod tinta_report;
 
@@ -100,6 +101,8 @@ struct Shell {
     sign_in: Option<SignIn>,
     /// Files and links that later starts handed over (one window per mailbox).
     inbox: Option<single_instance::Inbox>,
+    /// The events shown in the GNOME clock panel, where EDS is in use.
+    gnome: Option<gnome_calendar::Exporter>,
 }
 
 /// What the Send/Receive thread reports: each account's result, then that it is done.
@@ -772,6 +775,9 @@ impl eframe::App for Shell {
         self.autoconfig();
         self.exchange();
         self.app.ui(ui);
+        if let Some(g) = &mut self.gnome {
+            g.tick(&self.app.session);
+        }
         self.keep_password();
         self.sign_in();
         self.keep_rotated();
@@ -1008,6 +1014,7 @@ fn main() -> eframe::Result {
                 next_sync: Instant::now(),
                 passwords: HashMap::new(),
                 inbox,
+                gnome: if persist { gnome_calendar::Exporter::start() } else { None },
             }))
         }),
     )
