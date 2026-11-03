@@ -9,7 +9,7 @@ Status: 2026-11-03 · Current focus: M4 (Microsoft Graph)
 | M2 | Calendar: week and day views, recurrence (RRULE), time zones, reminders, CalDAV sync (RFC 4791), meeting invitations (iTIP/iMIP: accept, decline); contacts: vCard, CardDAV | done: recurrence (M2.1), day and week views (M2.2), time zones (M2.3), reminders (M2.4), two-way CalDAV sync (M2.5), meeting invitations (M2.6), contact cards and vCard (M2.7a), two-way CardDAV sync (M2.7b). Organizing meetings (sending invitations) stays in gap 13 |
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | in progress: autoconfiguration and IDLE (M3.1), OAuth2 for Gmail and Microsoft 365 (M3.2), several accounts (M3.3), the full-text search index (M3.4), rules (M3.5) done; Outlook.com checked; Gmail by app password, Google verification after the public release |
 | M4 | Exchange. Microsoft Graph first, since Exchange Online switches EWS off (from 2026-10, fully 2027-04-01): the Graph client and token (M4.1), the Outlook calendar (M4.2), contacts (M4.3), mail for work accounts without IMAP (M4.4); then EWS for on-premises Exchange (M4.5, Thunderbird's MPL-2.0 `ews` crate, unmodified) | in progress: M4.1 (Graph client, Graph consent in the Microsoft sign-in) M4.2 (Outlook calendars, both ways), M4.3 (Outlook contacts, both ways), M4.4 (mail over Graph for work accounts without IMAP) and M4.5a (mail over EWS for on-premises Exchange, password sign-in) done; M4.5b (Autodiscover, EWS calendars and contacts both ways) done; M4.5c (NTLM sign-in) done |
-| M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | Windows MSI done early (#20); `.pst`/`.msg`, macOS and Linux installers and the full guide open |
+| M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | Windows MSI done early (#20); Linux deb/rpm/AppImage and a Flatpak bundle manifest (`packaging/linux/flatpak-bundle.sh`, tintaoffice-web#14) done; `.pst`/`.msg`, macOS installer and the full guide open |
 | M6 | MCP server (agent control), PGP/S-MIME (including signing mail with an FNMT certificate), accessibility pass, translations | translations done early (uk, es, ca, gl, eu, it, fr, de, pl: #24–#27; native review pending); the rest open |
 
 ## Current focus
@@ -68,4 +68,5 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-01 — M4.5b: Autodiscover landed.
 - 2026-11-01 — M4.5b: EWS calendars and contacts landed.
 - 2026-11-01 — M4.5c: NTLM sign-in landed.
+- 2026-11-03 — Flatpak bundle manifest for Linux (tintaoffice-web#14).
 - 2026-11-03 — GNOME desktop integration for Vilna OS (clock panel, accounts from GNOME Settings).

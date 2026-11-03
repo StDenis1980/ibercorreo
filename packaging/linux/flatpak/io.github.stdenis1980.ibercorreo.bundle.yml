@@ -1,0 +1,59 @@
+# Flatpak manifest for the single-file bundle of Tinta Correo
+# (tinta-correo-<version>-linux-<arch>.flatpak). Build it with packaging/linux/flatpak-bundle.sh.
+#
+# It repackages the release's own Linux tarball (tinta-correo-<version>-linux-<arch>.tar.gz from
+# package.sh) instead of compiling Rust inside flatpak-builder: no network and no vendored crate
+# sources during the build, and the same binaries as the AppImage/deb/rpm. The script unpacks the
+# tarball into `stage/` next to a copy of this file. The binaries need glibc >= 2.35 and load X11,
+# Wayland, xkbcommon and OpenGL at runtime; the freedesktop runtime has all of them, and the GPU
+# driver comes from its org.freedesktop.Platform.GL extension.
+#
+# The OAuth client ids (Gmail, Microsoft 365) are compiled into the tarball's binaries, so build
+# the tarball with them set (packaging/linux/package.sh).
+id: io.github.stdenis1980.ibercorreo
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: ibercorreo
+finish-args:
+  # Display: Wayland first; X11 only when no Wayland compositor is running.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM). Without it the X11 fallback is slow or fails.
+  - --share=ipc
+  # GPU access for the OpenGL renderer.
+  - --device=dri
+  # Mail, calendar and contacts servers (IMAP, SMTP, CalDAV, CardDAV, Microsoft Graph, EWS), the
+  # OAuth sign-in's loopback redirect on 127.0.0.1, error reports and Check for updates.
+  - --share=network
+  # Passwords and OAuth tokens live in the Secret Service (gnome-keyring, KWallet), under the same
+  # names as the deb/rpm/AppImage builds, so an account added there signs in here too.
+  - --talk-name=org.freedesktop.secrets
+  # GNOME desktop (docs/gnome.md): accounts from GNOME Settings (GNOME Online Accounts: the servers,
+  # and the password or token asked at each sign-in) ...
+  - --talk-name=org.gnome.OnlineAccounts
+  # ... and Correo's events in the clock panel: its calendar file, registered once as an Evolution
+  # Data Server calendar (through the source registry, else as a key file read at the next login),
+  # and EDS asked to refresh the calendars of a GNOME Settings account right after a change.
+  - --filesystem=xdg-data/tinta-correo:create
+  - --filesystem=xdg-config/evolution/sources:create
+  - --talk-name=org.gnome.evolution.dataserver.Sources5
+  - --talk-name=org.gnome.evolution.dataserver.Calendar8
+  # Deliberately not granted: any other filesystem access. Mail is stored in the app's own data
+  # folder (~/.var/app/io.github.stdenis1980.ibercorreo/data/ibercorreo), and the OAuth sign-in
+  # opens the browser through xdg-open, which inside the sandbox goes through the OpenURI portal.
+build-options:
+  no-debuginfo: true
+modules:
+  - name: ibercorreo
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/ibercorreo /app/bin/ibercorreo
+      - install -Dm755 bin/ibercorreo-cli /app/bin/ibercorreo-cli
+      - install -Dm644 share/applications/io.github.stdenis1980.ibercorreo.desktop /app/share/applications/io.github.stdenis1980.ibercorreo.desktop
+      # Already has the release's version and date substituted by package.sh.
+      - install -Dm644 share/metainfo/io.github.stdenis1980.ibercorreo.metainfo.xml /app/share/metainfo/io.github.stdenis1980.ibercorreo.metainfo.xml
+      - mkdir -p /app/share/icons /app/share/doc && cp -R share/icons/hicolor /app/share/icons/ && cp -R share/doc/tinta-correo /app/share/doc/
+    sources:
+      - type: dir
+        path: stage
