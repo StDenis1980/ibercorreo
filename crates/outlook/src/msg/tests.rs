@@ -231,3 +231,39 @@ fn messages_attached_in_a_loop_do_not_recurse_for_ever() {
     let m = read(&looped, MessageId(1), FolderId(1)).unwrap();
     assert_eq!(m.attachments[0].name, "loop.eml");
 }
+
+#[test]
+fn bodies_kept_only_as_compressed_rtf_are_read() {
+    let html_rtf = crate::testing::compress_rtf(
+        b"{\\rtf1\\ansi\\ansicpg1252\\fromhtml1 {\\*\\htmltag19 <html><body>}{\\*\\htmltag64 <p><b>}\\htmlrtf {\\b\\htmlrtf0 Caf\\'e9 menu\\htmlrtf}\\htmlrtf0 {\\*\\htmltag72 </b></p></body></html>}}",
+    );
+    let note = |extra: Vec<Node>| {
+        let mut nodes = vec![props(32, &[]), uni(tag::MESSAGE_CLASS, "IPM.Note")];
+        nodes.extend(extra);
+        let m = read(&build(nodes, 9), MessageId(1), FolderId(1)).unwrap();
+        let c = m.content().unwrap();
+        (c.body.clone(), c.rich.as_ref().map(|r| r.to_text()))
+    };
+    // HTML mail: the HTML comes out of the RTF, the plain text Outlook also kept stays the text.
+    let (body, rich) = note(vec![uni(tag::BODY, "Cafe menu (plain)"), bin(tag::RTF_COMPRESSED, &html_rtf)]);
+    assert_eq!(body, "Cafe menu (plain)");
+    assert_eq!(rich.as_deref().map(str::trim), Some("Café menu"));
+    // With no plain text, the formatted body gives it.
+    let (body, rich) = note(vec![bin(tag::RTF_COMPRESSED, &html_rtf)]);
+    assert_eq!((body.trim(), rich.is_some()), ("Café menu", true));
+    // An HTML property wins over the RTF.
+    let (_, rich) = note(vec![uni(tag::HTML, "<p>from the HTML property</p>"), bin(tag::RTF_COMPRESSED, &html_rtf)]);
+    assert_eq!(rich.as_deref().map(str::trim), Some("from the HTML property"));
+    // Plain-text and RTF-native mail give text only.
+    let text_rtf = crate::testing::compress_rtf(b"{\\rtf1\\ansi\\fromtext \\pard Line one\\par Line two}");
+    let (body, rich) = note(vec![bin(tag::RTF_COMPRESSED, &text_rtf)]);
+    assert_eq!((body.as_str(), rich), ("Line one\nLine two", None));
+    let (body, _) = note(vec![uni(tag::BODY, "saved text"), bin(tag::RTF_COMPRESSED, &text_rtf)]);
+    assert_eq!(body, "saved text", "the plain text Outlook saved wins over the RTF's");
+    // Damaged RTF leaves the plain text alone.
+    let mut broken = html_rtf.clone();
+    let last = broken.len() - 1;
+    broken[last] ^= 1;
+    let (body, rich) = note(vec![uni(tag::BODY, "plain"), bin(tag::RTF_COMPRESSED, &broken)]);
+    assert_eq!((body.as_str(), rich), ("plain", None));
+}
