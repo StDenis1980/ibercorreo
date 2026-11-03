@@ -280,6 +280,68 @@ pub fn new_install_id() -> Option<String> {
     Some(format!("{}-{}-{}-{}-{}", hex.get(..8)?, hex.get(8..12)?, hex.get(12..16)?, hex.get(16..20)?, hex.get(20..)?))
 }
 
+/// The environment variable a distribution (or an administrator) sets to answer the first-start
+/// question for every Tinta Office app: `true` or `false` (also `1`/`0`, `yes`/`no`, `on`/`off`).
+/// Flatpak passes it through to the sandbox, which can't see the host's `/etc`.
+pub const SYSTEM_ENV: &str = "TINTA_OFFICE_REPORTS";
+/// The same answer as a file under each `$XDG_CONFIG_DIRS` (default `/etc/xdg`), with a line
+/// `enabled=true` or `enabled=false`.
+pub const SYSTEM_FILE: &str = "tinta-office/reports.conf";
+/// A longer file isn't a switch; it is ignored.
+const SYSTEM_FILE_MAX: u64 = 4096;
+
+/// The system's answer to the first-start question, read once: [`SYSTEM_ENV`] wins, then the
+/// first [`SYSTEM_FILE`] that says `enabled=…`. `None` (nothing set, or nothing readable) keeps
+/// the question. A system that already asked the person once (Vilna OS asks for all five apps)
+/// saves each app from asking again; the person can still change it in the app's settings.
+fn system_choice() -> Option<bool> {
+    static CHOICE: OnceLock<Option<bool>> = OnceLock::new();
+    *CHOICE.get_or_init(|| {
+        let env = std::env::var(SYSTEM_ENV).ok();
+        let dirs = if cfg!(unix) { config_dirs(std::env::var_os("XDG_CONFIG_DIRS").as_deref()) } else { Vec::new() };
+        choice_from(env.as_deref(), &dirs)
+    })
+}
+
+fn choice_from(env: Option<&str>, dirs: &[PathBuf]) -> Option<bool> {
+    env.and_then(switch).or_else(|| dirs.iter().find_map(|d| read_small(&d.join(SYSTEM_FILE)).as_deref().and_then(parse_conf)))
+}
+
+/// `$XDG_CONFIG_DIRS`, absolute entries only; unset or empty means `/etc/xdg` (XDG Base
+/// Directory specification).
+fn config_dirs(var: Option<&std::ffi::OsStr>) -> Vec<PathBuf> {
+    let dirs: Vec<PathBuf> = var.map(|v| std::env::split_paths(v).filter(|p| p.is_absolute()).collect()).unwrap_or_default();
+    if dirs.is_empty() { vec![PathBuf::from("/etc/xdg")] } else { dirs }
+}
+
+fn read_small(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(SYSTEM_FILE_MAX + 1).read_to_string(&mut text).ok()?;
+    (text.len() as u64 <= SYSTEM_FILE_MAX).then_some(text)
+}
+
+/// `enabled=…` in an ini-style file; comments (`#`, `;`) and section headers are skipped, and
+/// the last `enabled` line wins.
+fn parse_conf(text: &str) -> Option<bool> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with(['#', ';', '[']))
+        .filter_map(|l| l.split_once('='))
+        .filter(|(k, _)| k.trim().eq_ignore_ascii_case("enabled"))
+        .filter_map(|(_, v)| switch(v))
+        .next_back()
+}
+
+fn switch(v: &str) -> Option<bool> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Some(true),
+        "false" | "0" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 /// What a worker thread found.
 enum Outcome {
     Forgotten(String),
@@ -303,6 +365,10 @@ pub fn tick(app: &mut App) {
     let locale = ibercorreo_ui_egui::i18n::current().code().to_string();
     let before = app.session.store.error_reports.clone();
     let prefs = &mut app.session.store.error_reports;
+    if prefs.consent.is_none() {
+        // The distribution already asked (or decided): no question at the first start.
+        prefs.consent = system_choice();
+    }
     CONSENT.store(
         match prefs.consent {
             None => 0,
@@ -416,6 +482,40 @@ fn send_pending(agent: &Agent, endpoint: &str, dir: &Path, id: &str, locale: &st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_system_answers_the_first_start_question() {
+        assert_eq!(parse_conf("# Vilna OS\n[reports]\nenabled = false\n"), Some(false));
+        assert_eq!(parse_conf("enabled=TRUE"), Some(true));
+        assert_eq!(parse_conf("enabled=false\nenabled=yes\n"), Some(true));
+        assert_eq!(parse_conf("; enabled=true\nenabled=maybe\nsend=true"), None);
+        assert_eq!(parse_conf(""), None);
+        assert_eq!(config_dirs(None), [PathBuf::from("/etc/xdg")]);
+        assert_eq!(config_dirs(Some(std::ffi::OsStr::new(""))), [PathBuf::from("/etc/xdg")]);
+        assert_eq!(config_dirs(Some(std::ffi::OsStr::new("relative:/usr/etc/xdg"))), [PathBuf::from("/usr/etc/xdg")]);
+
+        let root = std::env::temp_dir().join(format!("tinta-system-reports-{}", std::process::id()));
+        let (first, second) = (root.join("a"), root.join("b"));
+        std::fs::create_dir_all(second.join("tinta-office")).unwrap();
+        std::fs::create_dir_all(first.join("tinta-office")).unwrap();
+        let dirs = [first.clone(), second.clone()];
+        assert_eq!(choice_from(None, &dirs), None);
+        std::fs::write(second.join(SYSTEM_FILE), "enabled=false\n").unwrap();
+        assert_eq!(choice_from(None, &dirs), Some(false));
+        // An earlier directory wins, a file without the switch doesn't count, the variable wins.
+        std::fs::write(first.join(SYSTEM_FILE), "# nothing here\n").unwrap();
+        assert_eq!(choice_from(None, &dirs), Some(false));
+        std::fs::write(first.join(SYSTEM_FILE), "enabled=true\n").unwrap();
+        assert_eq!(choice_from(None, &dirs), Some(true));
+        assert_eq!(choice_from(Some("0"), &dirs), Some(false));
+        assert_eq!(choice_from(Some("perhaps"), &dirs), Some(true));
+        // A huge or unreadable file is ignored.
+        std::fs::write(first.join(SYSTEM_FILE), format!("enabled=true\n{}", "#".repeat(5000))).unwrap();
+        assert_eq!(choice_from(None, &dirs), Some(false));
+        std::fs::write(second.join(SYSTEM_FILE), [0xff, 0xfe, b'\n']).unwrap();
+        assert_eq!(choice_from(None, &dirs), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn scrub_keeps_source_locations_and_removes_personal_data() {

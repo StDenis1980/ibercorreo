@@ -1,12 +1,13 @@
 //! The Tinta Correo desktop app.
 //!
 //! ```text
-//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf]...
+//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf | file://… | mailto:…]...
 //! ```
 //!
 //! The mailbox is one store file in the platform's data folder (`--store` picks another).
 //! `--sample` opens the sample mailbox instead, without touching the store. `.eml`, `.ics` and
-//! `.vcf` files on the command line (or from the file manager's "Open with") are imported.
+//! `.vcf` files on the command line (or from the file manager's "Open with", also as `file://`
+//! URIs) are imported, and each `mailto:` link opens a new draft (`message.composeMailto`).
 //!
 //! Send/Receive runs on a background thread (`ibercorreo_net::job`, one job per account, one
 //! after another), at start, every five minutes and on request; each account's result is applied
@@ -784,10 +785,26 @@ fn warm_search(store: &Store) {
     let _ = std::thread::Builder::new().name("search index".into()).spawn(job);
 }
 
+/// A path from a `file://` URI's bytes.
+fn path_from_bytes(bytes: Vec<u8>) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStringExt;
+        PathBuf::from(std::ffi::OsString::from_vec(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        // `file:///C:/x.ics` decodes to `/C:/x.ics`.
+        let s = String::from_utf8_lossy(&bytes).into_owned();
+        PathBuf::from(s.strip_prefix('/').filter(|r| r.get(1..2) == Some(":")).unwrap_or(&s))
+    }
+}
+
 fn main() -> eframe::Result {
     let mut sample = false;
     let mut store_path = None;
     let mut imports = Vec::new();
+    let mut mailto = Vec::new();
     let mut view: Option<String> = None;
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
@@ -798,10 +815,13 @@ fn main() -> eframe::Result {
             Some("--view") => view = args.next().and_then(|v| v.into_string().ok()),
             Some("--help" | "-h") => {
                 println!(
-                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf]..."
+                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf | mailto:…]..."
                 );
                 return Ok(());
             }
+            // The desktop passes a link when Tinta Correo is the mail app (`%U` in the launcher).
+            Some(link) if link.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) => mailto.push(link.to_string()),
+            Some(uri) if let Some(path) = ibercorreo_engine::mailto::file_uri_path(uri) => imports.push(path_from_bytes(path)),
             _ => imports.push(PathBuf::from(a)),
         }
     }
@@ -882,6 +902,12 @@ fn main() -> eframe::Result {
         };
         if let Err(e) = outcome {
             status = format!("{}: {e}", path.display());
+        }
+    }
+    // Each link opens a draft (never sends); the last one is the one showing.
+    for link in mailto {
+        if let Err(e) = session.run("message.composeMailto", &serde_json::json!({ "uri": link })) {
+            status = format!("mailto: {e}");
         }
     }
     if let Some(v) = view {
