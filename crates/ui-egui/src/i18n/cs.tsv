@@ -296,3 +296,16 @@
 	Enter the email address and the password first	Nejprve zadejte e-mailovou adresu a heslo
 	Exchange server found. Check the address and save.	Server Exchange nalezen. Zkontrolujte adresu a uložte.
 	No Exchange server found: {error}. Enter its address by hand.	Server Exchange nenalezen: {error}. Zadejte jeho adresu ručně.
+	GNOME Settings	Nastavení GNOME
+	From GNOME Settings	Z Nastavení GNOME
+	Choose an account…	Vyberte účet…
+	GNOME Settings ({account})	Nastavení GNOME ({account})
+	Unlink	Odpojit
+	Sign in with a password or in the browser instead	Místo toho se přihlašovat heslem nebo v prohlížeči
+	Signed in through GNOME Settings ({account})	Přihlášeno přes Nastavení GNOME ({account})
+	Sign in to the calendars as the mail does	Přihlašovat se ke kalendářům stejně jako k poště
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Účet přidaný v Online účtech v Nastavení GNOME: jeho servery se vyplní a přihlašuje Nastavení GNOME, takže se zde neukládá žádné heslo
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} z Nastavení GNOME: servery jsou vyplněny a přihlašuje Nastavení GNOME, takže se zde neukládá žádné heslo. Uložte.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Kalendáře a kontakty {provider} se synchronizují s tímto účtem a přihlašuje se k nim Nastavení GNOME. Uložte.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Kalendáře a kontakty se již synchronizují s jiným účtem; synchronizovat je může vždy jen jeden účet.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Nastavení GNOME žádá, abyste se k tomuto účtu nejprve znovu přihlásili, v Online účtech.

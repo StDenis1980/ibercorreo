@@ -255,6 +255,10 @@ struct AccountForm {
     ews: String,
     /// Why the dialog opened by itself (a missing or refused password), or what Find settings found.
     note: String,
+    /// The GNOME Online Accounts account the mail signs in through (its id), or empty.
+    goa: String,
+    /// The GNOME Online Accounts account the calendars and contacts sign in through, or empty.
+    dav_goa: String,
 }
 
 /// What to do when `p`'s sign-in page warns that it has not reviewed the app.
@@ -266,6 +270,53 @@ fn unverified_note(p: &OAuthProvider) -> String {
 }
 
 impl AccountForm {
+    /// Fill the form from an account in GNOME Settings: its mail servers, or (an account with no
+    /// mail, such as Nextcloud) its calendars and contacts. `dav_free`: no other account syncs
+    /// calendars, so this one may.
+    fn take_gnome(&mut self, g: &GnomeAccount, dav_free: bool) {
+        let provider = if g.provider.is_empty() { tl("GNOME Settings").to_string() } else { g.provider.clone() };
+        let dav = g.dav.as_ref().filter(|_| dav_free);
+        if let Some(m) = &g.mail {
+            if !m.name.is_empty() {
+                self.name = m.name.clone();
+            }
+            self.email = m.email.clone();
+            self.user = m.user.clone();
+            self.imap_host = m.imap_host.clone();
+            self.imap_port = m.imap_port.to_string();
+            self.imap_starttls = m.imap_starttls;
+            self.smtp_host = m.smtp_host.clone();
+            self.smtp_port = m.smtp_port.to_string();
+            self.smtp_starttls = m.smtp_starttls;
+            self.oauth.clear();
+            self.ews.clear();
+            self.graph_mail = false;
+            self.password.clear();
+            self.goa = g.id.clone();
+            if let Some(dav) = dav {
+                self.caldav = dav.clone();
+                self.dav_goa.clear();
+            }
+            self.note = tf(
+                "{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.",
+                &[("provider", &provider)],
+            );
+        } else if let Some(dav) = dav {
+            self.caldav = dav.clone();
+            self.dav_goa = g.id.clone();
+            self.note = tf(
+                "{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.",
+                &[("provider", &provider)],
+            );
+        } else {
+            self.note = tl("Calendars and contacts already sync with another account; one account at a time can sync them.").to_string();
+        }
+        if g.attention {
+            self.note.push(' ');
+            self.note.push_str(tl("GNOME Settings asks you to sign in to this account again first, under Online Accounts."));
+        }
+    }
+
     /// Fill in a provider's own servers: choosing Google or Microsoft needs nothing looked up.
     fn fill_provider(&mut self, p: &OAuthProvider) {
         self.imap_host = p.imap_host.into();
@@ -332,6 +383,40 @@ pub struct ExchangeQuery {
     pub password: String,
 }
 
+/// An account from GNOME Settings (GNOME Online Accounts), as the shell lists it for Account
+/// settings: what Tinta Correo can take from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GnomeAccount {
+    /// GNOME's id for it (`account_…`).
+    pub id: String,
+    /// The provider's name: Google, Nextcloud, IMAP and SMTP…
+    pub provider: String,
+    /// The account as GNOME Settings shows it (`ana@gmail.com`).
+    pub identity: String,
+    /// Its mail servers, when it has mail.
+    pub mail: Option<GnomeMail>,
+    /// Its CalDAV and CardDAV address, when it has calendars or contacts.
+    pub dav: Option<String>,
+    /// GNOME Settings asks the person to sign in to it again.
+    pub attention: bool,
+}
+
+/// The mail part of a [`GnomeAccount`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GnomeMail {
+    pub email: String,
+    /// The person's name; may be empty.
+    pub name: String,
+    /// The sign-in name; empty means the address.
+    pub user: String,
+    pub imap_host: String,
+    pub imap_port: u16,
+    pub imap_starttls: bool,
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    pub smtp_starttls: bool,
+}
+
 /// Server settings found for an address (by the shell, which can reach the network), to fill
 /// Account settings with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -379,6 +464,9 @@ pub struct App {
     pub oauth_cancel: bool,
     /// Set by the shell while the browser sign-in runs: the address it opened.
     pub oauth_running: Option<String>,
+    /// The accounts in GNOME Settings, set by the shell where GNOME Online Accounts answers;
+    /// `None` elsewhere (Account settings then shows nothing of it).
+    pub gnome_accounts: Option<Vec<GnomeAccount>>,
     /// Tinta Office: where the shell keeps error reports, set only by builds that send them
     /// (`tinta_reports_ui`).
     pub error_reports_dir: Option<std::path::PathBuf>,
@@ -440,6 +528,7 @@ impl App {
             oauth_request: None,
             oauth_cancel: false,
             oauth_running: None,
+            gnome_accounts: None,
             error_reports_dir: None,
             account_form: AccountForm::default(),
             rule_form: RuleForm::default(),
@@ -500,6 +589,8 @@ impl App {
             graph_mail: v.get("graphMail").and_then(Value::as_bool).unwrap_or(false),
             ews: text("ews"),
             note: note.to_string(),
+            goa: text("goa"),
+            dav_goa: text("davGoa"),
         };
         if self.account_form.user == self.account_form.email {
             self.account_form.user.clear();
@@ -584,6 +675,9 @@ impl App {
         let mut save = false;
         let mut remove = false;
         let title = tl(if self.account_form.id.is_some() { "Account settings" } else { "Add account" });
+        // Another account already syncs calendars and contacts: this one can't take GNOME's.
+        let editing = self.account_form.id;
+        let dav_free = !self.session.store.accounts.iter().any(|a| !a.caldav.is_empty() && Some(a.id) != editing);
         egui::Window::new(title)
             .id(egui::Id::new("account-settings"))
             .collapsible(false)
@@ -615,6 +709,42 @@ impl App {
                         self.autoconfig_request = Some(f.email.trim().to_string());
                     }
                     ui.end_row();
+                    let gnome = self.gnome_accounts.as_deref().unwrap_or_default();
+                    if !gnome.is_empty() {
+                        ui.label(tl("From GNOME Settings")).on_hover_text(tl(
+                            "An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here",
+                        ));
+                        let mut chosen = None;
+                        egui::ComboBox::from_id_salt("gnome-account").width(280.0).selected_text(tl("Choose an account…")).show_ui(ui, |ui| {
+                            for g in gnome {
+                                let mut label = format!("{} — {}", g.provider, g.identity);
+                                if g.attention {
+                                    label.push_str(" ⚠");
+                                }
+                                if ui.selectable_label(g.id == f.goa || g.id == f.dav_goa, label).clicked() {
+                                    chosen = Some(g);
+                                }
+                            }
+                        });
+                        if let Some(g) = chosen {
+                            f.take_gnome(g, dav_free);
+                        }
+                        ui.end_row();
+                    }
+                    let gnome_name = |id: &str| {
+                        gnome.iter().find(|g| g.id == id).map(|g| format!("{} — {}", g.provider, g.identity)).unwrap_or_else(|| id.to_string())
+                    };
+                    if !f.goa.is_empty() {
+                        ui.label(tl("Sign in with"));
+                        ui.horizontal(|ui| {
+                            ui.label(tf("GNOME Settings ({account})", &[("account", &gnome_name(&f.goa))]));
+                            if ui.small_button(tl("Unlink")).on_hover_text(tl("Sign in with a password or in the browser instead")).clicked() {
+                                f.goa.clear();
+                            }
+                        });
+                        ui.end_row();
+                    }
+                    if f.goa.is_empty() {
                     ui.label(tl("Sign in with"));
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut f.oauth, String::new(), tl("Password"));
@@ -640,6 +770,7 @@ impl App {
                         }
                     });
                     ui.end_row();
+                    }
                     if f.oauth == "microsoft" {
                         ui.label("");
                         ui.checkbox(&mut f.graph_mail, tl("Mail over Microsoft Graph")).on_hover_text(tl(
@@ -647,7 +778,7 @@ impl App {
                         ));
                         ui.end_row();
                     }
-                    if f.oauth.is_empty() {
+                    if f.oauth.is_empty() && f.goa.is_empty() {
                         ui.label(tl("Exchange server (EWS)")).on_hover_text(tl(
                             "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
                         ));
@@ -667,8 +798,8 @@ impl App {
                         }
                         ui.end_row();
                     }
-                    let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && !f.ews.trim().is_empty());
-                    if f.oauth.is_empty() {
+                    let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && f.goa.is_empty() && !f.ews.trim().is_empty());
+                    if f.oauth.is_empty() && f.goa.is_empty() {
                         ui.label(tl("Password"));
                         ui.add(
                             egui::TextEdit::singleline(&mut f.password)
@@ -714,6 +845,16 @@ impl App {
                     ui.label(tl("Address"));
                     ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
                     ui.end_row();
+                    if !f.dav_goa.is_empty() {
+                        ui.label("");
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(tf("Signed in through GNOME Settings ({account})", &[("account", &gnome_name(&f.dav_goa))])).small());
+                            if ui.small_button(tl("Unlink")).on_hover_text(tl("Sign in to the calendars as the mail does")).clicked() {
+                                f.dav_goa.clear();
+                            }
+                        });
+                        ui.end_row();
+                    }
                     ui.label(RichText::new(tl("Signature")).strong())
                         .on_hover_text(tl("Added under new messages, replies and forwards from this account"));
                     ui.end_row();
@@ -796,7 +937,8 @@ impl App {
             "smtpHost": f.smtp_host, "smtpSecurity": if f.smtp_starttls { "starttls" } else { "tls" },
             "caldav": f.caldav, "oauth": f.oauth, "signature": f.signature,
             "graphMail": f.oauth == "microsoft" && f.graph_mail,
-            "ews": if f.oauth.is_empty() { f.ews.trim() } else { "" },
+            "ews": if f.oauth.is_empty() && f.goa.is_empty() { f.ews.trim() } else { "" },
+            "goa": f.goa, "davGoa": f.dav_goa,
         });
         if let Some(o) = p.as_object_mut() {
             for (k, v) in [("imapPort", &f.imap_port), ("smtpPort", &f.smtp_port)] {
@@ -3462,6 +3604,78 @@ fn human_size(bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gnome(mail: bool) -> GnomeAccount {
+        GnomeAccount {
+            id: if mail { "account_1700000000_2" } else { "account_1700000000_0" }.into(),
+            provider: if mail { "Google" } else { "Nextcloud" }.into(),
+            identity: "ana@example.org".into(),
+            mail: mail.then(|| GnomeMail {
+                email: "ana@gmail.com".into(),
+                name: "Ana".into(),
+                user: String::new(),
+                imap_host: "imap.gmail.com".into(),
+                imap_port: 993,
+                imap_starttls: false,
+                smtp_host: "smtp.gmail.com".into(),
+                smtp_port: 465,
+                smtp_starttls: false,
+            }),
+            dav: Some(
+                if mail { "https://apidata.googleusercontent.com/caldav/v2/ana@gmail.com/user" } else { "https://cloud.example.org/remote.php/dav" }
+                    .into(),
+            ),
+            attention: false,
+        }
+    }
+
+    #[test]
+    fn an_account_from_gnome_settings_fills_the_form_and_saves_without_a_password() {
+        i18n::set_current(Language::En);
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::new(2026, 11, 3).unwrap()));
+        app.open_account_settings(None, "");
+        app.account_form.password = "typed earlier".into();
+        app.account_form.oauth = "google".into();
+        app.account_form.take_gnome(&gnome(true), true);
+        let f = &app.account_form;
+        assert_eq!(
+            (f.email.as_str(), f.name.as_str(), f.imap_host.as_str(), f.smtp_port.as_str()),
+            ("ana@gmail.com", "Ana", "imap.gmail.com", "465")
+        );
+        assert_eq!(
+            (f.goa.as_str(), f.oauth.as_str(), f.password.as_str()),
+            ("account_1700000000_2", "", ""),
+            "GNOME signs in, nothing typed is kept"
+        );
+        assert!(f.caldav.starts_with("https://apidata.googleusercontent.com/"));
+        assert!(app.save_account());
+        let a = app.session.store.accounts.first().unwrap().clone();
+        assert_eq!((a.goa.as_str(), a.caldav.as_str(), a.dav_goa.as_str()), ("account_1700000000_2", f_caldav(), ""));
+        assert!(app.take_password().is_none(), "no password for the credential store");
+
+        // Nextcloud has no mail: its calendars go with the account open, signed in to as Nextcloud.
+        let id = a.id;
+        app.open_account_settings(Some(id), "");
+        app.account_form.caldav.clear();
+        app.account_form.take_gnome(&gnome(false), true);
+        assert_eq!(app.account_form.email, "ana@gmail.com", "the mail is untouched");
+        assert_eq!(
+            (app.account_form.caldav.as_str(), app.account_form.dav_goa.as_str()),
+            ("https://cloud.example.org/remote.php/dav", "account_1700000000_0")
+        );
+        assert!(app.save_account());
+        assert_eq!(app.session.store.account(id).unwrap().dav_goa, "account_1700000000_0");
+
+        // Another account already syncs calendars: nothing of them is taken.
+        app.open_account_settings(None, "");
+        app.account_form.take_gnome(&gnome(false), false);
+        assert!(app.account_form.caldav.is_empty() && app.account_form.dav_goa.is_empty());
+        assert!(app.account_form.note.contains("another account"), "{}", app.account_form.note);
+    }
+
+    fn f_caldav() -> &'static str {
+        "https://apidata.googleusercontent.com/caldav/v2/ana@gmail.com/user"
+    }
 
     /// Dates, durations and repeat rules read naturally in each language: Spanish and Catalan put "de" before
     /// the month and the year, and counts take a plural.

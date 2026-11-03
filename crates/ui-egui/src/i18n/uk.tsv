@@ -291,3 +291,16 @@
 	Enter the email address and the password first	Спершу введіть адресу пошти й пароль
 	Exchange server found. Check the address and save.	Сервер Exchange знайдено. Перевірте адресу й збережіть.
 	No Exchange server found: {error}. Enter its address by hand.	Сервер Exchange не знайдено: {error}. Введіть його адресу вручну.
+	GNOME Settings	Налаштування GNOME
+	From GNOME Settings	З Налаштувань GNOME
+	Choose an account…	Виберіть обліковий запис…
+	GNOME Settings ({account})	Налаштування GNOME ({account})
+	Unlink	Від'єднати
+	Sign in with a password or in the browser instead	Натомість входити з паролем або в браузері
+	Signed in through GNOME Settings ({account})	Вхід через Налаштування GNOME ({account})
+	Sign in to the calendars as the mail does	Входити до календарів так само, як до пошти
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Обліковий запис, доданий в «Облікових записах онлайн» у Налаштуваннях GNOME: його сервери заповнюються, а входить Налаштування GNOME, тож пароль тут не зберігається
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} з Налаштувань GNOME: сервери заповнено, а входить Налаштування GNOME, тож пароль тут не зберігається. Збережіть.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Календарі й контакти {provider} синхронізуються з цим обліковим записом, а входить до них Налаштування GNOME. Збережіть.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Календарі й контакти вже синхронізуються з іншим обліковим записом; синхронізувати їх може лише один обліковий запис.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Спершу Налаштування GNOME просять знову ввійти в цей обліковий запис, у розділі «Облікові записи онлайн».

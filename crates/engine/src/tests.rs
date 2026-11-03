@@ -694,6 +694,44 @@ fn blind_copies_are_sent_to_but_never_written() {
 }
 
 #[test]
+fn an_account_can_sign_in_through_gnome_settings() {
+    let mut s = session();
+    let work = s.store.first_account();
+    let mut p = s.run("account.get", &json!({"id": work.0})).unwrap();
+    p["imapHost"] = json!("imap.gmail.com");
+    p["smtpHost"] = json!("smtp.gmail.com");
+    p["goa"] = json!("account_1700000000_2");
+    p["caldav"] = json!("https://cloud.example.org/remote.php/dav");
+    p["davGoa"] = json!("account_1700000000_0");
+    let v = s.run("account.set", &p).unwrap();
+    assert_eq!((v["goa"].as_str(), v["davGoa"].as_str()), (Some("account_1700000000_2"), Some("account_1700000000_0")));
+    let a = s.store.account(work).unwrap();
+    assert_eq!(a.credential_entry(), None, "GNOME keeps the secret");
+    // Left out, both are kept; the form that saves without them does not unlink the account.
+    let mut p = s.run("account.get", &json!({"id": work.0})).unwrap();
+    for k in ["goa", "davGoa"] {
+        p.as_object_mut().unwrap().remove(k);
+    }
+    s.run("account.set", &p).unwrap();
+    assert_eq!(s.store.account(work).unwrap().dav_goa, "account_1700000000_0");
+    // No calendars server: nothing to sign in to through another account.
+    p["caldav"] = json!("");
+    s.run("account.set", &p).unwrap();
+    assert_eq!(s.store.account(work).unwrap().dav_goa, "");
+    assert_eq!(s.store.account(work).unwrap().goa, "account_1700000000_2");
+    for bad in [json!({"goa": "../x"}), json!({"goa": "a b"}), json!({"goa": "a".repeat(200)}), json!({"goa": 7}), json!({"oauth": "google"})] {
+        let mut q = p.clone();
+        for (k, v) in bad.as_object().unwrap() {
+            q[k] = v.clone();
+        }
+        assert!(s.run("account.set", &q).is_err(), "{bad}");
+    }
+    p["goa"] = json!("");
+    s.run("account.set", &p).unwrap();
+    assert_eq!(s.store.account(work).unwrap().goa, "");
+}
+
+#[test]
 fn each_account_signs_its_own_mail_above_the_quote() {
     let mut s = session();
     let work = s.store.first_account();

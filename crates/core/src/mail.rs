@@ -255,6 +255,10 @@ impl Account {
     /// `provider:login`). The app and `ibercorreo-cli` both read it here, so they find the same
     /// entry. `None` for an account with no sign-in.
     pub fn credential_entry(&self) -> Option<(&'static str, String)> {
+        // GNOME Settings keeps it.
+        if !self.goa.is_empty() {
+            return None;
+        }
         let login = self.login()?;
         Some(match self.oauth() {
             Some(p) => (OAUTH_KEYRING_SERVICE, format!("{}:{login}", p.id)),
@@ -278,6 +282,16 @@ pub struct Account {
     /// [`MAX_SIGNATURE_LEN`] bytes); empty for none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub signature: String,
+    /// The GNOME Online Accounts account (its id, `account_…`) the mail signs in through: GNOME
+    /// Settings keeps the password or token, and is asked for it at each sign-in; nothing is kept
+    /// here or in the credential store. Empty for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub goa: String,
+    /// The GNOME Online Accounts account the calendars and contacts ([`Account::caldav`]) sign in
+    /// through, with its own name, when it is not the mail's (a Nextcloud account in GNOME
+    /// Settings). Empty: as the mail.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub dav_goa: String,
 }
 
 /// The credential store's service name for account passwords. It keeps the app's first name
@@ -529,6 +543,8 @@ mod tests {
             kind: AccountKind::Local,
             caldav: String::new(),
             signature: String::new(),
+            goa: String::new(),
+            dav_goa: String::new(),
         };
         assert_eq!(a.credential_entry(), None);
         a.kind = AccountKind::Imap {
@@ -553,6 +569,9 @@ mod tests {
             *oauth = "google".into();
         }
         assert_eq!(a.credential_entry(), Some((OAUTH_KEYRING_SERVICE, "google:login".to_string())));
+        // Signed in through GNOME Settings: nothing of it in the credential store.
+        a.goa = "account_1700000000_2".into();
+        assert_eq!(a.credential_entry(), None);
     }
 
     #[test]

@@ -296,3 +296,16 @@
 	Enter the email address and the password first	Introduceți mai întâi adresa de e-mail și parola
 	Exchange server found. Check the address and save.	Server Exchange găsit. Verificați adresa și salvați.
 	No Exchange server found: {error}. Enter its address by hand.	Nu s-a găsit niciun server Exchange: {error}. Introduceți manual adresa.
+	GNOME Settings	Setările GNOME
+	From GNOME Settings	Din Setările GNOME
+	Choose an account…	Alegeți un cont…
+	GNOME Settings ({account})	Setările GNOME ({account})
+	Unlink	Deconectați
+	Sign in with a password or in the browser instead	Autentificați-vă în schimb cu parola sau în browser
+	Signed in through GNOME Settings ({account})	Autentificat prin Setările GNOME ({account})
+	Sign in to the calendars as the mail does	Autentificați-vă la calendare la fel ca la e-mail
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Un cont adăugat la Conturi online în Setările GNOME: serverele sale sunt completate, iar Setările GNOME fac autentificarea, deci aici nu se păstrează nicio parolă
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} din Setările GNOME: serverele sunt completate, iar Setările GNOME fac autentificarea, deci aici nu se păstrează nicio parolă. Salvați.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Calendarele și contactele {provider} se sincronizează cu acest cont, iar Setările GNOME fac autentificarea. Salvați.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Calendarele și contactele se sincronizează deja cu alt cont; doar un cont o dată le poate sincroniza.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Setările GNOME cer mai întâi să vă autentificați din nou în acest cont, la Conturi online.

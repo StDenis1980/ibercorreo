@@ -297,3 +297,16 @@
 	Enter the email address and the password first	Inserisci prima l’indirizzo email e la password
 	Exchange server found. Check the address and save.	Server Exchange trovato. Controlla l’indirizzo e salva.
 	No Exchange server found: {error}. Enter its address by hand.	Nessun server Exchange trovato: {error}. Inserisci l’indirizzo a mano.
+	GNOME Settings	Impostazioni di GNOME
+	From GNOME Settings	Dalle Impostazioni di GNOME
+	Choose an account…	Scegli un account…
+	GNOME Settings ({account})	Impostazioni di GNOME ({account})
+	Unlink	Scollega
+	Sign in with a password or in the browser instead	Accedi invece con una password o nel browser
+	Signed in through GNOME Settings ({account})	Accesso tramite le Impostazioni di GNOME ({account})
+	Sign in to the calendars as the mail does	Accedi ai calendari come alla posta
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Un account aggiunto in Account online nelle Impostazioni di GNOME: i suoi server vengono compilati e l'accesso lo fanno le Impostazioni di GNOME, quindi qui non viene salvata alcuna password
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} dalle Impostazioni di GNOME: i server sono compilati e l'accesso lo fanno le Impostazioni di GNOME, quindi qui non viene salvata alcuna password. Salva.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	I calendari e i contatti di {provider} si sincronizzano con questo account, e l'accesso lo fanno le Impostazioni di GNOME. Salva.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Calendari e contatti si sincronizzano già con un altro account; solo un account alla volta può sincronizzarli.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Le Impostazioni di GNOME chiedono prima di accedere di nuovo a questo account, in Account online.

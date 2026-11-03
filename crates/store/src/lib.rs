@@ -1943,6 +1943,8 @@ BEGIN:VCARD\r\nVERSION:2.1\r\nFN:Rui\r\nEMAIL:rui@example.pt\r\nEND:VCARD\r\n";
             },
             caldav: String::new(),
             signature: String::new(),
+            goa: String::new(),
+            dav_goa: String::new(),
         }
     }
 

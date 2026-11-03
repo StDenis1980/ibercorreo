@@ -297,3 +297,16 @@
 	Enter the email address and the password first	Geben Sie zuerst die E-Mail-Adresse und das Passwort ein
 	Exchange server found. Check the address and save.	Exchange-Server gefunden. Prüfen Sie die Adresse und speichern Sie.
 	No Exchange server found: {error}. Enter its address by hand.	Kein Exchange-Server gefunden: {error}. Geben Sie seine Adresse von Hand ein.
+	GNOME Settings	GNOME-Einstellungen
+	From GNOME Settings	Aus den GNOME-Einstellungen
+	Choose an account…	Konto auswählen…
+	GNOME Settings ({account})	GNOME-Einstellungen ({account})
+	Unlink	Trennen
+	Sign in with a password or in the browser instead	Stattdessen mit Passwort oder im Browser anmelden
+	Signed in through GNOME Settings ({account})	Angemeldet über die GNOME-Einstellungen ({account})
+	Sign in to the calendars as the mail does	Bei den Kalendern wie bei der E-Mail anmelden
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Ein Konto, das unter Online-Konten in den GNOME-Einstellungen hinzugefügt wurde: Seine Server werden eingetragen, und die GNOME-Einstellungen melden an, daher wird hier kein Passwort gespeichert
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} aus den GNOME-Einstellungen: Die Server sind eingetragen, und die GNOME-Einstellungen melden an, daher wird hier kein Passwort gespeichert. Speichern.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Die Kalender und Kontakte von {provider} werden mit diesem Konto synchronisiert, und die GNOME-Einstellungen melden dort an. Speichern.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Kalender und Kontakte werden bereits mit einem anderen Konto synchronisiert; nur ein Konto kann sie gleichzeitig synchronisieren.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Die GNOME-Einstellungen bitten zuerst, sich bei diesem Konto erneut anzumelden, unter Online-Konten.

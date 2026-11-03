@@ -15,6 +15,7 @@ ibercorreo-engine.workspace = true
 ibercorreo-net.workspace = true
 ibercorreo-sync.workspace = true
 ibercorreo-store.workspace = true
+ibercorreo-ical.workspace = true
 ibercorreo-ui-egui.workspace = true
 egui.workspace = true
 serde_json.workspace = true
@@ -23,6 +24,11 @@ eframe = { workspace = true, features = ["default_fonts", "glow", "accesskit", "
 keyring = "4"
 # Tinta Office error reports: a random installation id (`tinta_report.rs`); already in the tree.
 getrandom = "0.4"
+
+# Events in the GNOME clock panel (`gnome_calendar.rs`): Evolution Data Server's D-Bus API. Already
+# in the tree through the Secret Service keyring.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
 [lints]
 workspace = true

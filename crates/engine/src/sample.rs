@@ -92,6 +92,8 @@ pub fn store(today: Date) -> Result<Store> {
         kind: AccountKind::Local,
         caldav: String::new(),
         signature: String::new(),
+        goa: String::new(),
+        dav_goa: String::new(),
     })?;
     let inbox = s.folder_by_role(work, FolderRole::Inbox)?;
     let sent = s.folder_by_role(work, FolderRole::Sent)?;
@@ -206,6 +208,8 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
         kind: AccountKind::Local,
         caldav: String::new(),
         signature: String::new(),
+        goa: String::new(),
+        dav_goa: String::new(),
     })?;
     let mut m = Message::new(MessageId(0), s.folder_by_role(home, FolderRole::Inbox)?);
     m.from = Some(addr("Olena <olena@example.org>")?);

@@ -297,3 +297,16 @@
 	Enter the email address and the password first	Saisissez d’abord l’adresse e-mail et le mot de passe
 	Exchange server found. Check the address and save.	Serveur Exchange trouvé. Vérifiez l’adresse et enregistrez.
 	No Exchange server found: {error}. Enter its address by hand.	Aucun serveur Exchange trouvé : {error}. Saisissez son adresse à la main.
+	GNOME Settings	Paramètres de GNOME
+	From GNOME Settings	Depuis les Paramètres de GNOME
+	Choose an account…	Choisir un compte…
+	GNOME Settings ({account})	Paramètres de GNOME ({account})
+	Unlink	Dissocier
+	Sign in with a password or in the browser instead	Se connecter plutôt avec un mot de passe ou dans le navigateur
+	Signed in through GNOME Settings ({account})	Connexion via les Paramètres de GNOME ({account})
+	Sign in to the calendars as the mail does	Se connecter aux agendas comme à la messagerie
+	An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here	Un compte ajouté dans Comptes en ligne des Paramètres de GNOME : ses serveurs sont remplis et les Paramètres de GNOME se connectent, aucun mot de passe n'est donc gardé ici
+	{provider} from GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here. Save.	{provider} depuis les Paramètres de GNOME : ses serveurs sont remplis et les Paramètres de GNOME se connectent, aucun mot de passe n'est donc gardé ici. Enregistrez.
+	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Les agendas et contacts de {provider} se synchronisent avec ce compte, et les Paramètres de GNOME s'y connectent. Enregistrez.
+	Calendars and contacts already sync with another account; one account at a time can sync them.	Les agendas et contacts se synchronisent déjà avec un autre compte ; un seul compte à la fois peut les synchroniser.
+	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Les Paramètres de GNOME demandent d'abord de vous reconnecter à ce compte, dans Comptes en ligne.

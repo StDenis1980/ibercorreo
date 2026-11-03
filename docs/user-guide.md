@@ -1,6 +1,6 @@
 # Tinta Correo — інструкція користувача
 
-Стан: 2026-11-01 · версія 0.1 (M4 у роботі: Microsoft Graph і Exchange Server через EWS)
+Стан: 2026-11-03 · версія 0.1 (M4 у роботі: Microsoft Graph і Exchange Server через EWS)
 
 ## Вікно
 Ліворуч — смужка розділів: **Пошта** (Ctrl+1), **Календар** (Ctrl+2), **Люди** (Ctrl+3). Угорі —
@@ -321,6 +321,20 @@ Windows, Secret Service на Linux), а не у файлі пошти. Якщо 
 відхилить вхід одного запису, інші синхронізуються далі, а вікно налаштувань відкривається для
 того, що не ввійшов.
 
+### Облікові записи з Налаштувань GNOME
+На GNOME (Linux) у вікні налаштувань запису є рядок **From GNOME Settings**: там облікові записи,
+які ви додали в Налаштуваннях → «Облікові записи онлайн». Виберіть запис, і Correo заповнить
+адресу й сервери. Пароль чи токен Correo не зберігає: щоразу питає в GNOME, тож якщо ви змінили
+пароль чи знову ввійшли в Налаштуваннях, Correo одразу це бачить. Google входить через GNOME, без
+пароля застосунку й без сторінки «неперевірений застосунок». Nextcloud не має пошти: його
+календарі й контакти додаються до запису, відкритого у вікні, і входять під іменем Nextcloud.
+**Unlink** повертає вхід з паролем або через браузер.
+
+Події Correo видно в панелі годинника GNOME (клацання по годиннику вгорі): Correo записує їх у
+календар «Tinta Correo», який GNOME показує сам. Календарі облікового запису з Налаштувань GNOME
+GNOME бере з їхнього сервера, а Correo одразу після зміни надсилає її на сервер і просить GNOME
+оновити календар, тож подія зʼявляється за кілька секунд і не двічі. Подробиці: `docs/gnome.md`.
+
 ### З командного рядка
 ```sh
 ibercorreo-cli run --store store.json --save --cmd 'account.set={"email":"me@example.org","imapHost":"imap.example.org","smtpHost":"smtp.example.org","caldav":"https://cloud.example.org"}'
@@ -373,3 +387,4 @@ Refresh token бережіть як пароль. Microsoft замінює йо�
 - 2026-11-01 — Find the Exchange server (Autodiscover).
 - 2026-11-01 — Exchange calendars and contacts over EWS.
 - 2026-11-01 — NTLM sign-in for Exchange.
+- 2026-11-03 — accounts from GNOME Settings, events in the GNOME clock panel.

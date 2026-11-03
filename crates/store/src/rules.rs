@@ -264,6 +264,8 @@ mod tests {
             kind: ibercorreo_core::mail::AccountKind::Local,
             caldav: String::new(),
             signature: String::new(),
+            goa: String::new(),
+            dav_goa: String::new(),
         }
     }
 

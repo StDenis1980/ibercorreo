@@ -261,6 +261,7 @@ fn sync(args: &[String]) -> Result<(), String> {
     let job = ibercorreo_net::job::Job {
         account,
         credential: credential.clone(),
+        dav_credential: None,
         tls,
         state: s.sync_state(id),
         outbox: s.outbox(id),
@@ -356,6 +357,15 @@ fn credential(
     env: &dyn Fn(&str) -> Option<String>,
     store: &dyn Fn(&str, &str) -> Option<String>,
 ) -> Result<(ibercorreo_net::oauth::Credential, Option<StoreEntry>), String> {
+    if !account.goa.is_empty() {
+        return match env("IBERCORREO_PASSWORD").filter(|v| !v.is_empty()) {
+            Some(v) => Ok((ibercorreo_net::oauth::Credential::Password(v), None)),
+            None => Err(format!(
+                "{} signs in through GNOME Settings, which only Tinta Correo asks: send and receive there, or set IBERCORREO_PASSWORD",
+                account.address.email
+            )),
+        };
+    }
     let entry = account.credential_entry().ok_or("this account has no sign-in name")?;
     let var = if account.oauth().is_some() { "IBERCORREO_REFRESH_TOKEN" } else { "IBERCORREO_PASSWORD" };
     let (secret, from_store) = match env(var).filter(|v| !v.is_empty()) {
@@ -436,6 +446,8 @@ mod tests {
             },
             caldav: String::new(),
             signature: String::new(),
+            goa: String::new(),
+            dav_goa: String::new(),
         }
     }
 
@@ -454,6 +466,17 @@ mod tests {
         assert!(err.contains("Account settings"), "{err}");
         // An empty variable counts as unset.
         assert!(credential(&a, &|_| Some(String::new()), &store).unwrap().1.is_some());
+    }
+
+    #[test]
+    fn a_gnome_settings_account_is_not_looked_for_in_the_credential_store() {
+        let mut a = account("");
+        a.goa = "account_1700000000_2".into();
+        let store = |_: &str, _: &str| Some("stored".to_string());
+        let err = credential(&a, &|_| None, &store).err().unwrap();
+        assert!(err.contains("GNOME Settings"), "{err}");
+        let env = |k: &str| (k == "IBERCORREO_PASSWORD").then(|| "env".to_string());
+        assert!(matches!(credential(&a, &env, &store).unwrap(), (Credential::Password(p), None) if p == "env"));
     }
 
     #[test]

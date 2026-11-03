@@ -1649,12 +1649,14 @@ dependencies = [
  "getrandom 0.4.3",
  "ibercorreo-core",
  "ibercorreo-engine",
+ "ibercorreo-ical",
  "ibercorreo-net",
  "ibercorreo-store",
  "ibercorreo-sync",
  "ibercorreo-ui-egui",
  "keyring",
  "serde_json",
+ "zbus",
 ]
 
 [[package]]

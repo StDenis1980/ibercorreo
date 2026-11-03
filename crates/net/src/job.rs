@@ -17,6 +17,9 @@ pub struct Job {
     pub account: Account,
     /// The password, or the OAuth grant (renewed here when its access token runs out).
     pub credential: crate::oauth::Credential,
+    /// How the calendars and contacts sign in when not as the mail does: a CalDAV server that is
+    /// another account of GNOME Online Accounts (its own name and secret). `None`: as the mail.
+    pub dav_credential: Option<crate::oauth::Credential>,
     pub tls: Tls,
     pub state: State,
     pub outbox: Vec<Outgoing>,
@@ -89,9 +92,16 @@ pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress))
     let mut sent = Vec::new();
     if !job.outbox.is_empty() {
         let endpoint = Endpoint { host: smtp_host.clone(), port: *smtp_port, security: security(*smtp_security) };
-        let session = crate::smtp(&endpoint, &job.tls, "localhost")
-            .map_err(|e| e.to_string())
-            .and_then(|mut c| crate::smtp_sign_in(&mut c, login, &secret).map(|()| c).map_err(|e| refused(format!("sign-in to {smtp_host}: {e}"))));
+        // A source that keeps the outgoing server's secret apart (GNOME's IMAP and SMTP accounts).
+        let smtp_secret = match &job.credential {
+            crate::oauth::Credential::External(_) => job.credential.smtp_secret(&job.tls).map_err(|e| format!("sign-in: {e}")),
+            _ => Ok(secret.clone()),
+        };
+        let session = smtp_secret.and_then(|smtp_secret| {
+            crate::smtp(&endpoint, &job.tls, "localhost").map_err(|e| e.to_string()).and_then(|mut c| {
+                crate::smtp_sign_in(&mut c, login, &smtp_secret).map(|()| c).map_err(|e| refused(format!("sign-in to {smtp_host}: {e}")))
+            })
+        });
         match session {
             Ok(mut c) => {
                 sent = outbox::send(&mut c, &job.outbox);
@@ -249,6 +259,20 @@ fn sync_dav(job: &Job, login: &str, secret: &crate::oauth::Secret) -> (Result<ca
     let url = match crate::dav::Url::parse(&job.account.caldav) {
         Ok(url) => url,
         Err(e) => return (Err(e.to_string()), Err(e.to_string())),
+    };
+    let own;
+    let (login, secret) = match &job.dav_credential {
+        Some(c) => match c.secret(&job.tls) {
+            Ok(s) => {
+                own = (c.login().unwrap_or_else(|| login.to_string()), s);
+                (own.0.as_str(), &own.1)
+            }
+            Err(e) => {
+                let e = format!("sign-in: {e}");
+                return (Err(e.clone()), Err(e));
+            }
+        },
+        None => (login, secret),
     };
     let mut client = crate::dav_with(&url, &job.tls, login, secret);
     let calendar = calendar::run(&mut client, &url, &job.calendar).map_err(|e| e.to_string());
