@@ -72,7 +72,7 @@ fn mail_folders_become_local_folders_once() {
     assert_eq!((batch.skipped, batch.failed), (2, 0), "the appointment and the sticky note");
 
     let r = s.apply_pst(None, batch).unwrap();
-    assert_eq!(r, Report { folders: 3, messages: 4, duplicates: 0, skipped: 2, failed: 0 });
+    assert_eq!(r, Report { folders: 3, messages: 4, duplicates: 0, skipped: 2, failed: 0, ..Report::default() });
     assert_eq!(
         names(&s, "Archivo 2025"),
         ["Archivo 2025/Bandeja de entrada", "Archivo 2025/Bandeja de entrada/Proyectos∕2025", "Archivo 2025/Notas"],
@@ -90,7 +90,7 @@ fn mail_folders_become_local_folders_once() {
     assert_eq!(subjects, ["Pedido", "Factura"]);
     assert_eq!(s.folder, inbox.0, "the first folder imported is shown");
     assert!(s.dirty && !s.can_undo());
-    assert_eq!(s.status, "Imported 4 messages into 3 new folders, 2 calendar, contact or other items left out");
+    assert_eq!(s.status, "Imported 4 messages into 3 new folders, 2 tasks, notes or other items left out");
 
     let again = read(&Pst::open(archive("Archivo 2025")).unwrap(), |_, _| {}).unwrap();
     let r = s.apply_pst(None, again).unwrap();
@@ -105,7 +105,8 @@ fn the_command_takes_the_file_and_an_account() {
     let data = ibercorreo_mime::base64(&archive(""));
     let second = s.store.accounts[1].id;
     let v = s.run("message.importPst", &json!({ "data": data, "account": second.0 })).unwrap();
-    assert_eq!(v, json!({ "folders": 3, "messages": 4, "duplicates": 0, "skipped": 2, "failed": 0 }));
+    assert_eq!(v["folders"], 3);
+    assert_eq!((v["messages"].as_u64(), v["skipped"].as_u64(), v["events"].as_u64()), (Some(4), Some(2), Some(0)));
     assert!(s.store.folders_of(second).iter().any(|f| f.name == "Outlook/Notas"), "an archive without a name is called Outlook");
     assert!(!s.store.folders_of(s.store.first_account()).iter().any(|f| f.name.starts_with("Outlook/")));
 
@@ -154,4 +155,132 @@ fn an_imported_folder_can_be_deleted_and_brought_back() {
     s.store.folder_mut(synced).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "Server".into(), uid_validity: 1 });
     assert!(s.run("folder.delete", &json!({ "folder": synced.0 })).is_err(), "a folder the server mirrors stays");
     assert!(s.run("folder.delete", &json!({ "folder": 9999 })).is_err());
+}
+
+mod calendars_and_contacts {
+    use super::*;
+    use ibercorreo_core::calendar::When;
+    use ibercorreo_outlook::testing::pst::{ADDRESS, APPOINTMENT, MEETING, bin, boolean, named, time};
+
+    const NAMES: [([u8; 16], u32); 5] = [(APPOINTMENT, 0x820d), (APPOINTMENT, 0x820e), (APPOINTMENT, 0x8215), (MEETING, 0x0023), (ADDRESS, 0x8083)];
+
+    /// 2025-03-day at 08:00 UTC as a FILETIME.
+    fn at(day: u64) -> u64 {
+        (1_740_787_200 + (day - 1) * 86_400 + 8 * 3600 + 11_644_473_600) * 10_000_000
+    }
+
+    fn appointment(subject: &str, day: u64, goid: Option<&[u8]>) -> Msg {
+        let mut props = vec![uni(0x001a, "IPM.Appointment"), uni(0x0037, subject), time(named(0), at(day)), time(named(1), at(day) + 36_000_000_000)];
+        if let Some(g) = goid {
+            props.push(bin(named(3), g));
+        }
+        Msg { props, ..Msg::default() }
+    }
+
+    fn contact(name: &str, email: &str) -> Msg {
+        Msg { props: vec![uni(0x001a, "IPM.Contact"), uni(0x3001, name), uni(named(4), email)], ..Msg::default() }
+    }
+
+    fn archive() -> Vec<u8> {
+        let folders = vec![
+            Folder {
+                name: "Calendario".into(),
+                class: "IPF.Appointment".into(),
+                messages: vec![
+                    appointment("Dentista", 3, Some(&[1, 2, 3])),
+                    appointment("Sin id", 4, None),
+                    Msg {
+                        props: vec![uni(0x001a, "IPM.Appointment"), uni(0x0037, "Festivo"), time(named(0), at(18)), boolean(named(2), true)],
+                        ..Msg::default()
+                    },
+                ],
+                folders: vec![Folder { name: "Vacío".into(), class: "IPF.Appointment".into(), ..Folder::default() }],
+            },
+            Folder {
+                name: "Contactos".into(),
+                class: "IPF.Contact".into(),
+                messages: vec![
+                    contact("Ana Gil", "ana@contoso.es"),
+                    contact("Pere", "pere@contoso.es"),
+                    Msg { props: vec![uni(0x001a, "IPM.DistList")], ..Msg::default() },
+                ],
+                folders: vec![Folder { name: "Sin nadie".into(), class: "IPF.Contact".into(), ..Folder::default() }],
+            },
+            Folder {
+                name: "Tareas".into(),
+                class: "IPF.Task".into(),
+                messages: vec![Msg { props: vec![uni(0x001a, "IPM.Task"), uni(0x0037, "Llamar")], ..Msg::default() }],
+                ..Folder::default()
+            },
+        ];
+        Writer::new(Options::default()).names(&NAMES).archive("Archivo", &folders)
+    }
+
+    #[test]
+    fn calendars_and_contacts_become_local_ones_once() {
+        let mut s = Session::new(sample::store(today()).unwrap(), today());
+        let (calendars, books) = (s.store.calendars().len(), s.store.books().len());
+        let batch = read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap();
+        assert_eq!((batch.skipped, batch.failed), (2, 0), "the contact group and the task");
+        let r = s.apply_pst(None, batch).unwrap();
+        assert_eq!(
+            (r.calendars, r.events, r.books, r.contacts, r.folders, r.messages),
+            (1, 3, 1, 2, 0, 0),
+            "an empty calendar or address book is not made"
+        );
+        assert_eq!((s.store.calendars().len(), s.store.books().len()), (calendars + 1, books + 1));
+        let cal = s.store.calendars().iter().find(|c| c.name == "Archivo/Calendario").cloned().unwrap();
+        assert!(cal.remote.is_none());
+        let events: Vec<&ibercorreo_core::Event> = s.store.events().iter().filter(|e| e.calendar == cal.id).collect();
+        let dentist = events.iter().find(|e| e.summary == "Dentista").unwrap();
+        assert_eq!(dentist.uid, "010203");
+        let no_id = events.iter().find(|e| e.summary == "Sin id").unwrap();
+        assert!(no_id.uid.starts_with("outlook-"), "{}", no_id.uid);
+        let holiday = events.iter().find(|e| e.summary == "Festivo").unwrap();
+        assert!(matches!(holiday.when, When::AllDay { .. }));
+        let book = s.store.books().iter().find(|b| b.name == "Archivo/Contactos").map(|b| b.id).unwrap();
+        let mut names: Vec<&str> = s.store.all_contacts().iter().filter(|c| c.book == book).map(|c| c.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["Ana Gil", "Pere"]);
+        assert!(s.status.contains("3 events into 1 new calendars") && s.status.contains("2 contacts into 1 new address books"), "{}", s.status);
+
+        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap()).unwrap();
+        assert_eq!((r.calendars, r.events, r.books, r.contacts, r.duplicates), (0, 0, 0, 0, 5), "a second import adds nothing");
+        assert_eq!(s.store.calendars().len(), calendars + 1);
+    }
+
+    #[test]
+    fn a_server_calendar_of_the_same_name_is_left_alone() {
+        let mut s = Session::new(sample::store(today()).unwrap(), today());
+        let synced = s
+            .store
+            .add_calendar("Archivo/Calendario", "#000000", Some(ibercorreo_core::CalendarRemote { href: "/dav/x/".into(), ctag: None }))
+            .unwrap();
+        let synced_book =
+            s.store.add_book("Archivo/Contactos", Some(ibercorreo_core::CalendarRemote { href: "/dav/y/".into(), ctag: None })).unwrap();
+        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap()).unwrap();
+        assert_eq!((r.calendars, r.books), (1, 1));
+        assert!(s.store.events().iter().all(|e| e.calendar != synced));
+        assert!(s.store.all_contacts().iter().all(|c| c.book != synced_book));
+    }
+
+    #[test]
+    fn made_uids_stay_the_same() {
+        let e = ibercorreo_core::Event {
+            id: ibercorreo_core::EventId(0),
+            calendar: 0,
+            uid: String::new(),
+            summary: "Sin id".into(),
+            location: String::new(),
+            description: String::new(),
+            when: When::AllDay { start: Date::new(2025, 3, 4).unwrap(), end: Date::new(2025, 3, 5).unwrap() },
+            tzid: None,
+            rrule: None,
+            exdates: Vec::new(),
+            recurrence_id: None,
+            reminders: Vec::new(),
+            remote: None,
+        };
+        assert_eq!(made_uid(&e), "outlook-334b9254340a3ded", "across versions of the app, so a later import finds the event");
+    }
 }

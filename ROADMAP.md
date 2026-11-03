@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window)
+Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -275,6 +275,14 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   in the store; files dropped on the window import like files opened with it. New command
   `folder.delete` (also in a folder's context menu) removes one of the person's own local
   folders with its mail, undoable; standard and server folders stay.
+- 2026-11-03 — M5.2b: calendar and contacts from `.pst`. `ibercorreo-outlook` reads the archive's
+  named-property map (MS-PST node 0x61) and turns appointments into events (start and end in the
+  zone Outlook stored, all-day days, reminders, the meeting UID, and series from the MS-OXOCAL
+  recurrence pattern: daily, weekly, monthly, nth weekday, yearly, with deleted and moved
+  occurrences as exceptions) and contacts into address-book entries (addresses, phones, postal
+  addresses, company, title, birthday, web page, notes). Each calendar or contacts folder of the
+  archive becomes a local calendar or address book of the same name; a second import adds
+  nothing. Tasks, notes and contact groups are counted and left out.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -310,6 +318,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — .msg HTML bodies read in the Internet code page.
 - 2026-11-03 — M5.2 .pst mail (engine, CLI); zero-font-size HTML fix.
 - 2026-11-03 — M5.2 .pst from the window; dropped files; folder.delete.
+- 2026-11-03 — M5.2b .pst calendar and contacts.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

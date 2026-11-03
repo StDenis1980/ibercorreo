@@ -40,6 +40,21 @@ pub fn time(id: u16, filetime: u64) -> Prop {
     (id, 0x0040, V::Fixed(filetime))
 }
 
+pub fn boolean(id: u16, b: bool) -> Prop {
+    (id, 0x000b, V::Int(u32::from(b)))
+}
+
+/// Property sets of named properties, for [`Writer::names`].
+pub const ADDRESS: [u8; 16] = crate::named::PSETID_ADDRESS;
+pub const APPOINTMENT: [u8; 16] = crate::named::PSETID_APPOINTMENT;
+pub const COMMON: [u8; 16] = crate::named::PSETID_COMMON;
+pub const MEETING: [u8; 16] = crate::named::PSETID_MEETING;
+
+/// The tag [`Writer::names`] gives the `i`-th name.
+pub fn named(i: usize) -> u16 {
+    0x8000 + i as u16
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Msg {
     pub props: Vec<Prop>,
@@ -98,11 +113,12 @@ pub struct Writer {
     nodes: Vec<(u32, u64, u64, u32)>,
     next_bid: u64,
     next_internal_nid: u32,
+    names: Vec<([u8; 16], u32)>,
 }
 
 impl Writer {
     pub fn new(o: Options) -> Self {
-        Writer { o, blocks: Vec::new(), nodes: Vec::new(), next_bid: 4, next_internal_nid: 0x400 }
+        Writer { o, blocks: Vec::new(), nodes: Vec::new(), next_bid: 4, next_internal_nid: 0x400, names: Vec::new() }
     }
 
     fn id(&self, v: u64) -> Vec<u8> {
@@ -501,8 +517,30 @@ impl Writer {
         }
     }
 
+    /// Named properties the archive maps: the `i`-th (set, number) gets tag [`named`]`(i)`.
+    pub fn names(mut self, names: &[([u8; 16], u32)]) -> Self {
+        self.names = names.to_vec();
+        self
+    }
+
     /// A whole archive: the store, the root folder, the top folder and `folders` under it.
     pub fn archive(mut self, name: &str, folders: &[Folder]) -> Vec<u8> {
+        if !self.names.is_empty() {
+            let mut guids: Vec<[u8; 16]> = Vec::new();
+            let mut entries = Vec::new();
+            for (i, (g, id)) in self.names.clone().into_iter().enumerate() {
+                let index = guids.iter().position(|x| *x == g).unwrap_or_else(|| {
+                    guids.push(g);
+                    guids.len() - 1
+                });
+                entries.extend_from_slice(&id.to_le_bytes());
+                entries.extend_from_slice(&(((index as u16) + 3) << 1).to_le_bytes());
+                entries.extend_from_slice(&(i as u16).to_le_bytes());
+            }
+            let mut subs = Vec::new();
+            let map = self.pc(&[long(0x0001, 251), bin(0x0002, &guids.concat()), bin(0x0003, &entries), bin(0x0004, &[])], &mut subs);
+            self.node(0x61, map, subs, 0);
+        }
         let top: u32 = (0x10 << 5) | 0x02;
         let mut entry = vec![0u8; 20];
         entry.extend_from_slice(&top.to_le_bytes());

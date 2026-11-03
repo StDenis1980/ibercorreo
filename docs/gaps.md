@@ -132,8 +132,9 @@ Status: 2026-11-03 · Pick from the top.
     subject, date, read state, plain and HTML body (also when Outlook kept it only as compressed
     RTF, M5.1b), and the attachment list. The mail of a `.pst` archive imports into local folders
     named after the archive's (M5.2), opened with the app or dropped on the window and read in
-    the background; an imported folder can be deleted. Missing: the calendar,
-    contacts, tasks and notes of a `.pst`, `.ost` files, the formatting of mail written as RTF
+    the background; an imported folder can be deleted. Its calendars and contacts become local
+    calendars and address books (M5.2b), with recurring series and their exceptions. Missing: the
+    tasks, notes and contact groups of a `.pst`, meeting attendees, Hijri-calendar series, `.ost` files, the formatting of mail written as RTF
     (its text is shown), contacts, appointments and tasks saved as `.msg`, opening an attached
     message, Outlook rules (`.rwz`), a File > Open dialog, a Linux file type for `.pst`, and
     export.
@@ -177,3 +178,4 @@ Status: 2026-11-03 · Pick from the top.
 - 2026-11-03 — gap 17: compressed-RTF bodies (M5.1b).
 - 2026-11-03 — gap 17: `.pst` mail (M5.2, engine and CLI).
 - 2026-11-03 — gap 17: `.pst` from the window, dropped files.
+- 2026-11-03 — gap 17: `.pst` calendar and contacts.
