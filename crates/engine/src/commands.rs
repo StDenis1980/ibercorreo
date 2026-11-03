@@ -160,6 +160,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: message_compose,
     },
     CommandSpec {
+        id: "message.composeMailto",
+        label: "New Email from a link",
+        group: "Home/New",
+        shortcut: None,
+        params: "uri: string — a mailto: link (RFC 6068), as the system passes it when Tinta Correo is the mail app; to, cc, bcc, subject and body are taken, anything else (attachments above all) is left out\naccount?: number — the account it is sent from; default the one whose folder is open",
+        edits: true,
+        run: message_compose_mailto,
+    },
+    CommandSpec {
         id: "message.update",
         label: "Edit draft",
         group: "Message/Basic Text",
@@ -1085,6 +1094,13 @@ fn message_compose(s: &mut Session, p: &Value) -> Result<Value> {
     let signed = bool_param(p, "signature")?.unwrap_or(true);
     let (subject, body) = (str_param(p, "subject")?.unwrap_or(""), str_param(p, "body")?.unwrap_or(""));
     new_draft(s, account, DraftParts { to, cc, bcc, subject, body, signed, quoted: "" })
+}
+
+/// A `mailto:` link opens a draft with its fields; it never sends.
+fn message_compose_mailto(s: &mut Session, p: &Value) -> Result<Value> {
+    let m = crate::mailto::parse(required_str(p, "uri")?)?;
+    let account = p.get("account").cloned().unwrap_or(Value::Null);
+    message_compose(s, &json!({ "to": m.to, "cc": m.cc, "bcc": m.bcc, "subject": m.subject, "body": m.body, "account": account }))
 }
 
 fn message_update(s: &mut Session, p: &Value) -> Result<Value> {

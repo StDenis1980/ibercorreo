@@ -66,6 +66,25 @@ fn compose_send_and_undo() {
 }
 
 #[test]
+fn a_mailto_link_opens_a_draft_and_never_sends() {
+    let mut s = session();
+    let id = s
+        .run("message.composeMailto", &json!({"uri": "mailto:ana@example.org?cc=luis@example.org&subject=Cita&body=Hola%0D%0A&attach=/etc/passwd"}))
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    let m = s.store.message(MessageId(id)).unwrap();
+    assert_eq!(m.folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());
+    assert_eq!(m.to.len(), 1);
+    assert_eq!(m.cc.len(), 1);
+    assert!(s.store.content(MessageId(id)).unwrap().body.starts_with("Hola\n"));
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(s.store.message(MessageId(id)).is_err());
+    assert!(s.run("message.composeMailto", &json!({"uri": "https://example.org"})).is_err());
+    assert!(s.run("message.composeMailto", &json!({})).is_err());
+}
+
+#[test]
 fn a_failed_command_changes_nothing() {
     let mut s = session();
     let before = s.store.clone();
