@@ -5,9 +5,11 @@
 //! reads one into the model through `props`, the same way as a `.msg` file. Calendar, contact,
 //! task and note items are not taken for mail.
 
-use ibercorreo_core::{FolderId, Message, MessageId, Result, clamp_text};
+use ibercorreo_core::{Contact, Event, FolderId, Message, MessageId, Result, clamp_text};
 
+use crate::items::{self, Kind};
 use crate::ltp::{Context, MAX_ROWS, PC_SIG, ROW_ID, TC_SIG};
+use crate::named::NameMap;
 use crate::ndb::{Ndb, Subnode, bad, u32_at};
 use crate::props::{self, Bag, EMBEDDED, MAX_ATTACHMENTS, MAX_DEPTH, MAX_RECIPIENTS, PT_BINARY, Raw, RawAttachment, tag};
 
@@ -17,6 +19,8 @@ pub use crate::ndb::{FileSource, Source};
 const NID_MESSAGE_STORE: u32 = 0x21;
 /// The root folder, above the top of the folder tree the person sees.
 const NID_ROOT_FOLDER: u32 = 0x122;
+/// The map from named properties to the tags this file gives them.
+const NID_NAME_TO_ID_MAP: u32 = 0x61;
 /// A message's recipients and attachments tables (subnodes of the message).
 const NID_RECIPIENT_TABLE: u32 = 0x692;
 const NID_ATTACHMENT_TABLE: u32 = 0x671;
@@ -56,16 +60,32 @@ impl PstFolder {
         let c = self.class.to_ascii_lowercase();
         c.is_empty() || c.starts_with("ipf.note")
     }
+
+    /// Whether the folder is a calendar.
+    pub fn holds_calendar(&self) -> bool {
+        self.class.to_ascii_lowercase().starts_with("ipf.appointment")
+    }
+
+    /// Whether the folder holds contacts.
+    pub fn holds_contacts(&self) -> bool {
+        self.class.to_ascii_lowercase().starts_with("ipf.contact")
+    }
 }
 
 /// An open Outlook data file.
 pub struct Pst<S> {
     ndb: Ndb<S>,
+    names: NameMap,
 }
 
 impl<S: Source> Pst<S> {
     pub fn open(src: S) -> Result<Self> {
-        Ok(Pst { ndb: Ndb::open(src)? })
+        let mut pst = Pst { ndb: Ndb::open(src)?, names: NameMap::default() };
+        // Without the map, mail still reads; calendar and contact details do not.
+        if let Ok((_, bag)) = pst.pc(NID_NAME_TO_ID_MAP) {
+            pst.names = NameMap::from_bag(&bag);
+        }
+        Ok(pst)
     }
 
     /// The node's property context.
@@ -141,6 +161,24 @@ impl<S: Source> Pst<S> {
             return Ok(None);
         }
         props::build(&raw, id, folder).map(Some)
+    }
+
+    /// Item `nid` as events: an appointment, with the changed occurrences of its series. `None`
+    /// for an item that is not an appointment, or one without a start.
+    pub fn appointment(&self, nid: u32) -> Result<Option<Vec<Event>>> {
+        let raw = self.item(nid)?;
+        Ok(if items::kind(&raw) == Kind::Appointment { items::appointment(&raw, &self.names) } else { None })
+    }
+
+    /// Item `nid` as a contact; `None` for an item that is not one (a contact group is not).
+    pub fn contact(&self, nid: u32) -> Result<Option<Contact>> {
+        let raw = self.item(nid)?;
+        Ok(if items::kind(&raw) == Kind::Contact { items::contact(&raw, &self.names) } else { None })
+    }
+
+    fn item(&self, nid: u32) -> Result<Raw> {
+        let n = self.ndb.node(nid)?.ok_or_else(|| bad("a missing item"))?;
+        self.raw(n.data, n.sub, 0)
     }
 
     /// A message's properties, recipients and attachments: the message node, or an attached

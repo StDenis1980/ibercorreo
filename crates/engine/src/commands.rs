@@ -263,7 +263,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Import Outlook data file (.pst)",
         group: "File/Open",
         shortcut: None,
-        params: "data: string — the .pst file, base64 (large archives: `ibercorreo-cli pst FILE --store STORE`)\naccount?: number — whose local folders receive it, default the current account",
+        params: "data: string — the .pst file, base64 (large archives: `ibercorreo-cli pst FILE --store STORE`); mail goes to local folders, calendars to local calendars, contacts to local address books, each named after the archive's folder\naccount?: number — whose local folders receive the mail, default the current account",
         edits: true,
         run: import_pst,
     },
@@ -1318,7 +1318,10 @@ fn import_pst(s: &mut Session, p: &Value) -> Result<Value> {
     let pst = ibercorreo_outlook::pst::Pst::open(bytes)?;
     let batch = crate::pst::read(&pst, |_, _| {})?;
     let r = s.apply_pst(account, batch)?;
-    Ok(json!({ "folders": r.folders, "messages": r.messages, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed }))
+    Ok(json!({
+        "folders": r.folders, "messages": r.messages, "calendars": r.calendars, "events": r.events, "books": r.books,
+        "contacts": r.contacts, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed
+    }))
 }
 
 fn search(s: &mut Session, p: &Value) -> Result<Value> {

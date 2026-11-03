@@ -220,10 +220,14 @@ fn pst(args: &[String]) -> Result<(), String> {
     let mut s = Session::new(store, now().date);
     s.path = store_path.clone();
     let folders: Vec<Value> = batch.folders.iter().map(|(path, m)| json!({ "folder": path.join("/"), "messages": m.len() })).collect();
+    let calendars: Vec<Value> = batch.calendars.iter().map(|(path, e)| json!({ "calendar": path.join("/"), "events": e.len() })).collect();
+    let books: Vec<Value> = batch.books.iter().map(|(path, c)| json!({ "book": path.join("/"), "contacts": c.len() })).collect();
     let r = s.apply_pst(account, batch).map_err(|e| e.to_string())?;
-    print(
-        &json!({ "archive": folders, "folders": r.folders, "messages": r.messages, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed }),
-    );
+    print(&json!({
+        "archive": folders, "calendars_read": calendars, "books_read": books,
+        "folders": r.folders, "messages": r.messages, "calendars": r.calendars, "events": r.events,
+        "books": r.books, "contacts": r.contacts, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed
+    }));
     if store_path.is_some() {
         s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     }
