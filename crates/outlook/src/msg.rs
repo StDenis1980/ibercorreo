@@ -79,7 +79,7 @@ impl<'c, 'a> Props<'c, 'a> {
         let mut fixed = Vec::new();
         if let Some(stream) = cfb.find(storage, "__properties_version1.0") {
             let bytes = cfb.read(stream)?;
-            for e in bytes.get(header..).unwrap_or(&[]).chunks_exact(16) {
+            for e in bytes.get(header..).unwrap_or(&[]).as_chunks::<16>().0 {
                 let (Some(tag), Some(value)) = (u32_at(e, 0), u64_at(e, 8)) else { continue };
                 fixed.push(((tag >> 16) as u16, (tag & 0xffff) as u16, value));
             }
@@ -110,8 +110,7 @@ impl<'c, 'a> Props<'c, 'a> {
     /// A text property, whichever of the two string types it was saved as.
     fn text(&self, id: u16) -> Option<String> {
         let text = if let Some(b) = self.stream(id, PT_UNICODE) {
-            let units: Vec<u16> =
-                b.chunks_exact(2).map(|c| u16::from_le_bytes([c.first().copied().unwrap_or(0), c.get(1).copied().unwrap_or(0)])).collect();
+            let units: Vec<u16> = b.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
             String::from_utf16_lossy(&units)
         } else {
             decode(&self.stream(id, PT_STRING8)?, self.codepage)

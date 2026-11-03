@@ -123,18 +123,18 @@ impl<'a> Cfb<'a> {
         }
         for s in fat_sectors {
             let sector = cfb.sector(s)?;
-            cfb.fat.extend(sector.chunks_exact(4).filter_map(|c| u32_at(c, 0)));
+            cfb.fat.extend(sector.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)));
         }
         // The directory, then the mini FAT and the mini stream (the root entry's stream).
         let dir = cfb.chain(header(0x30)?, None)?;
-        for raw in dir.chunks_exact(ENTRY_LEN).take(MAX_ENTRIES) {
+        for raw in dir.as_chunks::<ENTRY_LEN>().0.iter().take(MAX_ENTRIES) {
             cfb.entries.push(entry(raw));
         }
         if cfb.entries.first().map(|e| e.kind) != Some(Kind::Root) {
             return Err(bad("no root entry"));
         }
         let mini_fat = cfb.chain(header(0x3c)?, None)?;
-        cfb.mini_fat = mini_fat.chunks_exact(4).filter_map(|c| u32_at(c, 0)).collect();
+        cfb.mini_fat = mini_fat.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)).collect();
         if let Some(root) = cfb.entries.first() {
             let (start, size) = (root.start, root.size);
             cfb.mini_stream = cfb.chain(start, Some(size))?;
@@ -257,7 +257,8 @@ fn visited(seen: &mut [bool], n: u32) -> bool {
 
 fn entry(raw: &[u8]) -> Entry {
     let name_len = usize::from(u16_at(raw, 64).unwrap_or(0)).min(64);
-    let units: Vec<u16> = raw.get(..name_len).unwrap_or(&[]).chunks_exact(2).filter_map(|c| u16_at(c, 0)).take_while(|&u| u != 0).collect();
+    let units: Vec<u16> =
+        raw.get(..name_len).unwrap_or(&[]).as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).take_while(|&u| u != 0).collect();
     let kind = match raw.get(66) {
         Some(1) => Kind::Storage,
         Some(2) => Kind::Stream,
