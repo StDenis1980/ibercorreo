@@ -130,10 +130,12 @@ Status: 2026-11-03 · Pick from the top.
     once (they go at the next Send/Receive).
 17. **Moving from Outlook (M5).** A `.msg` file opens into the Inbox (M5.1): sender, recipients,
     subject, date, read state, plain and HTML body (also when Outlook kept it only as compressed
-    RTF, M5.1b), and the attachment list. Missing: the formatting of mail written as RTF (its text
-    is shown), contacts, appointments and tasks saved as `.msg`, opening an attached message, `.pst`
-    and `.ost` archives (folders, mail, calendar, contacts), Outlook rules (`.rwz`), dragging
-    files into the window, and export.
+    RTF, M5.1b), and the attachment list. The mail of a `.pst` archive imports into local folders
+    named after the archive's (M5.2), so far from the CLI (`ibercorreo-cli pst`) and the
+    `message.importPst` command. Missing: importing a `.pst` from the window, the calendar,
+    contacts, tasks and notes of a `.pst`, `.ost` files, the formatting of mail written as RTF
+    (its text is shown), contacts, appointments and tasks saved as `.msg`, opening an attached
+    message, Outlook rules (`.rwz`), dragging files into the window, and export.
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -172,3 +174,4 @@ Status: 2026-11-03 · Pick from the top.
 - 2026-11-01 — gap 1: NTLM sign-in (M4.5c).
 - 2026-11-03 — gap 17 added: moving from Outlook; `.msg` import (M5.1).
 - 2026-11-03 — gap 17: compressed-RTF bodies (M5.1b).
+- 2026-11-03 — gap 17: `.pst` mail (M5.2, engine and CLI).

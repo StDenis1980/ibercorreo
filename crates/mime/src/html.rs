@@ -59,6 +59,10 @@ struct Tag {
 struct Open {
     name: String,
     hidden: bool,
+    /// Text here is `font-size: 0`. Unlike `hidden`, a descendant can set a size again (layout
+    /// templates zero the size on a cell to drop the gaps between columns and set it on the
+    /// text inside), and images still show.
+    tiny: bool,
     bold: bool,
     italic: bool,
     underline: bool,
@@ -136,6 +140,11 @@ impl Builder {
         self.stack.iter().any(|o| o.hidden)
     }
 
+    /// Whether text here is too small to see: the innermost `font-size` is zero.
+    fn tiny(&self) -> bool {
+        self.stack.last().is_some_and(|o| o.tiny)
+    }
+
     fn in_pre(&self) -> bool {
         self.stack.iter().any(|o| o.name == "pre" || o.name == "listing")
     }
@@ -163,7 +172,7 @@ impl Builder {
 
     /// Text between tags: entities decoded, whitespace collapsed (outside `<pre>`).
     fn text(&mut self, raw: &str) {
-        if raw.is_empty() || self.hidden() || self.full {
+        if raw.is_empty() || self.hidden() || self.tiny() || self.full {
             return;
         }
         let decoded = decode_entities(raw);
@@ -406,6 +415,7 @@ impl Builder {
         let mut o = Open {
             name: tag.name.clone(),
             hidden,
+            tiny: css.font_size.unwrap_or_else(|| self.tiny()),
             bold: css.bold || matches!(name, "b" | "strong" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "th" | "dt"),
             italic: css.italic || matches!(name, "i" | "em" | "cite" | "var" | "dfn" | "address"),
             underline: css.underline || matches!(name, "u" | "ins"),
@@ -564,6 +574,8 @@ fn skip_raw(html: &str, from: usize, name: &str) -> usize {
 #[derive(Default)]
 struct Css {
     hidden: bool,
+    /// `font-size`, when set: whether it is zero.
+    font_size: Option<bool>,
     bold: bool,
     italic: bool,
     underline: bool,
@@ -581,7 +593,8 @@ impl Css {
             match prop.as_str() {
                 "display" => css.hidden |= value == "none",
                 "visibility" => css.hidden |= value == "hidden" || value == "collapse",
-                "font-size" | "max-height" | "max-width" | "opacity" => css.hidden |= zero,
+                "font-size" if value != "inherit" => css.font_size = Some(zero),
+                "max-height" | "max-width" | "opacity" => css.hidden |= zero,
                 "font-weight" => css.bold |= value == "bold" || value == "bolder" || value.parse::<u32>().is_ok_and(|n| n >= 600),
                 "font-style" => css.italic |= value == "italic" || value == "oblique",
                 "text-decoration" | "text-decoration-line" => {

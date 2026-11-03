@@ -184,7 +184,7 @@ struct Out {
 impl Out {
     fn flush(&mut self) {
         if !self.bytes.is_empty() {
-            let decoded = crate::msg::decode(&self.bytes, self.codepage);
+            let decoded = crate::props::decode(&self.bytes, self.codepage);
             self.text.push_str(&decoded);
             self.bytes.clear();
         }

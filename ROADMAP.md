@@ -1,12 +1,12 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies
+Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (engine and CLI)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 70 |
+| Commands in the registry | 74 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -254,6 +254,22 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   the code page of the other text (found on a real Ukrainian message: text in Windows-1251, HTML
   in KOI8-U). Seven real messages from the owner (English and Ukrainian, HTML, RTF, attachments)
   now import correctly; the files are not kept.
+- 2026-11-03 — M5.2 (engine and CLI): Outlook data files (`.pst`, MS-PST). `ibercorreo-outlook`
+  reads the node database (Unicode and ANSI files, no/permute/cyclic encoding, node and block
+  B-trees, data trees, subnodes; `.ost` refused), heaps, B-trees on heaps, property and table
+  contexts, the folder tree under the IPM subtree, and messages through the same layer as
+  `.msg` (recipients, attachments, attached messages). It reads from disk as it goes, so large
+  archives do not have to fit in memory. Checked against the specification's sample pages and a
+  test writer covering both formats, all encodings, multi-block heaps and two-level trees;
+  damaged files never panic. The engine puts each mail folder in a local folder named
+  `Archive/Inbox/…` and skips messages already imported; calendar, contact, task and note items
+  are counted and left for M5.2b. Command `message.importPst`, `ibercorreo-cli pst FILE --store
+  STORE`. The owner's own test archive (6 folders, 9 messages in Ukrainian with attachments)
+  imports fully; the file is not kept. Not yet in the window.
+- 2026-11-03 — HTML mail built from layout templates (MJML and similar) no longer shows empty:
+  `font-size: 0` on a table cell hid all the text inside, even where it set a size again. It now
+  hides only text, and a descendant's size undoes it; images still show. Found on a real bank
+  notification in the owner's archive.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -287,6 +303,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.1 (.msg import).
 - 2026-11-03 — M5.1b (compressed-RTF bodies).
 - 2026-11-03 — .msg HTML bodies read in the Internet code page.
+- 2026-11-03 — M5.2 .pst mail (engine, CLI); zero-font-size HTML fix.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

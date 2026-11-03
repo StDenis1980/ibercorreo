@@ -3,7 +3,7 @@ name = "ibercorreo-outlook"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Tinta Correo L2: Outlook files read from Microsoft's published specifications: compound files (MS-CFB) and .msg messages (MS-OXMSG)"
+description = "Tinta Correo L2: Outlook files read from Microsoft's published specifications: compound files (MS-CFB), .msg messages (MS-OXMSG), compressed RTF (MS-OXRTFCP) and .pst data files (MS-PST)"
 
 [dependencies]
 ibercorreo-core.workspace = true

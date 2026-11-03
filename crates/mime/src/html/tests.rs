@@ -78,6 +78,21 @@ fn hidden_text_and_trackers_are_dropped() {
 }
 
 #[test]
+fn text_inside_a_zero_font_size_layout_cell_shows() {
+    // Email layout templates zero the font size on table cells and columns (so the spaces between
+    // inline-block columns take no room) and set it again on the text inside.
+    let r = to_rich(
+        "<body><div style=\"display:none;font-size:1px;max-height:0px;opacity:0\">Preheader</div>\
+         <table><tr><td style=\"font-size:0px;padding:0\">\
+         <div style=\"font-size:0;display:inline-block\"><img src=\"cid:logo\" alt=\"Logo\"></div>\
+         <div style=\"font-size:0px\"><div style=\"font-size:16px;line-height:1.5\">Payment <b>confirmed</b></div>\
+         <span style=\"font-size: inherit\">gap</span> <br> </div>\
+         </td></tr></table></body>",
+    );
+    assert_eq!(text(&r), ["Logo", "Payment confirmed"], "the image shows, the inherited zero size hides \"gap\"");
+}
+
+#[test]
 fn phishing_shaped_links_are_marked() {
     let r = to_rich(
         "<a href=\"https://login.evil.example/\">https://www.bank.example/login</a> \

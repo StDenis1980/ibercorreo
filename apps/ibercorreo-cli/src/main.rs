@@ -5,6 +5,10 @@
 //! ibercorreo-cli run [--store FILE | --sample] [--save] --cmd 'id={json}'...
 //! ibercorreo-cli eml FILE.eml                     a message as JSON
 //! ibercorreo-cli msg FILE.msg                     a message saved from Outlook, as JSON
+//! ibercorreo-cli pst FILE.pst [--store FILE] [--account ID]
+//!                                                 an Outlook data file's mail into local folders
+//!                                                 (named after the archive's folders); without
+//!                                                 --store, lists what it holds without keeping it
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
 //! ibercorreo-cli sync --store FILE [--account ID] [--ca CERT.der]
 //!                                                 Send/Receive for one of the store's accounts
@@ -68,7 +72,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | pst FILE [--store FILE] [--account ID] | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH]"
     );
     ExitCode::from(2)
 }
@@ -109,6 +113,7 @@ fn main() -> ExitCode {
             }),
             None => return usage(),
         },
+        Some("pst") => pst(args.get(1..).unwrap_or(&[])),
         Some("run") => run(args.get(1..).unwrap_or(&[])),
         Some("sync") => sync(args.get(1..).unwrap_or(&[])),
         Some("autoconfig") => autoconfig(args.get(1..).unwrap_or(&[])),
@@ -180,6 +185,46 @@ fn run(args: &[String]) -> Result<(), String> {
         if sample || store_path.is_none() {
             return Err("--save needs --store FILE".into());
         }
+        s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Reads an Outlook data file from disk as it goes (archives run to gigabytes), then adds its
+/// mail to the store and saves it.
+fn pst(args: &[String]) -> Result<(), String> {
+    let mut file = None;
+    let mut store_path: Option<PathBuf> = None;
+    let mut account = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--store" => store_path = Some(PathBuf::from(it.next().ok_or("--store needs a file")?)),
+            "--account" => {
+                account =
+                    Some(ibercorreo_core::AccountId(it.next().ok_or("--account needs an id")?.parse::<u32>().map_err(|e| format!("--account: {e}"))?))
+            }
+            other if file.is_none() && !other.starts_with("--") => file = Some(PathBuf::from(other)),
+            other => return Err(format!("unknown argument {other:?}")),
+        }
+    }
+    let file = file.ok_or("pst needs a file")?;
+    let source = ibercorreo_engine::pst::FileSource::open(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    let archive = ibercorreo_engine::pst::Pst::open(source).map_err(|e| format!("{}: {e}", file.display()))?;
+    let batch = ibercorreo_engine::pst::read(&archive, |done, total| eprint!("\r{done}/{total}")).map_err(|e| e.to_string())?;
+    eprintln!();
+    let store = match &store_path {
+        Some(p) if p.exists() => Store::load(p).map_err(|e| e.to_string())?,
+        _ => Store::new(),
+    };
+    let mut s = Session::new(store, now().date);
+    s.path = store_path.clone();
+    let folders: Vec<Value> = batch.folders.iter().map(|(path, m)| json!({ "folder": path.join("/"), "messages": m.len() })).collect();
+    let r = s.apply_pst(account, batch).map_err(|e| e.to_string())?;
+    print(
+        &json!({ "archive": folders, "folders": r.folders, "messages": r.messages, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed }),
+    );
+    if store_path.is_some() {
         s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     }
     Ok(())
