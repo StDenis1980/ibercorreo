@@ -26,3 +26,4 @@ Generated-in-code art is original and has no file to list: the UI icons (`crates
 | `packaging/linux/io.github.stdenis1980.ibercorreo.desktop` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux desktop entry |
 | `packaging/linux/io.github.stdenis1980.ibercorreo.metainfo.xml.in` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux AppStream metadata (template) |
 | `packaging/linux/nfpm.yaml` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux .deb/.rpm package description |
+| `packaging/linux/flatpak/io.github.stdenis1980.ibercorreo.bundle.yml` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux Flatpak bundle manifest |
