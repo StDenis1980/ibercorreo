@@ -1,0 +1,298 @@
+# Română (ro) interface catalog for Tinta Correo. Machine-assisted (AI); needs native review.
+# craft-i18n catalog format. Written from the meaning of the English text; rows shared with the
+# Tinta forks of PdfCraft, WordCraft and GridCraft reuse their wording. No other product's localisation.
+# Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(fără destinatari)
+	(no subject)	(fără subiect)
+	(no title)	(fără titlu)
+	(unknown sender)	(expeditor necunoscut)
+	+ Add account	+ Adăugare cont
+	+ New Appointment	+ Programare nouă
+	1 day	1 zi
+	1 hour	1 oră
+	1 minute	1 minut
+	10 minutes	10 minute
+	15 minutes	15 minute
+	2 hours	2 ore
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 sau 2026-10-22
+	30 minutes	30 de minute
+	5 minutes	5 minute
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	Un server CalDAV și CardDAV, cum ar fi Nextcloud, Radicale sau Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	O adresă {provider}: serverele sale sunt completate. Introduceți o parolă de aplicație și salvați.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	O adresă {provider}: serverele sale sunt completate. Salvați: apoi vă conectați pe pagina proprie {provider} în browser.
+	Account settings	Setări cont
+	Account…	Cont…
+	Add	Adăugare
+	Add account	Adăugare cont
+	Add to Favorites	Adăugare la Preferințe
+	Added under new messages, replies and forwards from this account	Adăugată sub mesajele noi, răspunsurile și redirecționările din acest cont
+	Address	Adresă
+	Address book	Agendă
+	All	Toate
+	All day	Toată ziua
+	An attendee	Un participant
+	An attendee proposes a new time	Un participant propune o oră nouă
+	Another mailbox, with folders of its own	Altă cutie poștală, cu propriile foldere
+	Archive	Arhivă
+	At start time	La ora de început
+	Automatic (system language)	Automat (limba sistemului)
+	B	B
+	Bcc	Bcc
+	Birthday	Zi de naștere
+	Blind copies: they get the message, the others don't see them	Copii ascunse: primesc mesajul, ceilalți nu îi văd
+	Calendar	Calendar
+	Calendar (Ctrl+2)	Calendar (Ctrl+2)
+	Calendars	Calendare
+	Calendars and contacts	Calendare și contacte
+	Cancel	Anulare
+	Careful: the text names one site, but the link goes to\n{url}	Atenție: textul numește un site, dar linkul duce la\n{url}
+	Cc	Cc
+	Contact	Contact
+	Copy the sign-in address	Copiați adresa de conectare
+	Day	Zi
+	Delete	Ștergere
+	Delete appointment	Ștergere programare
+	Delete every occurrence	Ștergere toate aparițiile
+	Delete this occurrence only	Ștergere doar această apariție
+	Discard	Renunțare
+	Dismiss	Închidere
+	Dismiss All	Respingere toate
+	Do not send a response	Nu trimiteți un răspuns
+	Drafts	Ciorne
+	Edit the response first	Editați mai întâi răspunsul
+	Email	E-mail
+	Email address	Adresă de e-mail
+	End	Sfârșit
+	Event	Eveniment
+	Every day	Zilnic
+	Every month	Lunar
+	Every week	Săptămânal
+	Every weekday	În fiecare zi lucrătoare
+	Every year	Anual
+	Favorites	Preferințe
+	Fax	Fax
+	Flag	Semnalizare
+	Forward	Redirecționare
+	Fri	Vin.
+	Home	Pornire
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Imaginile de pe alte servere îi pot spune expeditorului că ați deschis mesajul, de aceea Tinta Correo nu le încarcă niciodată.
+	Inbox	Inbox
+	Incoming (IMAP)	Primire (IMAP)
+	Interface language	Limba interfeței
+	Job title	Funcție
+	Junk	Spam
+	KB	KB
+	Keep	Păstrare
+	Local	Local
+	Location	Locație
+	Look up the servers for this address (the provider's published settings, then the usual names)	Căutați serverele pentru această adresă (setările publicate de furnizor, apoi numele obișnuite)
+	MB	MB
+	Mail (Ctrl+1)	E-mail (Ctrl+1)
+	Mark as unread	Marcare ca necitit
+	Meeting invitation	Invitație la întâlnire
+	Meeting invitation from {organizer}	Invitație la întâlnire de la {organizer}
+	Mobile	Mobil
+	Mon	Lun.
+	Month	Lună
+	Name	Nume
+	Never	Niciodată
+	New Appointment	Programare nouă
+	New contact	Contact nou
+	No appointments	Nicio programare
+	No browser opened?	Nu s-a deschis browserul?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Încă nu aveți contacte. Adăugați unul sau deschideți un fișier .vcf cu Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	Nu există setări publicate: aceste servere au răspuns la numele obișnuite. Verificați-le și salvați.
+	No settings found: {error}. Enter the servers by hand.	Nu s-au găsit setări: {error}. Introduceți serverele manual.
+	Nobody matches.	Nicio potrivire.
+	None	Niciunul
+	Notes	Note
+	Nothing here	Nimic aici
+	Organization	Organizație
+	Other	Altele
+	Outbox	Outbox
+	Outgoing (SMTP)	Trimitere (SMTP)
+	Password	Parolă
+	People	Persoane
+	People (Ctrl+3)	Persoane (Ctrl+3)
+	Phone	Telefon
+	Port	Port
+	Redo	Refacere
+	Reminder	Memento
+	Remove	Eliminare
+	Remove account…	Eliminare cont…
+	Remove from Calendar	Eliminare din calendar
+	Remove from Favorites	Eliminare din Preferințe
+	Remove this phone	Eliminare acest telefon
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	Eliminați {address} și e-mailurile păstrate aici? Nimic nu se șterge de pe server.
+	Repeat	Repetare
+	Repeats ({rule}), shown once	Se repetă ({rule}), afișat o dată
+	Reply	Răspuns
+	Reply All	Răspuns la toți
+	Results for “{query}”	Rezultate pentru „{query}”
+	Right-click a folder: Add to Favorites	Clic dreapta pe un folder: Adăugare la Preferințe
+	Same as this computer ({zone})	La fel ca acest computer ({zone})
+	Sat	Sâm.
+	Save	Salvare
+	Save and Send/Receive	Salvare și Trimitere/Primire
+	Save and sign in	Salvare și conectare
+	Search mail	Căutare e-mail
+	All mailboxes	Toate cutiile poștale
+	Current mailbox	Cutia poștală curentă
+	Current folder	Folderul curent
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Cuvintele se potrivesc de la început, fără diacritice. "frază exactă", -cuvânt pentru excludere, OR pentru oricare. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Search people	Căutare persoane
+	Search: Lisbon, Kyiv, New York…	Căutare: Lisabona, Kiev, New York…
+	Select a message to read it	Selectați un mesaj pentru a-l citi
+	The text of this message could not be read.	Textul acestui mesaj nu a putut fi citit.
+	Send	Trimitere
+	Send the Outbox and get new mail (F9)	Trimiteți Outbox și primiți e-mailuri noi (F9)
+	Send the response now	Trimiteți răspunsul acum
+	Sent	Trimise
+	Server	Server
+	Set up your account to sync calendars.	Configurați contul pentru a sincroniza calendarele.
+	Set up your account to sync contacts.	Configurați contul pentru a sincroniza contactele.
+	Set up your mail server to send and receive.	Configurați serverul de e-mail pentru a trimite și primi.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	S-au găsit setări pentru {found}, dar {provider} acceptă conectarea doar pe pagina proprie (OAuth), iar această versiune nu are un ID de client {provider} pentru ea.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	S-au găsit setări pentru {found}. Verificați-le și salvați: apoi vă conectați pe pagina proprie {provider} în browser.
+	Settings for {found} found. Check them, enter the password and save.	S-au găsit setări pentru {found}. Verificați-le, introduceți parola și salvați.
+	Settings of {account}	Setări pentru {account}
+	Show as plain text	Afișare ca text simplu
+	Show formatted	Afișare formatată
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Conectați-vă pe pagina proprie {provider} în browser (OAuth 2.0): nicio parolă nu este păstrată aici
+	Sign in with	Conectare cu
+	Sign-in name	Nume de conectare
+	Signature	Semnătură
+	Signed in with {name}	Conectat cu {name}
+	Snooze all 5 minutes	Amânare toate cu 5 minute
+	Snooze…	Amânare…
+	Start	Început
+	Subject	Subiect
+	Sun	Dum.
+	Sync mail, calendars and contacts (F9)	Sincronizare e-mail, calendare și contacte (F9)
+	Synced with the CalDAV server at Send/Receive	Sincronizat cu serverul CalDAV la Trimitere/Primire
+	Synced with the CardDAV server at Send/Receive	Sincronizat cu serverul CardDAV la Trimitere/Primire
+	The settings of the account whose folder is open	Setările contului al cărui folder este deschis
+	The sign-in did not finish: {error}.	Conectarea nu s-a încheiat: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Această versiune nu are un ID de client {provider} pentru conectarea OAuth
+	This link does not go where its text says	Acest link nu duce unde spune textul său
+	This meeting has been cancelled	Această întâlnire a fost anulată
+	Thu	Joi
+	Title	Titlu
+	To	Către
+	To: {names}	Către: {names}
+	Today	Azi
+	Trash	Coș de gunoi
+	Tue	Mar.
+	Undo	Anulare acțiune
+	Unread	Necitite
+	Unread in Inbox: {n}	Necitite în Inbox: {n}
+	Waiting for you to sign in in your browser…	Se așteaptă conectarea în browser…
+	Wed	Mie.
+	Week	Săptămână
+	Work	Serviciu
+	Work Week	Săptămână de lucru
+	You have {status} it	Ați {status}
+	Your name	Numele dvs.
+	Your name\nCompany · phone	Numele dvs.\nCompanie · telefon
+	accepted	acceptat
+	answered	răspuns
+	declined	refuzat
+	delegated	delegat
+	if not the email address	dacă nu este adresa de e-mail
+	in {span}	peste {span}
+	kept in the system's credential store	păstrată în depozitul de acreditări al sistemului
+	now	acum
+	one or more, comma-separated	una sau mai multe, separate prin virgulă
+	optional	opțional
+	repeats	se repetă
+	shown to recipients	afișat destinatarilor
+	tentatively accepted	acceptat provizoriu
+	{date}, all day	{date}, toată ziua
+	{n} Reminders	Mementouri: {n}
+	{n} days	{n} zile
+	{n} hours	{n} ore
+	{n} minutes	{n} minute
+	{n} remote image not loaded	{n} imagine la distanță neîncărcată
+	{n} remote images not loaded	Imagini la distanță neîncărcate: {n}
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Serverele {provider} sunt completate. Salvați: apoi vă conectați pe pagina proprie {provider} în browser.
+	{span} after the start	{span} după început
+	{span} before	{span} înainte
+	{span} overdue	întârziat cu {span}
+	{who} has {status} this meeting	{who}: {status}
+	✉ New Email	✉ E-mail nou
+	✔ Accept	✔ Acceptare
+	✔ In your calendar	✔ În calendar
+	✖ Decline	✖ Refuzare
+	➕ Add phone	➕ Adăugare telefon
+	➕ New Contact	➕ Contact nou
+	⟳ Send/Receive	⟳ Trimitere/Primire
+	⟳ Sending and receiving…	⟳ Se trimite și se primește…
+	⟳ Syncing…	⟳ Se sincronizează…
+	？ Tentative	？ Provizoriu
+	🔍 Find settings	🔍 Găsire setări
+	🔍 Looking…	🔍 Se caută…
+	🔔 1 Reminder	🔔 1 memento
+	🗑 Delete	🗑 Ștergere
+	🗑 Series	🗑 Serie
+	Rules…	Reguli…
+	Sort, mark or delete mail as it arrives	Sortați, marcați sau ștergeți e-mailurile la sosire
+	Create rule…	Creare regulă…
+	Rules	Reguli
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Regulile rulează pe e-mailurile noi din Inbox după Trimitere/Primire, în această ordine.
+	No rules yet.	Încă nicio regulă.
+	On	Activat
+	Edit…	Editare…
+	Later	Mai târziu
+	Earlier	Mai devreme
+	+ New rule	+ Regulă nouă
+	Run rules now	Rulare reguli acum
+	Run the rules that are on over the open folder	Rulați regulile active pe folderul deschis
+	default: the condition	implicit: condiția
+	Condition	Condiție
+	From	De la
+	Sent to	Trimis către
+	Has attachment	Are atașament
+	Search syntax; empty: every message.	Sintaxă de căutare; gol: fiecare mesaj.
+	Do this	Acțiune
+	Mark as read	Marcare ca citit
+	Move to	Mutare în
+	Delete (move to Deleted Items)	Ștergere (mutare în Elemente șterse)
+	Stop processing more rules	Oprire procesare alte reguli
+	mark as read	marcare ca citit
+	flag	semnalizare
+	move to {folder}	mutare în {folder}
+	delete	ștergere
+	stop	oprire
+	every message	fiecare mesaj
+	Run this rule later	Rulare mai târziu a acestei reguli
+	Run this rule earlier	Rulare mai devreme a acestei reguli
+	{email} is already set up: here it is	{email} este deja configurat: iată-l
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	O adresă {provider}: serverele sale sunt completate. Introduceți o parolă de aplicație (linkul de sub parolă creează una) și salvați.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	S-au găsit setări pentru {found}. Introduceți o parolă de aplicație (linkul de sub parolă creează una) și salvați.
+	Make a {provider} app password…	Creați o parolă de aplicație {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Cont {provider} → Securitate → Parole pentru aplicații (necesită verificare în doi pași). Lipiți aici cele 16 litere.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Dacă {provider} spune că nu a verificat aplicația, alegeți Avansat, apoi Accesați Tinta Correo: verificarea {provider} vine mai târziu, iar conectarea este la fel de sigură.
+	Send error reports automatically?	Trimiteți automat rapoarte de erori?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Când aplicația se blochează sau nu mai răspunde, poate trimite un raport, astfel încât problema să fie rezolvată fără să ne scrieți. Un raport conține versiunea aplicației, sistemul, limba, locul din cod unde a apărut eroarea și ultimele rânduri din jurnalul tehnic. Niciodată textul documentelor, numele fișierelor, folderele, adresele de e-mail sau parolele.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Rapoartele ajung la Tinta Office (report.tintaoffice.com, stocate în UE) și sunt șterse după 90 de zile. Puteți modifica oricând această opțiune din „Rapoarte de erori” din bara de stare și vă puteți șterge acolo rapoartele de pe server. Detalii: tintaoffice.com/aviso-legal
+	Yes, send reports	Da, trimite rapoarte
+	No	Nu
+	Error reports	Rapoarte de erori
+	Send error reports automatically	Trimitere automată rapoarte de erori
+	Installation id: {id}	ID instalare: {id}
+	Delete my reports from the server	Ștergeți rapoartele mele de pe server
+	Deletion requested: it completes the next time the app is online.	Ștergere solicitată: se finalizează data viitoare când aplicația este online.
+	Open the reports folder	Deschidere folder rapoarte
+	Mail over Microsoft Graph	E-mail prin Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Pentru un cont de serviciu Microsoft 365 a cărui organizație a dezactivat IMAP: e-mailul, calendarul și contactele trec toate prin Microsoft Graph, iar serverele de mai jos nu sunt folosite
+	Exchange server (EWS)	Server Exchange (EWS)
+	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Pentru un Exchange Server administrat chiar de organizația dvs.: numele sau adresa sa EWS. E-mailul trece prin Exchange Web Services cu parola dvs., iar serverele de mai jos nu sunt folosite
+	mail.example.org (optional)	mail.example.org (opțional)
+	🔍 Find the Exchange server	🔍 Găsire server Exchange
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Întrebați serviciul Autodiscover al organizației, conectat cu numele și parola de mai jos
+	Enter the email address and the password first	Introduceți mai întâi adresa de e-mail și parola
+	Exchange server found. Check the address and save.	Server Exchange găsit. Verificați adresa și salvați.
+	No Exchange server found: {error}. Enter its address by hand.	Nu s-a găsit niciun server Exchange: {error}. Introduceți manual adresa.

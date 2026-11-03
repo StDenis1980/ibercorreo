@@ -1,0 +1,298 @@
+# Čeština (cs) interface catalog for Tinta Correo. Machine-assisted (AI); needs native review.
+# craft-i18n catalog format. Written from the meaning of the English text; rows shared with the
+# Tinta forks of PdfCraft, WordCraft and GridCraft reuse their wording. No other product's localisation.
+# Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(bez příjemců)
+	(no subject)	(bez předmětu)
+	(no title)	(bez názvu)
+	(unknown sender)	(neznámý odesílatel)
+	+ Add account	+ Přidat účet
+	+ New Appointment	+ Nová schůzka
+	1 day	1 den
+	1 hour	1 hodina
+	1 minute	1 minuta
+	10 minutes	10 minut
+	15 minutes	15 minut
+	2 hours	2 hodiny
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 nebo 2026-10-22
+	30 minutes	30 minut
+	5 minutes	5 minut
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	Server CalDAV a CardDAV, například Nextcloud, Radicale nebo Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	Adresa {provider}: servery jsou vyplněny. Zadejte heslo aplikace a uložte.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Adresa {provider}: servery jsou vyplněny. Uložte: pak se přihlásíte na vlastní stránce {provider} v prohlížeči.
+	Account settings	Nastavení účtu
+	Account…	Účet…
+	Add	Přidat
+	Add account	Přidat účet
+	Add to Favorites	Přidat do Oblíbených
+	Added under new messages, replies and forwards from this account	Přidává se pod nové zprávy, odpovědi a přeposlání z tohoto účtu
+	Address	Adresa
+	Address book	Adresář
+	All	Vše
+	All day	Celý den
+	An attendee	Účastník
+	An attendee proposes a new time	Účastník navrhuje nový čas
+	Another mailbox, with folders of its own	Jiná poštovní schránka s vlastními složkami
+	Archive	Archiv
+	At start time	V čase zahájení
+	Automatic (system language)	Automaticky (jazyk systému)
+	B	B
+	Bcc	Skrytá kopie
+	Birthday	Narozeniny
+	Blind copies: they get the message, the others don't see them	Skryté kopie: zprávu dostanou, ostatní je nevidí
+	Calendar	Kalendář
+	Calendar (Ctrl+2)	Kalendář (Ctrl+2)
+	Calendars	Kalendáře
+	Calendars and contacts	Kalendáře a kontakty
+	Cancel	Zrušit
+	Careful: the text names one site, but the link goes to\n{url}	Pozor: text uvádí jeden web, ale odkaz vede na\n{url}
+	Cc	Kopie
+	Contact	Kontakt
+	Copy the sign-in address	Zkopírovat adresu pro přihlášení
+	Day	Den
+	Delete	Odstranit
+	Delete appointment	Odstranit schůzku
+	Delete every occurrence	Odstranit všechny výskyty
+	Delete this occurrence only	Odstranit jen tento výskyt
+	Discard	Zahodit
+	Dismiss	Zavřít
+	Dismiss All	Zavřít vše
+	Do not send a response	Neodesílat odpověď
+	Drafts	Koncepty
+	Edit the response first	Nejprve upravit odpověď
+	Email	E-mail
+	Email address	E-mailová adresa
+	End	Konec
+	Event	Událost
+	Every day	Každý den
+	Every month	Každý měsíc
+	Every week	Každý týden
+	Every weekday	Každý pracovní den
+	Every year	Každý rok
+	Favorites	Oblíbené
+	Fax	Fax
+	Flag	Označit příznakem
+	Forward	Přeposlat
+	Fri	Pá
+	Home	Domů
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Obrázky z jiných serverů mohou odesílateli prozradit, že jste zprávu otevřeli, proto je Tinta Correo nikdy nenačítá.
+	Inbox	Doručená pošta
+	Incoming (IMAP)	Příchozí (IMAP)
+	Interface language	Jazyk rozhraní
+	Job title	Pracovní pozice
+	Junk	Nevyžádaná pošta
+	KB	kB
+	Keep	Ponechat
+	Local	Místní
+	Location	Umístění
+	Look up the servers for this address (the provider's published settings, then the usual names)	Vyhledat servery pro tuto adresu (zveřejněná nastavení poskytovatele, pak obvyklé názvy)
+	MB	MB
+	Mail (Ctrl+1)	Pošta (Ctrl+1)
+	Mark as unread	Označit jako nepřečtené
+	Meeting invitation	Pozvánka na schůzku
+	Meeting invitation from {organizer}	Pozvánka na schůzku od {organizer}
+	Mobile	Mobil
+	Mon	Po
+	Month	Měsíc
+	Name	Jméno
+	Never	Nikdy
+	New Appointment	Nová schůzka
+	New contact	Nový kontakt
+	No appointments	Žádné schůzky
+	No browser opened?	Neotevřel se prohlížeč?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Zatím žádné kontakty. Přidejte jeden nebo otevřete soubor .vcf v Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	Žádná zveřejněná nastavení: tyto servery odpověděly na obvyklých názvech. Zkontrolujte je a uložte.
+	No settings found: {error}. Enter the servers by hand.	Nastavení nenalezena: {error}. Zadejte servery ručně.
+	Nobody matches.	Nikdo neodpovídá.
+	None	Žádné
+	Notes	Poznámky
+	Nothing here	Nic tu není
+	Organization	Organizace
+	Other	Jiné
+	Outbox	Pošta k odeslání
+	Outgoing (SMTP)	Odchozí (SMTP)
+	Password	Heslo
+	People	Lidé
+	People (Ctrl+3)	Lidé (Ctrl+3)
+	Phone	Telefon
+	Port	Port
+	Redo	Znovu
+	Reminder	Připomenutí
+	Remove	Odebrat
+	Remove account…	Odebrat účet…
+	Remove from Calendar	Odebrat z kalendáře
+	Remove from Favorites	Odebrat z Oblíbených
+	Remove this phone	Odebrat tento telefon
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	Odebrat {address} a zde uloženou poštu? Na serveru se nic nesmaže.
+	Repeat	Opakovat
+	Repeats ({rule}), shown once	Opakuje se ({rule}), zobrazeno jednou
+	Reply	Odpovědět
+	Reply All	Odpovědět všem
+	Results for “{query}”	Výsledky pro „{query}“
+	Right-click a folder: Add to Favorites	Klepněte pravým tlačítkem na složku: Přidat do Oblíbených
+	Same as this computer ({zone})	Stejné jako tento počítač ({zone})
+	Sat	So
+	Save	Uložit
+	Save and Send/Receive	Uložit a Odeslat/přijmout
+	Save and sign in	Uložit a přihlásit se
+	Search mail	Hledat v poště
+	All mailboxes	Všechny poštovní schránky
+	Current mailbox	Aktuální poštovní schránka
+	Current folder	Aktuální složka
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Slova se hledají od začátku, bez ohledu na diakritiku. "přesná fráze", -slovo pro vynechání, OR pro kterékoli. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Search people	Hledat lidi
+	Search: Lisbon, Kyiv, New York…	Hledat: Lisabon, Kyjev, New York…
+	Select a message to read it	Vyberte zprávu, kterou chcete číst
+	The text of this message could not be read.	Text této zprávy nelze přečíst.
+	Send	Odeslat
+	Send the Outbox and get new mail (F9)	Odeslat poštu k odeslání a přijmout novou (F9)
+	Send the response now	Odeslat odpověď hned
+	Sent	Odeslaná pošta
+	Server	Server
+	Set up your account to sync calendars.	Nastavte účet, abyste mohli synchronizovat kalendáře.
+	Set up your account to sync contacts.	Nastavte účet, abyste mohli synchronizovat kontakty.
+	Set up your mail server to send and receive.	Nastavte poštovní server pro odesílání a přijímání.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	Nastavení pro {found} nalezena, ale {provider} přijímá přihlášení jen na vlastní stránce (OAuth) a toto sestavení pro to nemá ID klienta {provider}.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	Nastavení pro {found} nalezena. Zkontrolujte je a uložte: pak se přihlásíte na vlastní stránce {provider} v prohlížeči.
+	Settings for {found} found. Check them, enter the password and save.	Nastavení pro {found} nalezena. Zkontrolujte je, zadejte heslo a uložte.
+	Settings of {account}	Nastavení účtu {account}
+	Show as plain text	Zobrazit jako prostý text
+	Show formatted	Zobrazit formátovaně
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Přihlaste se na vlastní stránce {provider} v prohlížeči (OAuth 2.0): žádné heslo se zde neukládá
+	Sign in with	Přihlásit přes
+	Sign-in name	Přihlašovací jméno
+	Signature	Podpis
+	Signed in with {name}	Přihlášeno přes {name}
+	Snooze all 5 minutes	Odložit vše o 5 minut
+	Snooze…	Odložit…
+	Start	Začátek
+	Subject	Předmět
+	Sun	Ne
+	Sync mail, calendars and contacts (F9)	Synchronizovat poštu, kalendáře a kontakty (F9)
+	Synced with the CalDAV server at Send/Receive	Synchronizováno se serverem CalDAV při Odeslat/přijmout
+	Synced with the CardDAV server at Send/Receive	Synchronizováno se serverem CardDAV při Odeslat/přijmout
+	The settings of the account whose folder is open	Nastavení účtu, jehož složka je otevřená
+	The sign-in did not finish: {error}.	Přihlášení nebylo dokončeno: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Toto sestavení nemá ID klienta {provider} pro přihlášení OAuth
+	This link does not go where its text says	Tento odkaz nevede tam, kam říká jeho text
+	This meeting has been cancelled	Tato schůzka byla zrušena
+	Thu	Čt
+	Title	Název
+	To	Komu
+	To: {names}	Komu: {names}
+	Today	Dnes
+	Trash	Koš
+	Tue	Út
+	Undo	Zpět
+	Unread	Nepřečtené
+	Unread in Inbox: {n}	Nepřečtené v doručené poště: {n}
+	Waiting for you to sign in in your browser…	Čeká se na přihlášení v prohlížeči…
+	Wed	St
+	Week	Týden
+	Work	Práce
+	Work Week	Pracovní týden
+	You have {status} it	Vaše odpověď: {status}
+	Your name	Vaše jméno
+	Your name\nCompany · phone	Vaše jméno\nSpolečnost · telefon
+	accepted	přijato
+	answered	zodpovězeno
+	declined	odmítnuto
+	delegated	delegováno
+	if not the email address	pokud to není e-mailová adresa
+	in {span}	za {span}
+	kept in the system's credential store	uloženo ve správci přihlašovacích údajů systému
+	now	nyní
+	one or more, comma-separated	jedna či více, oddělené čárkou
+	optional	volitelné
+	repeats	opakuje se
+	shown to recipients	zobrazí se příjemcům
+	tentatively accepted	předběžně přijato
+	{date}, all day	{date}, celý den
+	{n} Reminders	Připomenutí: {n}
+	{n} days	{n} d.
+	{n} hours	{n} h
+	{n} minutes	{n} min
+	{n} remote image not loaded	Nenačtené vzdálené obrázky: {n}
+	{n} remote images not loaded	Nenačtené vzdálené obrázky: {n}
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	Servery {provider} jsou vyplněny. Uložte: pak se přihlásíte na vlastní stránce {provider} v prohlížeči.
+	{span} after the start	{span} po zahájení
+	{span} before	{span} předem
+	{span} overdue	{span} po termínu
+	{who} has {status} this meeting	{who}: {status}
+	✉ New Email	✉ Nový e-mail
+	✔ Accept	✔ Přijmout
+	✔ In your calendar	✔ V kalendáři
+	✖ Decline	✖ Odmítnout
+	➕ Add phone	➕ Přidat telefon
+	➕ New Contact	➕ Nový kontakt
+	⟳ Send/Receive	⟳ Odeslat/přijmout
+	⟳ Sending and receiving…	⟳ Odesílání a přijímání…
+	⟳ Syncing…	⟳ Synchronizace…
+	？ Tentative	？ Předběžně
+	🔍 Find settings	🔍 Najít nastavení
+	🔍 Looking…	🔍 Hledání…
+	🔔 1 Reminder	🔔 1 připomenutí
+	🗑 Delete	🗑 Odstranit
+	🗑 Series	🗑 Řada
+	Rules…	Pravidla…
+	Sort, mark or delete mail as it arrives	Třídit, označovat nebo mazat poštu při doručení
+	Create rule…	Vytvořit pravidlo…
+	Rules	Pravidla
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Pravidla se spouštějí na novou poštu v doručené poště po Odeslat/přijmout, v tomto pořadí.
+	No rules yet.	Zatím žádná pravidla.
+	On	Zapnuto
+	Edit…	Upravit…
+	Later	Později
+	Earlier	Dříve
+	+ New rule	+ Nové pravidlo
+	Run rules now	Spustit pravidla hned
+	Run the rules that are on over the open folder	Spustit zapnutá pravidla na otevřenou složku
+	default: the condition	výchozí: podmínka
+	Condition	Podmínka
+	From	Od
+	Sent to	Odesláno komu
+	Has attachment	Má přílohu
+	Search syntax; empty: every message.	Syntaxe hledání; prázdné: každá zpráva.
+	Do this	Provést
+	Mark as read	Označit jako přečtené
+	Move to	Přesunout do
+	Delete (move to Deleted Items)	Odstranit (přesunout do Odstraněné pošty)
+	Stop processing more rules	Nezpracovávat další pravidla
+	mark as read	označit jako přečtené
+	flag	označit příznakem
+	move to {folder}	přesunout do {folder}
+	delete	odstranit
+	stop	zastavit
+	every message	každá zpráva
+	Run this rule later	Spustit toto pravidlo později
+	Run this rule earlier	Spustit toto pravidlo dříve
+	{email} is already set up: here it is	{email} je už nastaven: tady je
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	Adresa {provider}: servery jsou vyplněny. Zadejte heslo aplikace (vytvoříte ho odkazem pod heslem) a uložte.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Nastavení pro {found} nalezena. Zadejte heslo aplikace (vytvoříte ho odkazem pod heslem) a uložte.
+	Make a {provider} app password…	Vytvořit heslo aplikace {provider}…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	Účet {provider} → Zabezpečení → Hesla aplikací (vyžaduje dvoufázové ověření). Sem vložte 16 písmen.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Pokud {provider} hlásí, že aplikaci neověřil, zvolte Rozšířené a pak Přejít do Tinta Correo: ověření {provider} přijde později a přihlášení je stejně bezpečné.
+	Send error reports automatically?	Odesílat zprávy o chybách automaticky?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Když aplikace spadne nebo přestane reagovat, může odeslat zprávu, aby se problém opravil, aniž byste nám museli psát. Zpráva obsahuje verzi aplikace, systém, jazyk, místo v kódu, kde k chybě došlo, a poslední řádky technického protokolu. Nikdy text vašich dokumentů, názvy souborů, složky, e-mailové adresy ani hesla.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Zprávy putují do Tinta Office (report.tintaoffice.com, uloženy v EU) a po 90 dnech se mažou. Toto nastavení můžete kdykoli změnit pomocí „Zprávy o chybách“ ve stavovém řádku a tam také smazat své zprávy ze serveru. Podrobnosti: tintaoffice.com/aviso-legal
+	Yes, send reports	Ano, odesílat zprávy
+	No	Ne
+	Error reports	Zprávy o chybách
+	Send error reports automatically	Automaticky odesílat zprávy o chybách
+	Installation id: {id}	ID instalace: {id}
+	Delete my reports from the server	Smazat mé zprávy ze serveru
+	Deletion requested: it completes the next time the app is online.	Smazání vyžádáno: dokončí se, až bude aplikace příště online.
+	Open the reports folder	Otevřít složku se zprávami
+	Mail over Microsoft Graph	Pošta přes Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Pro pracovní účet Microsoft 365, jehož organizace vypnula IMAP: pošta, kalendář i kontakty jdou přes Microsoft Graph a servery níže se nepoužívají
+	Exchange server (EWS)	Server Exchange (EWS)
+	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Pro Exchange Server, který provozuje vaše organizace: jeho název nebo adresa EWS. Pošta jde přes Exchange Web Services s vaším heslem a servery níže se nepoužívají
+	mail.example.org (optional)	mail.example.org (volitelné)
+	🔍 Find the Exchange server	🔍 Najít server Exchange
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Zeptat se služby Autodiscover organizace, přihlášeno jménem a heslem níže
+	Enter the email address and the password first	Nejprve zadejte e-mailovou adresu a heslo
+	Exchange server found. Check the address and save.	Server Exchange nalezen. Zkontrolujte adresu a uložte.
+	No Exchange server found: {error}. Enter its address by hand.	Server Exchange nenalezen: {error}. Zadejte jeho adresu ručně.
