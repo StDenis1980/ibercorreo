@@ -1,0 +1,18 @@
+[package]
+name = "ibercorreo-outlook"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tinta Correo L2: Outlook files read from Microsoft's published specifications: compound files (MS-CFB) and .msg messages (MS-OXMSG)"
+
+[dependencies]
+ibercorreo-core.workspace = true
+ibercorreo-mime.workspace = true
+mail-parser.workspace = true
+
+[features]
+# Writing small .msg files, for other crates' tests.
+testing = []
+
+[lints]
+workspace = true

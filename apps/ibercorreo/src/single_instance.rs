@@ -1,4 +1,4 @@
-//! One window per mailbox. Opening a `.ics`, a `.vcf`, an `.eml` or a `mailto:` link while Tinta
+//! One window per mailbox. Opening a `.ics`, a `.vcf`, an `.eml`, a `.msg` or a `mailto:` link while Tinta
 //! Correo is open (a double click in the file manager, a link in the browser) starts the program
 //! again; without this, the second start would load the same store and the two windows would
 //! overwrite each other's saves.

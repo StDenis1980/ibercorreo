@@ -1,7 +1,7 @@
 //! The Tinta Correo desktop app.
 //!
 //! ```text
-//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf | file://… | mailto:…]...
+//! ibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.ics | FILE.vcf | file://… | mailto:…]...
 //! ```
 //!
 //! The mailbox is one store file in the platform's data folder (`--store` picks another).
@@ -888,6 +888,7 @@ fn open_requested(
             (Ok(bytes), Some("vcf" | "vcard")) => {
                 run("contact.importVcf", &serde_json::json!({ "text": String::from_utf8_lossy(&bytes) })).map(|_| ())
             }
+            (Ok(bytes), Some("msg")) => run("message.importMsg", &serde_json::json!({ "data": ibercorreo_mime::base64(&bytes) })).map(|_| ()),
             (Ok(bytes), _) => run("message.importEml", &serde_json::json!({ "raw": String::from_utf8_lossy(&bytes) })).map(|_| ()),
             (Err(e), _) => Err(ibercorreo_core::Error::Storage(e)),
         };
@@ -934,7 +935,7 @@ fn main() -> eframe::Result {
             Some("--view") => view = args.next().and_then(|v| v.into_string().ok()),
             Some("--help" | "-h") => {
                 println!(
-                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.ics | FILE.vcf | mailto:…]..."
+                    "{NAME}\n\nibercorreo [--sample] [--store FILE] [--view mail|calendar|contacts|day|workweek|week|month] [FILE.eml | FILE.msg | FILE.ics | FILE.vcf | mailto:…]..."
                 );
                 return Ok(());
             }

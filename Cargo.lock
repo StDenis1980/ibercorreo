@@ -1650,6 +1650,7 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
  "ibercorreo-ical",
+ "ibercorreo-mime",
  "ibercorreo-net",
  "ibercorreo-store",
  "ibercorreo-sync",
@@ -1665,6 +1666,7 @@ version = "0.1.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
+ "ibercorreo-mime",
  "ibercorreo-net",
  "ibercorreo-store",
  "ibercorreo-sync",
@@ -1706,6 +1708,7 @@ dependencies = [
  "ibercorreo-ical",
  "ibercorreo-imap",
  "ibercorreo-mime",
+ "ibercorreo-outlook",
  "ibercorreo-store",
  "ibercorreo-sync",
  "ibercorreo-vcard",
@@ -1757,6 +1760,15 @@ dependencies = [
  "rustls-platform-verifier",
  "serde_json",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "ibercorreo-outlook"
+version = "0.1.0"
+dependencies = [
+ "ibercorreo-core",
+ "ibercorreo-mime",
+ "mail-parser",
 ]
 
 [[package]]

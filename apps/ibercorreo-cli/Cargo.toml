@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 ibercorreo-core.workspace = true
 ibercorreo-engine.workspace = true
+ibercorreo-mime.workspace = true
 ibercorreo-net.workspace = true
 ibercorreo-store.workspace = true
 ibercorreo-sync.workspace = true

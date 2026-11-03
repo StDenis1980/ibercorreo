@@ -241,6 +241,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: import_eml,
     },
     CommandSpec {
+        id: "message.importMsg",
+        label: "Import Outlook .msg",
+        group: "File/Open",
+        shortcut: None,
+        params: "data: string — the .msg file, base64\nfolder?: number | role — default inbox",
+        edits: true,
+        run: import_msg,
+    },
+    CommandSpec {
         id: "search.messages",
         label: "Search",
         group: "Home/Find",
@@ -1257,6 +1266,19 @@ fn import_eml(s: &mut Session, p: &Value) -> Result<Value> {
         None => s.role_folder(account_param(s, p)?, FolderRole::Inbox)?,
     };
     let id = s.store.import_eml(raw.as_bytes(), f)?;
+    Ok(summary(s.store.message(id)?))
+}
+
+/// A message saved from Outlook (`.msg`, MS-OXMSG), base64 in the parameters since it is binary.
+fn import_msg(s: &mut Session, p: &Value) -> Result<Value> {
+    let data = required_str(p, "data")?;
+    let bytes = ibercorreo_mime::unbase64(data).ok_or_else(|| Error::invalid("params", "data must be base64"))?;
+    let f = match folder_param(s, p, "folder")? {
+        Some(f) => f,
+        None => s.role_folder(account_param(s, p)?, FolderRole::Inbox)?,
+    };
+    let m = ibercorreo_outlook::msg::read(&bytes, MessageId(0), f)?;
+    let id = s.store.add_message(m)?;
     Ok(summary(s.store.message(id)?))
 }
 

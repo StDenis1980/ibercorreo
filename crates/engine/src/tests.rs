@@ -1126,3 +1126,25 @@ fn error_reports_answer_is_kept_and_forget_moves_the_id() {
     assert_eq!(s.store.error_reports.forget_pending.as_deref(), Some(id));
     assert!(s.store.error_reports.install_id.is_empty());
 }
+
+#[test]
+fn an_outlook_msg_imports_into_the_inbox_and_undoes() {
+    let mut s = session();
+    let bytes = ibercorreo_outlook::testing::mail("Presupuesto 2027", "joan@empresa.es", "Hola,\r\nel presupuesto.");
+    let data = ibercorreo_mime::base64(&bytes);
+    let r = s.run("message.importMsg", &json!({ "data": data })).unwrap();
+    let id = MessageId(r["id"].as_u64().unwrap());
+    let m = s.store.message(id).unwrap();
+    assert_eq!(m.subject, "Presupuesto 2027");
+    assert_eq!(m.from.as_ref().unwrap().email, "joan@empresa.es");
+    assert_eq!(m.folder, s.store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap());
+    assert_eq!(s.store.content(id).unwrap().body, "Hola,\nel presupuesto.");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert!(s.store.message(id).is_err(), "undone");
+
+    let r = s.run("message.importMsg", &json!({ "data": data, "folder": "sent" })).unwrap();
+    let m = s.store.message(MessageId(r["id"].as_u64().unwrap())).unwrap();
+    assert_eq!(m.folder, s.store.folder_by_role(AccountId(0), FolderRole::Sent).unwrap(), "into the folder asked for");
+    assert!(s.run("message.importMsg", &json!({ "data": "not base64!" })).is_err());
+    assert!(s.run("message.importMsg", &json!({ "data": ibercorreo_mime::base64(b"From: a@b.c\r\n\r\nx") })).is_err(), "not a .msg");
+}

@@ -11,4 +11,4 @@ StartupNotify=true
 StartupWMClass=io.github.stdenis1980.ibercorreo
 Categories=Office;Email;Calendar;ContactManagement;
 Keywords=mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;
-MimeType=message/rfc822;text/calendar;text/vcard;text/x-vcard;text/directory;x-scheme-handler/mailto;
+MimeType=message/rfc822;application/vnd.ms-outlook;text/calendar;text/vcard;text/x-vcard;text/directory;x-scheme-handler/mailto;
