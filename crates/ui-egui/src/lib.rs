@@ -2582,6 +2582,10 @@ fn short_when(dt: ibercorreo_core::DateTime, today: Date) -> String {
     if dt.date == today {
         format!("{:02}:{:02}", dt.hour(), dt.minute())
     } else if dt.date.year() == today.year() {
+        // Lithuanian puts the month first: `spal. 26 d.`.
+        if i18n::current() == Language::Lt {
+            return format!("{} {} d.", month_abbr(dt.date.month()), dt.date.day());
+        }
         format!("{} {}", day_num(dt.date), month_abbr(dt.date.month()))
     } else {
         dt.date.to_string()
@@ -2614,14 +2618,17 @@ fn month_abbr(m: u8) -> &'static str {
         Language::Fr => ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."],
         Language::De => ["Jan.", "Feb.", "März", "Apr.", "Mai", "Juni", "Juli", "Aug.", "Sept.", "Okt.", "Nov.", "Dez."],
         Language::Pl => ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"],
+        Language::Ro => ["ian.", "feb.", "mar.", "apr.", "mai", "iun.", "iul.", "aug.", "sept.", "oct.", "nov.", "dec."],
+        Language::Cs => ["led.", "úno.", "bře.", "dub.", "kvě.", "čvn.", "čvc.", "srp.", "zář.", "říj.", "lis.", "pro."],
+        Language::Lt => MONTHS_ABBR_LT,
         Language::En => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     };
     names.get(usize::from(m).saturating_sub(1)).copied().unwrap_or("")
 }
 
-/// A day number before a month: `26`, but `26.` in German.
+/// A day number before a month: `26`, but `26.` in German and Czech.
 fn day_num(d: Date) -> String {
-    if i18n::current() == Language::De { format!("{}.", d.day()) } else { d.day().to_string() }
+    if matches!(i18n::current(), Language::De | Language::Cs) { format!("{}.", d.day()) } else { d.day().to_string() }
 }
 
 fn weekday_abbr(d: Date) -> &'static str {
@@ -2634,6 +2641,9 @@ fn range_title(s: &Session) -> String {
     let (from, to) = s.calendar_range();
     if i18n::current() == Language::Eu {
         return range_title_eu(s.calendar_mode, s.day, from, to);
+    }
+    if i18n::current() == Language::Lt {
+        return range_title_lt(s.calendar_mode, s.day, from, to);
     }
     match s.calendar_mode {
         CalendarMode::Month => month_title(s.day),
@@ -2654,6 +2664,20 @@ fn range_title_eu(mode: CalendarMode, day: Date, from: Date, to: Date) -> String
         _ if from.month() == to.month() => format!("{} {} {}–{}", year_eu(to.year()), genitive(to), from.day(), to.day()),
         _ if from.year() == to.year() => format!("{} {} {} – {} {}", year_eu(to.year()), genitive(from), from.day(), genitive(to), to.day()),
         _ => format!("{} {} {} – {} {} {}", year_eu(from.year()), genitive(from), from.day(), year_eu(to.year()), genitive(to), to.day()),
+    }
+}
+
+/// [`range_title`] in Lithuanian, which puts the year first and the month in the genitive:
+/// `2026 m. spalio 22 d.`, `2026 m. spalio 19–25 d.`, `2026 m. spalio 26 d. – lapkričio 1 d.`,
+/// `2026 m. spalis`.
+fn range_title_lt(mode: CalendarMode, day: Date, from: Date, to: Date) -> String {
+    let genitive = |d: Date| MONTHS_GENITIVE_LT.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("");
+    match mode {
+        CalendarMode::Month => month_title(day),
+        CalendarMode::Day => format!("{} m. {} {} d.", from.year(), genitive(from), from.day()),
+        _ if from.month() == to.month() => format!("{} m. {} {}–{} d.", to.year(), genitive(to), from.day(), to.day()),
+        _ if from.year() == to.year() => format!("{} m. {} {} d. – {} {} d.", to.year(), genitive(from), from.day(), genitive(to), to.day()),
+        _ => format!("{} m. {} {} d. – {} m. {} {} d.", from.year(), genitive(from), from.day(), to.year(), genitive(to), to.day()),
     }
 }
 
@@ -2681,6 +2705,9 @@ fn month_name(d: Date) -> &'static str {
         Language::Fr => MONTHS_AFTER_DAY_FR,
         Language::De => MONTHS_DE,
         Language::Pl => MONTHS_GENITIVE_PL,
+        Language::Ro => MONTHS_AFTER_DAY_RO,
+        Language::Cs => MONTHS_GENITIVE_CS,
+        Language::Lt => MONTHS_GENITIVE_LT,
         Language::En => MONTHS,
     };
     names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("")
@@ -2771,12 +2798,27 @@ const MONTHS_PL: [&str; 12] =
     ["Styczeń", "Luty", "Marzec", "Kwiecień", "Maj", "Czerwiec", "Lipiec", "Sierpień", "Wrzesień", "Październik", "Listopad", "Grudzień"];
 const MONTHS_GENITIVE_PL: [&str; 12] =
     ["stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca", "lipca", "sierpnia", "września", "października", "listopada", "grudnia"];
+const MONTHS_RO: [&str; 12] =
+    ["Ianuarie", "Februarie", "Martie", "Aprilie", "Mai", "Iunie", "Iulie", "August", "Septembrie", "Octombrie", "Noiembrie", "Decembrie"];
+const MONTHS_AFTER_DAY_RO: [&str; 12] =
+    ["ianuarie", "februarie", "martie", "aprilie", "mai", "iunie", "iulie", "august", "septembrie", "octombrie", "noiembrie", "decembrie"];
+const MONTHS_CS: [&str; 12] = ["Leden", "Únor", "Březen", "Duben", "Květen", "Červen", "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec"];
+const MONTHS_GENITIVE_CS: [&str; 12] =
+    ["ledna", "února", "března", "dubna", "května", "června", "července", "srpna", "září", "října", "listopadu", "prosince"];
+const MONTHS_LT: [&str; 12] =
+    ["sausis", "vasaris", "kovas", "balandis", "gegužė", "birželis", "liepa", "rugpjūtis", "rugsėjis", "spalis", "lapkritis", "gruodis"];
+const MONTHS_GENITIVE_LT: [&str; 12] =
+    ["sausio", "vasario", "kovo", "balandžio", "gegužės", "birželio", "liepos", "rugpjūčio", "rugsėjo", "spalio", "lapkričio", "gruodžio"];
+const MONTHS_ABBR_LT: [&str; 12] = ["saus.", "vas.", "kov.", "bal.", "geg.", "birž.", "liep.", "rugp.", "rugs.", "spal.", "lapkr.", "gruod."];
 const MONTHS_ABBR_ES: [&str; 12] = ["ene.", "feb.", "mar.", "abr.", "may.", "jun.", "jul.", "ago.", "sept.", "oct.", "nov.", "dic."];
 
 /// A month on its own: `October 2026`, `Жовтень 2026`, `Octubre de 2026`, `2026ko urria`.
 fn month_title(d: Date) -> String {
     if i18n::current() == Language::Eu {
         return format!("{} {}", year_eu(d.year()), MONTHS_EU.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""));
+    }
+    if i18n::current() == Language::Lt {
+        return format!("{} m. {}", d.year(), MONTHS_LT.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""));
     }
     let (names, of) = match i18n::current() {
         Language::Uk => (MONTHS_UK, ""),
@@ -2787,7 +2829,9 @@ fn month_title(d: Date) -> String {
         Language::Fr => (MONTHS_FR, ""),
         Language::De => (MONTHS_DE, ""),
         Language::Pl => (MONTHS_PL, ""),
-        Language::Eu | Language::En => (MONTHS, ""),
+        Language::Ro => (MONTHS_RO, ""),
+        Language::Cs => (MONTHS_CS, ""),
+        Language::Eu | Language::Lt | Language::En => (MONTHS, ""),
     };
     format!("{} {of}{}", names.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or(""), d.year())
 }
@@ -2806,6 +2850,11 @@ fn long_date(d: Date) -> String {
         let month = MONTHS_GENITIVE_EU.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("");
         return format!("{} {month} {}a, {}", year_eu(d.year()), d.day(), days.get(usize::from(d.weekday().index())).copied().unwrap_or(""));
     }
+    if i18n::current() == Language::Lt {
+        let days = ["pirmadienis", "antradienis", "trečiadienis", "ketvirtadienis", "penktadienis", "šeštadienis", "sekmadienis"];
+        let month = MONTHS_GENITIVE_LT.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("");
+        return format!("{} m. {month} {} d., {}", d.year(), d.day(), days.get(usize::from(d.weekday().index())).copied().unwrap_or(""));
+    }
     let days = match i18n::current() {
         Language::Uk => ["понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя"],
         Language::Es => ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
@@ -2815,10 +2864,12 @@ fn long_date(d: Date) -> String {
         Language::Fr => ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
         Language::De => ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
         Language::Pl => ["poniedziałek", "wtorek", "środa", "czwartek", "piątek", "sobota", "niedziela"],
-        Language::Eu | Language::En => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+        Language::Ro => ["luni", "marți", "miercuri", "joi", "vineri", "sâmbătă", "duminică"],
+        Language::Cs => ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"],
+        Language::Eu | Language::Lt | Language::En => ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     };
-    // French writes the weekday without a comma: `lundi 26 octobre 2026`.
-    let comma = if i18n::current() == Language::Fr { "" } else { "," };
+    // French and Czech write the weekday without a comma: `lundi 26 octobre 2026`, `pondělí 26. října 2026`.
+    let comma = if matches!(i18n::current(), Language::Fr | Language::Cs) { "" } else { "," };
     format!("{}{comma} {} {}", days.get(usize::from(d.weekday().index())).copied().unwrap_or(""), day_num(d), month_year(d))
 }
 
@@ -2924,6 +2975,9 @@ fn describe_rule(r: &ibercorreo_core::recur::Rule) -> String {
         Language::Fr => return describe_rule_with(r, &RULE_FR),
         Language::De => return describe_rule_with(r, &RULE_DE),
         Language::Pl => return describe_rule_with(r, &RULE_PL),
+        Language::Ro => return describe_rule_with(r, &RULE_RO),
+        Language::Cs => return describe_rule_with(r, &RULE_CS),
+        Language::Lt => return describe_rule_with(r, &RULE_LT),
         Language::En => {}
     }
     use ibercorreo_core::recur::Freq;
@@ -3025,6 +3079,39 @@ const RULE_PL: RuleWords = RuleWords {
     month_day: "{d}. dzień",
     times: ", powtórzeń: {c}",
     until: " do {d}",
+};
+
+const RULE_RO: RuleWords = RuleWords {
+    every: ["Zilnic", "Săptămânal", "Lunar", "Anual"],
+    every_n: ["La fiecare {n} zile", "La fiecare {n} săptămâni", "La fiecare {n} luni", "La fiecare {n} ani"],
+    last_weekday: "ultima {name}",
+    nth_weekday: "a {n}-a {name}",
+    last_day: "ultima zi",
+    month_day: "ziua {d}",
+    times: ", de {c} ori",
+    until: " până la {d}",
+};
+
+const RULE_CS: RuleWords = RuleWords {
+    every: ["Denně", "Týdně", "Měsíčně", "Ročně"],
+    every_n: ["Každý {n}. den", "Každý {n}. týden", "Každý {n}. měsíc", "Každý {n}. rok"],
+    last_weekday: "poslední {name}",
+    nth_weekday: "{n}. {name}",
+    last_day: "poslední den",
+    month_day: "{d}. den",
+    times: ", počet opakování: {c}",
+    until: " do {d}",
+};
+
+const RULE_LT: RuleWords = RuleWords {
+    every: ["Kasdien", "Kas savaitę", "Kas mėnesį", "Kasmet"],
+    every_n: ["Kas {n} d.", "Kas {n} sav.", "Kas {n} mėn.", "Kas {n} m."],
+    last_weekday: "paskutinis {name}",
+    nth_weekday: "{n}. {name}",
+    last_day: "paskutinė diena",
+    month_day: "{d} d.",
+    times: ", kartų: {c}",
+    until: " iki {d}",
 };
 
 /// [`describe_rule`] from a [`RuleWords`] table: "Ogni 2 settimane: lun, gio, 5 volte".
@@ -3412,6 +3499,23 @@ mod tests {
         assert_eq!(month_title(d), "Październik 2026");
         assert_eq!(due_in(120), "za 2 godz.");
         assert_eq!(describe_rule(&rule), "Co 2 tyg.: pon., czw., powtórzeń: 5");
+        i18n::set_current(Language::Ro);
+        assert_eq!(long_date(d), "luni, 26 octombrie 2026");
+        assert_eq!(month_title(d), "Octombrie 2026");
+        assert_eq!(due_in(120), "peste 2 ore");
+        assert_eq!(describe_rule(&rule), "La fiecare 2 săptămâni: Lun., Joi, de 5 ori");
+        i18n::set_current(Language::Cs);
+        assert_eq!(long_date(d), "pondělí 26. října 2026");
+        assert_eq!(month_title(d), "Říjen 2026");
+        assert_eq!(due_in(120), "za 2 h");
+        assert_eq!(describe_rule(&rule), "Každý 2. týden: Po, Čt, počet opakování: 5");
+        i18n::set_current(Language::Lt);
+        assert_eq!(long_date(d), "2026 m. spalio 26 d., pirmadienis");
+        assert_eq!(month_title(d), "2026 m. spalis");
+        assert_eq!(range_title_lt(CalendarMode::Week, d, d, Date::new(2026, 11, 1).unwrap()), "2026 m. spalio 26 d. – lapkričio 1 d.");
+        assert_eq!(short_when(ibercorreo_core::DateTime::new(d, 9, 0, 0).unwrap(), Date::new(2026, 1, 1).unwrap()), "spal. 26 d.");
+        assert_eq!(due_in(120), "po 2 val.");
+        assert_eq!(describe_rule(&rule), "Kas 2 sav.: Pr, Kt, kartų: 5");
         i18n::set_current(Language::Uk);
         assert_eq!(long_date(d), "понеділок, 26 жовтня 2026");
         assert_eq!(due_in(120), "через 2 год");

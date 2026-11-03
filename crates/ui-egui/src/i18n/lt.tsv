@@ -1,0 +1,298 @@
+# Lietuvių (lt) interface catalog for Tinta Correo. Machine-assisted (AI); needs native review.
+# craft-i18n catalog format. Written from the meaning of the English text; rows shared with the
+# Tinta forks of PdfCraft, WordCraft and GridCraft reuse their wording. No other product's localisation.
+# Columns, separated by a TAB:  context <TAB> English source text <TAB> translation
+#   context  empty here. escapes  \n  \t  \\  inside a column. {name} placeholders must appear in
+#            both columns, and a trailing "…" in one needs one in the other.
+#   Lines starting with # and blank lines are ignored. A missing entry shows in English.
+	(no recipients)	(nėra gavėjų)
+	(no subject)	(be temos)
+	(no title)	(be pavadinimo)
+	(unknown sender)	(nežinomas siuntėjas)
+	+ Add account	+ Pridėti paskyrą
+	+ New Appointment	+ Naujas susitikimas
+	1 day	1 diena
+	1 hour	1 valanda
+	1 minute	1 minutė
+	10 minutes	10 min.
+	15 minutes	15 min.
+	2 hours	2 val.
+	2026-10-22T09:00 or 2026-10-22	2026-10-22T09:00 arba 2026-10-22
+	30 minutes	30 min.
+	5 minutes	5 min.
+	A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail	CalDAV ir CardDAV serveris, pvz., Nextcloud, Radicale ar Fastmail
+	A {provider} address: its servers are filled in. Enter an app password and save.	{provider} adresas: jo serveriai užpildyti. Įveskite programos slaptažodį ir įrašykite.
+	A {provider} address: its servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	{provider} adresas: jo serveriai užpildyti. Įrašykite: tada prisijungsite {provider} puslapyje naršyklėje.
+	Account settings	Paskyros nuostatos
+	Account…	Paskyra…
+	Add	Pridėti
+	Add account	Pridėti paskyrą
+	Add to Favorites	Įtraukti į Parankinius
+	Added under new messages, replies and forwards from this account	Pridedama po naujais laiškais, atsakymais ir persiuntimais iš šios paskyros
+	Address	Adresas
+	Address book	Adresų knyga
+	All	Visi
+	All day	Visą dieną
+	An attendee	Dalyvis
+	An attendee proposes a new time	Dalyvis siūlo naują laiką
+	Another mailbox, with folders of its own	Kita pašto dėžutė su savo aplankais
+	Archive	Archyvas
+	At start time	Pradžios metu
+	Automatic (system language)	Automatiškai (sistemos kalba)
+	B	B
+	Bcc	Nematoma kopija
+	Birthday	Gimtadienis
+	Blind copies: they get the message, the others don't see them	Nematomos kopijos: jie gauna laišką, kiti jų nemato
+	Calendar	Kalendorius
+	Calendar (Ctrl+2)	Kalendorius (Ctrl+2)
+	Calendars	Kalendoriai
+	Calendars and contacts	Kalendoriai ir kontaktai
+	Cancel	Atšaukti
+	Careful: the text names one site, but the link goes to\n{url}	Atsargiai: tekste nurodyta viena svetainė, bet saitas veda į\n{url}
+	Cc	Kopija
+	Contact	Kontaktas
+	Copy the sign-in address	Kopijuoti prisijungimo adresą
+	Day	Diena
+	Delete	Naikinti
+	Delete appointment	Naikinti susitikimą
+	Delete every occurrence	Naikinti visus pasikartojimus
+	Delete this occurrence only	Naikinti tik šį pasikartojimą
+	Discard	Atmesti
+	Dismiss	Uždaryti
+	Dismiss All	Atmesti visus
+	Do not send a response	Nesiųsti atsakymo
+	Drafts	Juodraščiai
+	Edit the response first	Pirmiausia redaguoti atsakymą
+	Email	El. paštas
+	Email address	El. pašto adresas
+	End	Pabaiga
+	Event	Įvykis
+	Every day	Kasdien
+	Every month	Kas mėnesį
+	Every week	Kas savaitę
+	Every weekday	Kiekvieną darbo dieną
+	Every year	Kasmet
+	Favorites	Parankiniai
+	Fax	Faksas
+	Flag	Pažymėti vėliavėle
+	Forward	Persiųsti
+	Fri	Pn
+	Home	Pradžia
+	Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them.	Paveikslėliai iš kitų serverių gali pranešti siuntėjui, kad atidarėte laišką, todėl Tinta Correo jų niekada neįkelia.
+	Inbox	Gauta
+	Incoming (IMAP)	Gaunamieji (IMAP)
+	Interface language	Sąsajos kalba
+	Job title	Pareigos
+	Junk	Šlamštas
+	KB	KB
+	Keep	Palikti
+	Local	Vietinė
+	Location	Vieta
+	Look up the servers for this address (the provider's published settings, then the usual names)	Ieškoti šio adreso serverių (teikėjo paskelbtos nuostatos, tada įprasti pavadinimai)
+	MB	MB
+	Mail (Ctrl+1)	Paštas (Ctrl+1)
+	Mark as unread	Pažymėti kaip neskaitytą
+	Meeting invitation	Kvietimas į susitikimą
+	Meeting invitation from {organizer}	Kvietimas į susitikimą nuo {organizer}
+	Mobile	Mobilusis
+	Mon	Pr
+	Month	Mėnuo
+	Name	Vardas
+	Never	Niekada
+	New Appointment	Naujas susitikimas
+	New contact	Naujas kontaktas
+	No appointments	Susitikimų nėra
+	No browser opened?	Naršyklė neatsidarė?
+	No contacts yet. Add one, or open a .vcf file with Tinta Correo.	Kontaktų dar nėra. Pridėkite vieną arba atidarykite .vcf failą su Tinta Correo.
+	No published settings: these servers answered at the usual names. Check them and save.	Paskelbtų nuostatų nėra: šie serveriai atsiliepė įprastais pavadinimais. Patikrinkite juos ir įrašykite.
+	No settings found: {error}. Enter the servers by hand.	Nuostatų nerasta: {error}. Įveskite serverius rankiniu būdu.
+	Nobody matches.	Nieko nerasta.
+	None	Nėra
+	Notes	Pastabos
+	Nothing here	Čia nieko nėra
+	Organization	Organizacija
+	Other	Kita
+	Outbox	Siunčiamieji
+	Outgoing (SMTP)	Siunčiamieji (SMTP)
+	Password	Slaptažodis
+	People	Žmonės
+	People (Ctrl+3)	Žmonės (Ctrl+3)
+	Phone	Telefonas
+	Port	Prievadas
+	Redo	Pakartoti
+	Reminder	Priminimas
+	Remove	Pašalinti
+	Remove account…	Šalinti paskyrą…
+	Remove from Calendar	Šalinti iš kalendoriaus
+	Remove from Favorites	Šalinti iš Parankinių
+	Remove this phone	Šalinti šį telefoną
+	Remove {address} and the mail kept here? Nothing is deleted on the server.	Šalinti {address} ir čia laikomus laiškus? Serveryje niekas neištrinama.
+	Repeat	Kartoti
+	Repeats ({rule}), shown once	Kartojasi ({rule}), rodoma kartą
+	Reply	Atsakyti
+	Reply All	Atsakyti visiems
+	Results for “{query}”	Rezultatai: „{query}“
+	Right-click a folder: Add to Favorites	Dešiniuoju pelės mygtuku spustelėkite aplanką: Įtraukti į Parankinius
+	Same as this computer ({zone})	Kaip šiame kompiuteryje ({zone})
+	Sat	Št
+	Save	Įrašyti
+	Save and Send/Receive	Įrašyti ir Siųsti/gauti
+	Save and sign in	Įrašyti ir prisijungti
+	Search mail	Ieškoti pašte
+	All mailboxes	Visos pašto dėžutės
+	Current mailbox	Dabartinė pašto dėžutė
+	Current folder	Dabartinis aplankas
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Žodžiai atitinka nuo pradžios, diakritikos nepaisoma. "tiksli frazė", -žodis praleisti, OR bet kuriam. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Search people	Ieškoti žmonių
+	Search: Lisbon, Kyiv, New York…	Ieškoti: Lisabona, Kyjivas, Niujorkas…
+	Select a message to read it	Pažymėkite laišką, kad jį perskaitytumėte
+	The text of this message could not be read.	Šio laiško teksto nepavyko perskaityti.
+	Send	Siųsti
+	Send the Outbox and get new mail (F9)	Išsiųsti siunčiamuosius ir gauti naujus laiškus (F9)
+	Send the response now	Siųsti atsakymą dabar
+	Sent	Išsiųsta
+	Server	Serveris
+	Set up your account to sync calendars.	Nustatykite paskyrą, kad sinchronizuotumėte kalendorius.
+	Set up your account to sync contacts.	Nustatykite paskyrą, kad sinchronizuotumėte kontaktus.
+	Set up your mail server to send and receive.	Nustatykite pašto serverį siuntimui ir gavimui.
+	Settings for {found} found, but {provider} only takes sign-in on its own page (OAuth), and this build has no {provider} client ID for it.	Rastos {found} nuostatos, bet {provider} leidžia prisijungti tik savo puslapyje (OAuth), o ši versija neturi {provider} kliento ID.
+	Settings for {found} found. Check them and save: you then sign in on {provider}'s own page in your browser.	Rastos {found} nuostatos. Patikrinkite jas ir įrašykite: tada prisijungsite {provider} puslapyje naršyklėje.
+	Settings for {found} found. Check them, enter the password and save.	Rastos {found} nuostatos. Patikrinkite jas, įveskite slaptažodį ir įrašykite.
+	Settings of {account}	{account} nuostatos
+	Show as plain text	Rodyti kaip grynąjį tekstą
+	Show formatted	Rodyti suformatuotą
+	Sign in on {provider}'s own page in your browser (OAuth 2.0): no password is kept here	Prisijunkite {provider} puslapyje naršyklėje (OAuth 2.0): čia nelaikomas joks slaptažodis
+	Sign in with	Prisijungti su
+	Sign-in name	Prisijungimo vardas
+	Signature	Parašas
+	Signed in with {name}	Prisijungta su {name}
+	Snooze all 5 minutes	Atidėti visus 5 min.
+	Snooze…	Atidėti…
+	Start	Pradžia
+	Subject	Tema
+	Sun	Sk
+	Sync mail, calendars and contacts (F9)	Sinchronizuoti paštą, kalendorius ir kontaktus (F9)
+	Synced with the CalDAV server at Send/Receive	Sinchronizuojama su CalDAV serveriu per Siųsti/gauti
+	Synced with the CardDAV server at Send/Receive	Sinchronizuojama su CardDAV serveriu per Siųsti/gauti
+	The settings of the account whose folder is open	Paskyros, kurios aplankas atidarytas, nuostatos
+	The sign-in did not finish: {error}.	Prisijungimas nebaigtas: {error}.
+	This build has no {provider} client ID for OAuth sign-in	Ši versija neturi {provider} kliento ID prisijungimui per OAuth
+	This link does not go where its text says	Šis saitas veda ne ten, kur nurodo jo tekstas
+	This meeting has been cancelled	Šis susitikimas atšauktas
+	Thu	Kt
+	Title	Pavadinimas
+	To	Kam
+	To: {names}	Kam: {names}
+	Today	Šiandien
+	Trash	Šiukšlinė
+	Tue	An
+	Undo	Anuliuoti
+	Unread	Neskaityti
+	Unread in Inbox: {n}	Neskaitytų gautuosiuose: {n}
+	Waiting for you to sign in in your browser…	Laukiama, kol prisijungsite naršyklėje…
+	Wed	Tr
+	Week	Savaitė
+	Work	Darbas
+	Work Week	Darbo savaitė
+	You have {status} it	Jūsų atsakymas: {status}
+	Your name	Jūsų vardas
+	Your name\nCompany · phone	Jūsų vardas\nĮmonė · telefonas
+	accepted	priimta
+	answered	atsakyta
+	declined	atmesta
+	delegated	deleguota
+	if not the email address	jei tai ne el. pašto adresas
+	in {span}	po {span}
+	kept in the system's credential store	laikoma sistemos kredencialų saugykloje
+	now	dabar
+	one or more, comma-separated	vienas ar keli, atskirti kableliais
+	optional	neprivaloma
+	repeats	kartojasi
+	shown to recipients	rodoma gavėjams
+	tentatively accepted	preliminariai priimta
+	{date}, all day	{date}, visą dieną
+	{n} Reminders	Priminimai: {n}
+	{n} days	{n} d.
+	{n} hours	{n} val.
+	{n} minutes	{n} min.
+	{n} remote image not loaded	Neįkelti nuotoliniai paveikslėliai: {n}
+	{n} remote images not loaded	Neįkelti nuotoliniai paveikslėliai: {n}
+	{provider}'s servers are filled in. Save: you then sign in on {provider}'s own page in your browser.	{provider} serveriai užpildyti. Įrašykite: tada prisijungsite {provider} puslapyje naršyklėje.
+	{span} after the start	{span} po pradžios
+	{span} before	{span} prieš
+	{span} overdue	vėluoja {span}
+	{who} has {status} this meeting	{who}: {status}
+	✉ New Email	✉ Naujas laiškas
+	✔ Accept	✔ Priimti
+	✔ In your calendar	✔ Kalendoriuje
+	✖ Decline	✖ Atmesti
+	➕ Add phone	➕ Pridėti telefoną
+	➕ New Contact	➕ Naujas kontaktas
+	⟳ Send/Receive	⟳ Siųsti/gauti
+	⟳ Sending and receiving…	⟳ Siunčiama ir gaunama…
+	⟳ Syncing…	⟳ Sinchronizuojama…
+	？ Tentative	？ Preliminariai
+	🔍 Find settings	🔍 Rasti nuostatas
+	🔍 Looking…	🔍 Ieškoma…
+	🔔 1 Reminder	🔔 1 priminimas
+	🗑 Delete	🗑 Naikinti
+	🗑 Series	🗑 Serija
+	Rules…	Taisyklės…
+	Sort, mark or delete mail as it arrives	Rikiuoti, žymėti ar trinti laiškus jiems atėjus
+	Create rule…	Kurti taisyklę…
+	Rules	Taisyklės
+	Rules run on new mail in the Inbox after Send/Receive, in this order.	Taisyklės taikomos naujiems laiškams gautuosiuose po Siųsti/gauti, šia tvarka.
+	No rules yet.	Taisyklių dar nėra.
+	On	Įjungta
+	Edit…	Redaguoti…
+	Later	Vėliau
+	Earlier	Anksčiau
+	+ New rule	+ Nauja taisyklė
+	Run rules now	Vykdyti taisykles dabar
+	Run the rules that are on over the open folder	Vykdyti įjungtas taisykles atidarytame aplanke
+	default: the condition	numatyta: sąlyga
+	Condition	Sąlyga
+	From	Siuntėjas
+	Sent to	Išsiųsta kam
+	Has attachment	Turi priedą
+	Search syntax; empty: every message.	Paieškos sintaksė; tuščia: kiekvienas laiškas.
+	Do this	Atlikti
+	Mark as read	Pažymėti kaip skaitytą
+	Move to	Perkelti į
+	Delete (move to Deleted Items)	Naikinti (perkelti į Pašalintus)
+	Stop processing more rules	Netaikyti kitų taisyklių
+	mark as read	pažymėti kaip skaitytą
+	flag	pažymėti vėliavėle
+	move to {folder}	perkelti į {folder}
+	delete	naikinti
+	stop	sustoti
+	every message	kiekvienas laiškas
+	Run this rule later	Vykdyti šią taisyklę vėliau
+	Run this rule earlier	Vykdyti šią taisyklę anksčiau
+	{email} is already set up: here it is	{email} jau nustatytas: štai jis
+	A {provider} address: its servers are filled in. Enter an app password (the link below the password makes one) and save.	{provider} adresas: jo serveriai užpildyti. Įveskite programos slaptažodį (jį sukuria saitas po slaptažodžiu) ir įrašykite.
+	Settings for {found} found. Enter an app password (the link below the password makes one) and save.	Rastos {found} nuostatos. Įveskite programos slaptažodį (jį sukuria saitas po slaptažodžiu) ir įrašykite.
+	Make a {provider} app password…	Sukurti {provider} programos slaptažodį…
+	{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.	{provider} paskyra → Sauga → Programų slaptažodžiai (reikia patvirtinimo dviem veiksmais). Įklijuokite čia 16 raidžių.
+	If {provider} says it hasn't verified the app, choose Advanced, then Go to Tinta Correo: {provider}'s review comes later, and the sign-in is as safe.	Jei {provider} rašo, kad programa nepatikrinta, pasirinkite Išplėstinės, tada Eiti į Tinta Correo: {provider} patikrinimas bus vėliau, o prisijungimas toks pat saugus.
+	Send error reports automatically?	Siųsti klaidų ataskaitas automatiškai?
+	When the app crashes or stops responding, it can send a report so the problem gets fixed without you writing to us. A report holds the app version, the system, the language, where in the code the error happened and the last lines of the technical log. Never the text of your documents, file names, folders, e-mail addresses or passwords.	Kai programa užstringa ar nustoja reaguoti, ji gali išsiųsti ataskaitą, kad problema būtų ištaisyta jums mums nerašant. Ataskaitoje yra programos versija, sistema, kalba, kodo vieta, kur įvyko klaida, ir paskutinės techninio žurnalo eilutės. Niekada – jūsų dokumentų tekstas, failų pavadinimai, aplankai, el. pašto adresai ar slaptažodžiai.
+	Reports go to Tinta Office (report.tintaoffice.com, stored in the EU) and are deleted after 90 days. You can change this at any time from “Error reports” in the status bar and delete your reports from the server there. Details: tintaoffice.com/aviso-legal	Ataskaitos siunčiamos Tinta Office (report.tintaoffice.com, saugomos ES) ir ištrinamos po 90 dienų. Tai galite bet kada pakeisti būsenos juostoje per „Klaidų ataskaitos“ ir ten ištrinti savo ataskaitas iš serverio. Išsamiau: tintaoffice.com/aviso-legal
+	Yes, send reports	Taip, siųsti ataskaitas
+	No	Ne
+	Error reports	Klaidų ataskaitos
+	Send error reports automatically	Automatiškai siųsti klaidų ataskaitas
+	Installation id: {id}	Diegimo ID: {id}
+	Delete my reports from the server	Ištrinti mano ataskaitas iš serverio
+	Deletion requested: it completes the next time the app is online.	Ištrynimas užsakytas: jis bus baigtas, kai programa kitą kartą prisijungs prie interneto.
+	Open the reports folder	Atidaryti ataskaitų aplanką
+	Mail over Microsoft Graph	Paštas per Microsoft Graph
+	For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used	Microsoft 365 darbo paskyrai, kurios organizacija išjungė IMAP: paštas, kalendorius ir kontaktai eina per Microsoft Graph, o toliau nurodyti serveriai nenaudojami
+	Exchange server (EWS)	Exchange serveris (EWS)
+	For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used	Exchange Server, kurį valdo jūsų organizacija: jo pavadinimas arba EWS adresas. Paštas eina per Exchange Web Services su jūsų slaptažodžiu, o toliau nurodyti serveriai nenaudojami
+	mail.example.org (optional)	mail.example.org (neprivaloma)
+	🔍 Find the Exchange server	🔍 Rasti Exchange serverį
+	Ask the organisation's Autodiscover for it, signed in with the name and password below	Paklausti organizacijos Autodiscover, prisijungus toliau nurodytu vardu ir slaptažodžiu
+	Enter the email address and the password first	Pirmiausia įveskite el. pašto adresą ir slaptažodį
+	Exchange server found. Check the address and save.	Exchange serveris rastas. Patikrinkite adresą ir įrašykite.
+	No Exchange server found: {error}. Enter its address by hand.	Exchange serveris nerastas: {error}. Įveskite jo adresą rankiniu būdu.
