@@ -1,12 +1,12 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (engine and CLI)
+Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 74 |
+| Commands in the registry | 75 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -270,6 +270,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   `font-size: 0` on a table cell hid all the text inside, even where it set a size again. It now
   hides only text, and a descendant's size undoes it; images still show. Found on a real bank
   notification in the owner's archive.
+- 2026-11-03 — M5.2 in the window: a `.pst` opened with the app ("Open with" on Windows) or
+  dropped on the window is read on another thread, with progress in the status bar, then put
+  in the store; files dropped on the window import like files opened with it. New command
+  `folder.delete` (also in a folder's context menu) removes one of the person's own local
+  folders with its mail, undoable; standard and server folders stay.
 
 ## Revision history
 - 2026-10-22 — created.
@@ -304,6 +309,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.1b (compressed-RTF bodies).
 - 2026-11-03 — .msg HTML bodies read in the Internet code page.
 - 2026-11-03 — M5.2 .pst mail (engine, CLI); zero-font-size HTML fix.
+- 2026-11-03 — M5.2 .pst from the window; dropped files; folder.delete.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

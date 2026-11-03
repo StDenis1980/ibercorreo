@@ -299,6 +299,28 @@ impl Store {
         id
     }
 
+    /// Whether a folder can be deleted: one of the person's own folders kept only on this computer
+    /// (an imported archive's, say), not a standard folder or one the server mirrors.
+    pub fn can_delete_folder(&self, id: FolderId) -> bool {
+        self.folder(id).is_ok_and(|f| f.role == FolderRole::Other && f.remote.is_none())
+    }
+
+    /// Delete a folder [`Store::can_delete_folder`] allows, with the mail in it; returns how many
+    /// messages went. A synced message moved into it leaves a tombstone, as when it is deleted.
+    pub fn remove_folder(&mut self, id: FolderId) -> Result<usize> {
+        if !self.can_delete_folder(id) {
+            self.folder(id)?;
+            return Err(Error::invalid("folder", "only your own folders kept on this computer can be deleted"));
+        }
+        let gone: Vec<MessageId> = self.messages.iter().filter(|m| m.folder == id).map(|m| m.id).collect();
+        for m in &gone {
+            self.remove_message(*m)?;
+        }
+        self.folders.retain(|f| f.id != id);
+        self.favorites.retain(|f| *f != id);
+        Ok(gone.len())
+    }
+
     /// The favorite folders, in the order they were added.
     pub fn favorites(&self) -> &[FolderId] {
         &self.favorites
