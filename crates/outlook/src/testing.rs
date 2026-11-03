@@ -2,6 +2,8 @@
 //! this one (the `testing` feature). Not for real files: nothing is checked.
 #![allow(clippy::indexing_slicing, clippy::unwrap_used, clippy::panic)]
 
+pub mod pst;
+
 use crate::cfb::{END_OF_CHAIN, ENTRY_LEN, FREE, HEADER_DIFAT, NO_STREAM, SIGNATURE};
 
 /// What a test compound file holds.

@@ -7,6 +7,7 @@
 
 pub mod commands;
 pub mod mailto;
+pub mod pst;
 pub mod sample;
 
 use std::panic::AssertUnwindSafe;

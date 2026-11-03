@@ -250,6 +250,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: import_msg,
     },
     CommandSpec {
+        id: "message.importPst",
+        label: "Import Outlook data file (.pst)",
+        group: "File/Open",
+        shortcut: None,
+        params: "data: string — the .pst file, base64 (large archives: `ibercorreo-cli pst FILE --store STORE`)\naccount?: number — whose local folders receive it, default the current account",
+        edits: true,
+        run: import_pst,
+    },
+    CommandSpec {
         id: "search.messages",
         label: "Search",
         group: "Home/Find",
@@ -1280,6 +1289,18 @@ fn import_msg(s: &mut Session, p: &Value) -> Result<Value> {
     let m = ibercorreo_outlook::msg::read(&bytes, MessageId(0), f)?;
     let id = s.store.add_message(m)?;
     Ok(summary(s.store.message(id)?))
+}
+
+/// An Outlook data file (`.pst`): each mail folder becomes a local folder. Undo history is
+/// cleared (see [`Session::apply_pst`]).
+fn import_pst(s: &mut Session, p: &Value) -> Result<Value> {
+    let data = required_str(p, "data")?;
+    let account = account_param(s, p)?;
+    let bytes = ibercorreo_mime::unbase64(data).ok_or_else(|| Error::invalid("params", "data must be base64"))?;
+    let pst = ibercorreo_outlook::pst::Pst::open(bytes)?;
+    let batch = crate::pst::read(&pst, |_, _| {})?;
+    let r = s.apply_pst(account, batch)?;
+    Ok(json!({ "folders": r.folders, "messages": r.messages, "duplicates": r.duplicates, "skipped": r.skipped, "failed": r.failed }))
 }
 
 fn search(s: &mut Session, p: &Value) -> Result<Value> {
