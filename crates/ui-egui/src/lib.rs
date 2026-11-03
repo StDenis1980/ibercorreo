@@ -864,6 +864,16 @@ impl App {
         out
     }
 
+    /// A command from outside the window (a file or link a later start handed over): runs like a
+    /// click, and what the window keeps from the last frame is refreshed.
+    pub fn run_external(&mut self, id: &str, params: &Value) -> ibercorreo_core::Result<Value> {
+        let out = self.session.run(id, params);
+        self.due_checked = None;
+        self.invite = None;
+        self.content = None;
+        out
+    }
+
     pub fn ui(&mut self, ui: &mut Ui) {
         i18n::set_current(i18n::resolve(self.session.store.language.as_deref()));
         self.tokens = if ui.visuals().dark_mode { Tokens::dark() } else { Tokens::light() };
