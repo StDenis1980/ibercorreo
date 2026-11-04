@@ -310,3 +310,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Calendarele și contactele {provider} se sincronizează cu acest cont, iar Setările GNOME fac autentificarea. Salvați.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Calendarele și contactele se sincronizează deja cu alt cont; doar un cont o dată le poate sincroniza.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Setările GNOME cer mai întâi să vă autentificați din nou în acest cont, la Conturi online.
+	Only by hand	Doar manual
+	Every minute	În fiecare minut
+	Every {n} min	La fiecare {n} min
+	How often Tinta Correo sends and receives on its own	Cât de des trimite și primește Tinta Correo singur

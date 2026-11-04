@@ -15,6 +15,7 @@ ibercorreo-engine.workspace = true
 ibercorreo-mime.workspace = true
 ibercorreo-net.workspace = true
 ibercorreo-sync.workspace = true
+ibercorreo-vcard.workspace = true
 ibercorreo-store.workspace = true
 ibercorreo-ical.workspace = true
 ibercorreo-ui-egui.workspace = true

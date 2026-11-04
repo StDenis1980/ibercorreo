@@ -1,6 +1,6 @@
 # Tinta Correo on the GNOME desktop
 
-Status: 2026-11-04 · the desktop assistant over MCP added (Vilna OS requests tintaoffice-web#16, #28)
+Status: 2026-11-04 · contacts in EDS and the desktop assistant over MCP added (Vilna OS requests tintaoffice-web#16, #28)
 
 Four things tie Correo into a GNOME desktop. The first three are Linux (and BSD) only, need nothing on
 other systems, and change nothing when the desktop does not run the GNOME services they talk to; the
@@ -9,7 +9,7 @@ fourth, the MCP server, works on every system.
 | What | Where in the code | Needs |
 |---|---|---|
 | Opening `.ics`, `.vcf`, `.eml` and `mailto:` links, one window per mailbox | `apps/ibercorreo/src/main.rs` (`open_requested`), `single_instance.rs`, `crates/engine/src/mailto.rs` | the desktop file (`packaging/linux/`) |
-| Correo's events in the clock panel (GNOME Shell's calendar) | `apps/ibercorreo/src/gnome_calendar.rs` | Evolution Data Server (EDS), which GNOME Shell itself depends on |
+| Correo's events in the clock panel (GNOME Shell's calendar), and its contacts in GNOME Contacts and the other apps that read EDS | `apps/ibercorreo/src/gnome_calendar.rs` | Evolution Data Server (EDS), which GNOME Shell itself depends on |
 | Accounts from GNOME Settings (GNOME Online Accounts) | `apps/ibercorreo/src/goa.rs`, `Account::goa` and `Account::dav_goa` | `goa-daemon` |
 | The desktop assistant reads and drafts mail, events and contacts (MCP), in the open window when there is one | `apps/ibercorreo-cli/src/mcp.rs`, `crates/engine/src/instance.rs`, `docs/mcp.md` | an MCP client starting `ibercorreo-cli mcp` |
 
@@ -36,8 +36,25 @@ asks EDS to fetch that account's calendars again (`CalendarFactory.OpenCalendar`
 the account's collection source), so the panel shows the change without waiting for EDS's own
 refresh. What fails there is left: EDS refreshes on its own later.
 
+## Contacts in GNOME Contacts
+
+Correo's contacts go to an EDS address book called "Tinta Correo" (source `tinta-correo-contacts`,
+a `local` book under `local-stub`), registered once like the calendar: through
+`SourceManager.CreateSources` while the registry runs, else as a key file. Once a second the window
+compares its contacts with the last ones sent; on a change a thread opens the book
+(`AddressBookFactory.OpenAddressBook` on `org.gnome.evolution.dataserver.AddressBook10`, then
+`Open`), reads the UIDs it holds (`GetContactListUids`) and makes it equal to Correo's:
+`RemoveContacts` for UIDs Correo no longer has, `CreateContacts` for new ones, `ModifyContacts` for
+cards that changed since they were last sent (vCard 3.0 from `ibercorreo-vcard`, matched by UID; a
+contact without a UID gets `tinta-correo-<id>`), 100 cards per call, all on one connection (EDS
+closes a book when the client that opened it goes away). If EDS cannot be reached, the same
+contacts are tried again every 30 seconds. The book is Correo's copy: a change made to it in GNOME
+Contacts is replaced at Correo's next change. As with calendars, the CardDAV address books of an
+account that signs in through GNOME Online Accounts are left out, since EDS shows them itself.
+
 Flatpak: `--filesystem=xdg-config/evolution/sources:create`, `--filesystem=xdg-data/tinta-correo:create`
-and `--talk-name=org.gnome.evolution.dataserver.Sources5` (plus `…Calendar8` for the refresh). Inside
+and `--talk-name=org.gnome.evolution.dataserver.Sources5` (plus `…Calendar8` for the refresh and
+`…AddressBook10` for the contacts). Inside
 the sandbox `XDG_DATA_HOME` and `XDG_CONFIG_HOME` point into it, so Correo uses the host's
 `~/.local/share` and `~/.config` there.
 
@@ -88,6 +105,13 @@ lists), the form (`an_account_from_gnome_settings_fills_the_form_and_saves_witho
 the command parameters (`an_account_can_sign_in_through_gnome_settings`), the calendar file and
 the EDS lookups (`gnome_calendar::tests`).
 
+`gnome_calendar::tests::contacts_reach_a_running_eds` runs against a real Evolution Data Server
+when `TINTA_EDS_TEST` is set: in a throwaway `HOME` and `XDG_RUNTIME_DIR`, write
+`~/.config/evolution/sources/tinta-correo-contacts.source` (the text of `book_key_file`), start a
+session bus (`dbus-daemon --session --fork --print-address=1`) with `DBUS_SESSION_BUS_ADDRESS` set
+to it, and run `TINTA_EDS_TEST=1 cargo test -p ibercorreo contacts_reach`; EDS starts through D-Bus
+activation. Checked with EDS 3.52 on 2026-11-04.
+
 `goa::tests::a_running_goa_daemon_answers` runs against a real goa-daemon when `TINTA_GOA_LIVE` is
 set. The setup, in a throwaway home on a machine with gnome-online-accounts and gnome-keyring:
 
@@ -116,3 +140,4 @@ settings with GNOME's reason, and the form names both linked accounts.
 
 - 2026-11-03: first version: the clock panel, accounts from GNOME Settings.
 - 2026-11-04: the assistant over MCP (`docs/mcp.md`).
+- 2026-11-04: contacts in an EDS address book (tintaoffice-web#28, item 5).

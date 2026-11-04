@@ -39,6 +39,8 @@ finish-args:
   - --filesystem=xdg-config/evolution/sources:create
   - --talk-name=org.gnome.evolution.dataserver.Sources5
   - --talk-name=org.gnome.evolution.dataserver.Calendar8
+  # ... and Correo's contacts in an EDS address book, for GNOME Contacts and the other GNOME apps.
+  - --talk-name=org.gnome.evolution.dataserver.AddressBook10
   # Deliberately not granted: any other filesystem access. Mail is stored in the app's own data
   # folder (~/.var/app/io.github.stdenis1980.ibercorreo/data/ibercorreo), and the OAuth sign-in
   # opens the browser through xdg-open, which inside the sandbox goes through the OpenURI portal.

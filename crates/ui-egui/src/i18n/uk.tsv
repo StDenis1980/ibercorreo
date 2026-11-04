@@ -305,3 +305,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Календарі й контакти {provider} синхронізуються з цим обліковим записом, а входить до них Налаштування GNOME. Збережіть.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Календарі й контакти вже синхронізуються з іншим обліковим записом; синхронізувати їх може лише один обліковий запис.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Спершу Налаштування GNOME просять знову ввійти в цей обліковий запис, у розділі «Облікові записи онлайн».
+	Only by hand	Лише вручну
+	Every minute	Щохвилини
+	Every {n} min	Кожні {n} хв
+	How often Tinta Correo sends and receives on its own	Як часто Tinta Correo надсилає й отримує пошту сам

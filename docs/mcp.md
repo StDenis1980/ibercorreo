@@ -118,8 +118,6 @@ should mark every `read_message` and `search_messages` result.
 
 ## Not yet
 
-- Contacts in Evolution Data Server for other GNOME apps (the calendar is there already,
-  `docs/gnome.md`).
 - Saving attachments (Correo does not keep their contents yet).
 - Sending without the window right away: a closed window's Outbox goes out at its next
   Send/Receive.

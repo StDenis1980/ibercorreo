@@ -309,3 +309,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	{provider}(r)en egutegiak eta kontaktuak kontu honekin sinkronizatzen dira, eta GNOMEren ezarpenek hasten dute saioa haietan. Gorde.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Egutegiak eta kontaktuak beste kontu batekin sinkronizatzen dira dagoeneko; kontu bakar batek sinkroniza ditzake aldi berean.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	GNOMEren ezarpenek kontu honetan berriro saioa hasteko eskatzen dute lehenik, Lineako kontuetan.
+	Only by hand	Eskuz bakarrik
+	Every minute	Minuturo
+	Every {n} min	{n} minuturo
+	How often Tinta Correo sends and receives on its own	Zenbatero bidaltzen eta jasotzen duen Tinta Correok bere kabuz

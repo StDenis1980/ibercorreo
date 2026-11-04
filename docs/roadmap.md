@@ -94,5 +94,6 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-03 — M5.2 `.pst` from the window landed.
 - 2026-11-03 — M5.2b `.pst` calendar and contacts landed.
 - 2026-11-04 — M6.1 MCP server landed (owner's decision: Correo's own MCP, independent of Vilna's).
+- 2026-11-04 — contacts in GNOME (EDS address book) and the Send/Receive period landed.
 - 2026-11-03 — Suite plan revision 2: M5 finishes in November, real Exchange check and memory in stage 2.
 - 2026-11-03 — Owner decisions recorded: Preview 3 on 12 November, Certum signing from January, beta sign-up form on tintaoffice.com/beta.
