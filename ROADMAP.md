@@ -6,7 +6,7 @@ Status: 2026-11-04 · M4 (Exchange) done up to a real-server check; M5 (Outlook 
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 75 |
+| Commands in the registry | 76 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -294,6 +294,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   whose `contentHash` (new in `message.read`, checked by `message.send`) still matches what was
   shown. `--allow-commands`, `--max-messages`. Also: `message.list` takes `offset`/`limit`,
   `search.messages` `limit`, replies and forwards a `body`.
+- 2026-11-04 — Correo's contacts in an Evolution Data Server address book "Tinta Correo" (GNOME
+  Contacts and other GNOME apps see them; tintaoffice-web#28 item 5), kept equal by UID through
+  the address book's D-Bus API, checked against EDS 3.52. The automatic Send/Receive period can be
+  chosen (list beside Send/Receive: only by hand, 1–60 minutes; command `account.syncInterval`,
+  kept in the mailbox; default 5).
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
@@ -329,6 +334,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.2 .pst from the window; dropped files; folder.delete.
 - 2026-11-03 — M5.2b .pst calendar and contacts.
 - 2026-11-04 — M6.1 MCP server.
+- 2026-11-04 — contacts in GNOME (EDS); Send/Receive period.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

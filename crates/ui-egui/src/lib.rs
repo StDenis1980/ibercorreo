@@ -202,6 +202,17 @@ fn rule_summary(r: &Value) -> String {
 }
 
 /// The search scope's name in the list, as Outlook's.
+/// The periods offered for the automatic Send/Receive, in minutes (0: none).
+const SYNC_INTERVALS: [u32; 8] = [0, 1, 2, 5, 10, 15, 30, 60];
+
+fn sync_interval_label(minutes: u32) -> String {
+    match minutes {
+        0 => tl("Only by hand").to_string(),
+        1 => tl("Every minute").to_string(),
+        m => tf("Every {n} min", &[("n", &m.to_string())]),
+    }
+}
+
 fn scope_label(scope: SearchScope) -> &'static str {
     match scope {
         SearchScope::All => "All mailboxes",
@@ -1418,6 +1429,7 @@ impl App {
                     if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
                         self.sync_or_set_up("Set up your mail server to send and receive.");
                     }
+                    self.sync_interval(ui);
                     if ui.button(tl("Account…")).on_hover_text(tl("The settings of the account whose folder is open")).clicked() {
                         let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
                         self.open_account_settings(current, "");
@@ -1496,6 +1508,30 @@ impl App {
         let label = tl(if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" });
         if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
             self.sync_or_set_up(setup);
+        }
+    }
+
+    /// How often Send/Receive runs on its own, as Outlook's "Schedule an automatic send/receive
+    /// every N minutes".
+    fn sync_interval(&mut self, ui: &mut Ui) {
+        let current = self.session.store.sync_minutes();
+        let mut chosen = current;
+        egui::ComboBox::from_id_salt("sync-interval")
+            .selected_text(sync_interval_label(current))
+            .show_ui(ui, |ui| {
+                let mut options = SYNC_INTERVALS.to_vec();
+                if !options.contains(&current) {
+                    options.push(current);
+                    options.sort_unstable();
+                }
+                for m in options {
+                    ui.selectable_value(&mut chosen, m, sync_interval_label(m));
+                }
+            })
+            .response
+            .on_hover_text(tl("How often Tinta Correo sends and receives on its own"));
+        if chosen != current {
+            self.run("account.syncInterval", json!({ "minutes": chosen }));
         }
     }
 

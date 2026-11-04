@@ -309,3 +309,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Los calendarios y contactos de {provider} se sincronizan con esta cuenta, y Configuración de GNOME inicia la sesión en ellos. Guarde.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Los calendarios y contactos ya se sincronizan con otra cuenta; solo una cuenta a la vez puede sincronizarlos.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Configuración de GNOME pide que antes vuelva a iniciar sesión en esta cuenta, en Cuentas en línea.
+	Only by hand	Solo a mano
+	Every minute	Cada minuto
+	Every {n} min	Cada {n} min
+	How often Tinta Correo sends and receives on its own	Cada cuánto Tinta Correo envía y recibe por su cuenta

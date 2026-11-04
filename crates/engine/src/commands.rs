@@ -331,6 +331,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: time_zone,
     },
     CommandSpec {
+        id: "account.syncInterval",
+        label: "Send/Receive every",
+        group: "Send-Receive/Send & Receive",
+        shortcut: None,
+        params: "minutes?: number — how often Tinta Correo sends and receives on its own, 1 to 1440; 0 only at start, by hand (F9) and when the server pushes new mail; \"default\" for the default (5) — leave it out to just say which is chosen",
+        edits: true,
+        run: sync_interval,
+    },
+    CommandSpec {
         id: "app.language",
         label: "Interface language",
         group: "File/Options",
@@ -1649,6 +1658,30 @@ fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
 /// Show or choose the interface language. The front end decides which languages it can show and
 /// falls back to the computer's for a code it has no translation for; here a code is only checked
 /// for shape and reduced to its primary subtag (`uk-UA`, `uk_UA.UTF-8` → `uk`).
+/// How often the window sends and receives on its own (`Store::sync_minutes`).
+fn sync_interval(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::{DEFAULT_SYNC_MINUTES, MAX_SYNC_MINUTES};
+    match p.get("minutes") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(v)) if v.trim().eq_ignore_ascii_case("default") => s.store.sync_minutes = None,
+        Some(_) => {
+            let m = u64_param(p, "minutes")?.unwrap_or(u64::from(DEFAULT_SYNC_MINUTES));
+            let m = u32::try_from(m)
+                .ok()
+                .filter(|m| *m <= MAX_SYNC_MINUTES)
+                .ok_or_else(|| Error::invalid("minutes", format!("from 0 (only by hand) to {MAX_SYNC_MINUTES} (once a day)")))?;
+            s.store.sync_minutes = Some(m);
+        }
+    }
+    let minutes = s.store.sync_minutes();
+    s.status = match minutes {
+        0 => "Send/Receive only at start, by hand (F9) and when new mail is pushed".to_string(),
+        1 => "Send/Receive every minute".to_string(),
+        m => format!("Send/Receive every {m} minutes"),
+    };
+    Ok(json!({ "minutes": minutes, "default": s.store.sync_minutes.is_none() }))
+}
+
 fn language(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(l) = str_param(p, "language")? {
         let l = l.trim();

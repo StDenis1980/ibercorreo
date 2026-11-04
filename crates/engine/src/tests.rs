@@ -119,6 +119,23 @@ fn replies_take_a_text_and_lists_take_a_page() {
 }
 
 #[test]
+fn the_send_receive_period_is_kept_with_the_mailbox() {
+    let mut s = session();
+    assert_eq!(s.run("account.syncInterval", &Value::Null).unwrap(), json!({"minutes": 5, "default": true}));
+    assert_eq!(s.run("account.syncInterval", &json!({"minutes": 15})).unwrap()["minutes"], 15);
+    assert_eq!(s.store.sync_minutes(), 15);
+    assert_eq!(s.run("account.syncInterval", &json!({"minutes": "0"})).unwrap()["minutes"], 0);
+    assert!(s.status.contains("by hand"), "{}", s.status);
+    for bad in [json!(-1), json!(1441), json!(u64::MAX), json!("often"), json!(true)] {
+        assert!(s.run("account.syncInterval", &json!({"minutes": bad})).is_err(), "{bad}");
+        assert_eq!(s.store.sync_minutes(), 0, "unchanged after {bad}");
+    }
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.store.sync_minutes(), 15);
+    assert_eq!(s.run("account.syncInterval", &json!({"minutes": "default"})).unwrap(), json!({"minutes": 5, "default": true}));
+}
+
+#[test]
 fn a_mailto_link_opens_a_draft_and_never_sends() {
     let mut s = session();
     let id = s

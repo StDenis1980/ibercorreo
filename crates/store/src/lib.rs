@@ -53,6 +53,11 @@ const STANDARD_FOLDERS: [(&str, FolderRole); 7] = [
     ("Trash", FolderRole::Trash),
 ];
 
+/// Minutes between automatic Send/Receives unless the person chose otherwise.
+pub const DEFAULT_SYNC_MINUTES: u32 = 5;
+/// The longest period that can be chosen: a day.
+pub const MAX_SYNC_MINUTES: u32 = 24 * 60;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Store {
     pub version: u32,
@@ -80,6 +85,11 @@ pub struct Store {
     /// follows the computer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    /// How often the app sends and receives on its own, in minutes; `Some(0)` only at start, by
+    /// hand and when the server pushes new mail; `None` the default,
+    /// [`DEFAULT_SYNC_MINUTES`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync_minutes: Option<u32>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,
@@ -380,6 +390,12 @@ impl Store {
     }
 
     /// The account shown first: the first one added, or the folders of a store with none.
+    /// Minutes between automatic Send/Receives (0: none), as the person chose them, else the
+    /// default; never more than [`MAX_SYNC_MINUTES`].
+    pub fn sync_minutes(&self) -> u32 {
+        self.sync_minutes.unwrap_or(DEFAULT_SYNC_MINUTES).min(MAX_SYNC_MINUTES)
+    }
+
     pub fn first_account(&self) -> AccountId {
         self.accounts.first().map(|a| a.id).or_else(|| self.folders.first().map(|f| f.account)).unwrap_or_default()
     }

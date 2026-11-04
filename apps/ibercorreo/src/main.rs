@@ -46,8 +46,11 @@ use ibercorreo_ui_egui::{App, NAME};
 const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 /// How often unsaved changes are written while the app runs.
 const AUTOSAVE: Duration = Duration::from_secs(20);
-/// How often mail is fetched while the app runs.
-const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
+
+/// The time between automatic Send/Receives for a period in minutes; `None` for 0 (none).
+fn auto_sync_every(minutes: u32) -> Option<Duration> {
+    (minutes > 0).then(|| Duration::from_secs(u64::from(minutes) * 60))
+}
 
 fn now() -> DateTime {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -69,7 +72,10 @@ struct Shell {
     persist: bool,
     /// The running Send/Receive, if any.
     worker: Option<Receiver<Progress>>,
-    next_sync: Instant,
+    /// When the next automatic Send/Receive is due (`None`: only by hand, at start and when a
+    /// server pushes), and the period it was set from, so a new choice applies at once.
+    next_sync: Option<Instant>,
+    sync_minutes: u32,
     /// What the running Send/Receive found so far: each account's status, and whether a folder
     /// still has mail on the server to download.
     outcome: Vec<String>,
@@ -389,13 +395,19 @@ impl Shell {
         Ok(SignIn { account: account.id, key: format!("{}:{login}", provider.id), app, stop, rx })
     }
 
+    /// Sets the next automatic Send/Receive from the period chosen (`account.syncInterval`).
+    fn schedule_sync(&mut self) {
+        self.sync_minutes = self.app.session.store.sync_minutes();
+        self.next_sync = auto_sync_every(self.sync_minutes).map(|d| Instant::now() + d);
+    }
+
     fn start_sync(&mut self) {
         // A request made while a Send/Receive runs waits for it to finish.
         if self.worker.is_some() {
             return;
         }
         self.app.session.sync_requested = false;
-        self.next_sync = Instant::now() + AUTO_SYNC;
+        self.schedule_sync();
         // Removed accounts are no longer watched.
         let store = &self.app.session.store;
         self.watchers.retain(|id, _| store.account(*id).is_ok());
@@ -921,7 +933,11 @@ impl eframe::App for Shell {
         self.keep_password();
         self.sign_in();
         self.keep_rotated();
-        if self.persist && (self.app.session.sync_requested || Instant::now() >= self.next_sync) {
+        // A new period counts from now.
+        if self.app.session.store.sync_minutes() != self.sync_minutes {
+            self.schedule_sync();
+        }
+        if self.persist && (self.app.session.sync_requested || self.next_sync.is_some_and(|t| Instant::now() >= t)) {
             self.start_sync();
         }
         if self.last_save.elapsed() >= AUTOSAVE {
@@ -1155,6 +1171,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |_cc| {
             warm_search(&session.store);
+            let store_sync_minutes = session.store.sync_minutes();
             let mut app = App::new(session);
             app.oauth_ready = oauth::configured().iter().map(|p| p.id.to_string()).collect();
             app.error_reports_dir = reports;
@@ -1173,7 +1190,9 @@ fn main() -> eframe::Result {
                 credentials: HashMap::new(),
                 sign_in: None,
                 // A first Send/Receive right after start.
-                next_sync: Instant::now(),
+                // The first Send/Receive comes at start, whatever the period.
+                next_sync: Some(Instant::now()),
+                sync_minutes: store_sync_minutes,
                 passwords: HashMap::new(),
                 inbox,
                 gnome: if persist { gnome_calendar::Exporter::start() } else { None },

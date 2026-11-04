@@ -20,19 +20,35 @@
 //! asked to fetch the calendar again ([`Exporter::refresh`]), so the panel shows it without
 //! waiting for EDS's own refresh.
 //!
+//! Contacts go the same way, so GNOME Contacts, the panel's search and other GNOME apps find the
+//! people kept in Correo: an EDS address book, "Tinta Correo" (a `local` source), whose contacts
+//! Correo keeps equal to its own through the address book's D-Bus API (`CreateContacts`,
+//! `ModifyContacts`, `RemoveContacts`, matched by the vCard's UID). The book is Correo's copy: a
+//! change made to it elsewhere is replaced at Correo's next change. Address books EDS already
+//! mirrors from a CardDAV server of a GNOME Online Accounts account are left out, as calendars
+//! are.
+//!
 //! The writing and the D-Bus calls happen on a thread of their own; the window only compares its
-//! events with the last ones written, once a second.
+//! events and contacts with the last ones written, once a second.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
 use std::time::{Duration, Instant};
 
+use ibercorreo_core::Contact;
 use ibercorreo_core::calendar::Event;
 use ibercorreo_engine::Session;
 use ibercorreo_store::Store;
 
 /// The EDS source's id and file name.
 pub const SOURCE_UID: &str = "tinta-correo";
+/// The EDS address book's source id and file name.
+pub const BOOK_UID: &str = "tinta-correo-contacts";
+/// A mirror of the contacts that could not be written (EDS not up yet) is tried again this often.
+const RETRY_EVERY: Duration = Duration::from_secs(30);
+/// Contacts sent to EDS in one D-Bus call.
+const CHUNK: usize = 100;
 /// How often the window looks for changed events.
 const EVERY: Duration = Duration::from_secs(1);
 /// A change to a calendar EDS mirrors itself is sent at once, but not more often than this (a
@@ -74,6 +90,15 @@ impl Paths {
     fn source_file(&self) -> PathBuf {
         self.sources.join(format!("{SOURCE_UID}.source"))
     }
+
+    fn book_source_file(&self) -> PathBuf {
+        self.sources.join(format!("{BOOK_UID}.source"))
+    }
+}
+
+/// The EDS key file for the address book: a `local` book EDS keeps itself, filled by Correo.
+pub fn book_key_file() -> String {
+    "[Data Source]\nDisplayName=Tinta Correo\nEnabled=true\nParent=local-stub\n\n[Address Book]\nBackendName=local\n\n[Offline]\nStaySynchronized=false\n".to_string()
 }
 
 /// The EDS key file for the calendar file. Read-only for EDS: Correo is where events change.
@@ -114,9 +139,59 @@ fn export(store: &Store, linked: bool) -> String {
     ibercorreo_ical::write(store.events().iter().filter(|e| !skipped.contains(&e.calendar)))
 }
 
+/// The contacts for EDS, by UID: every contact but those of the CardDAV address books EDS shows
+/// itself. A contact without a UID gets one from its id.
+fn export_contacts(store: &Store, linked: bool) -> Vec<(String, String)> {
+    let skipped: Vec<u32> = if linked {
+        store.books().iter().filter(|b| b.remote.as_ref().is_some_and(|r| ibercorreo_sync::calendar::is_caldav(&r.href))).map(|b| b.id).collect()
+    } else {
+        Vec::new()
+    };
+    store
+        .all_contacts()
+        .iter()
+        .filter(|c| !skipped.contains(&c.book))
+        .map(|c| {
+            if c.uid.trim().is_empty() {
+                let mut c = c.clone();
+                c.uid = format!("tinta-correo-{}", c.id);
+                (c.uid.clone(), ibercorreo_vcard::write_card(&c))
+            } else {
+                (c.uid.clone(), ibercorreo_vcard::write_card(c))
+            }
+        })
+        .collect()
+}
+
+/// What to change in the EDS book so it holds `cards`: the UIDs to remove, then the cards to
+/// create and to modify. `existing` are the UIDs the book has; `sent` what was last written, so a
+/// card that did not change is not written again.
+fn plan<'a>(existing: &[String], cards: &'a [(String, String)], sent: &HashMap<String, String>) -> (Vec<String>, Vec<&'a str>, Vec<&'a str>) {
+    let ours: std::collections::HashSet<&str> = cards.iter().map(|(uid, _)| uid.as_str()).collect();
+    let have: std::collections::HashSet<&str> = existing.iter().map(String::as_str).collect();
+    let remove = existing.iter().filter(|u| !ours.contains(u.as_str())).cloned().collect();
+    let mut create = Vec::new();
+    let mut modify = Vec::new();
+    // A UID twice (two books holding the same person) is written once.
+    let mut seen = std::collections::HashSet::new();
+    for (uid, card) in cards {
+        if !seen.insert(uid.as_str()) {
+            continue;
+        }
+        if !have.contains(uid.as_str()) {
+            create.push(card.as_str());
+        } else if sent.get(uid) != Some(card) {
+            modify.push(card.as_str());
+        }
+    }
+    (remove, create, modify)
+}
+
 /// What the writer thread does.
 enum Task {
     Write(String),
+    /// Make the EDS address book hold these contacts (UID, vCard).
+    Contacts(Vec<(String, String)>),
     /// Ask EDS to fetch the calendars of this GNOME Online Accounts account again.
     Refresh(String),
 }
@@ -125,6 +200,7 @@ enum Task {
 pub struct Exporter {
     tx: Sender<Task>,
     last: Option<Vec<Event>>,
+    last_contacts: Option<Vec<Contact>>,
     checked: Option<Instant>,
     /// When a Send/Receive was last asked for, to send a change to a linked server.
     pushed: Option<Instant>,
@@ -145,12 +221,22 @@ impl Exporter {
             .name("gnome-calendar".into())
             .spawn(move || {
                 let mut registered = false;
-                while let Ok(first) = rx.recv() {
-                    // Only the newest file of a burst of changes; each refresh once.
+                let mut book_registered = false;
+                // What the EDS book was last given, and contacts still to give it.
+                let mut sent: HashMap<String, String> = HashMap::new();
+                let mut waiting: Option<Vec<(String, String)>> = None;
+                loop {
+                    let first = match rx.recv_timeout(RETRY_EVERY) {
+                        Ok(task) => Some(task),
+                        Err(RecvTimeoutError::Timeout) => None,
+                        Err(RecvTimeoutError::Disconnected) => return,
+                    };
+                    // Only the newest file and contacts of a burst of changes; each refresh once.
                     let (mut ics, mut refresh) = (None, Vec::new());
-                    for task in std::iter::once(first).chain(rx.try_iter()) {
+                    for task in first.into_iter().chain(rx.try_iter()) {
                         match task {
                             Task::Write(text) => ics = Some(text),
+                            Task::Contacts(cards) => waiting = Some(cards),
                             Task::Refresh(id) if !refresh.contains(&id) => refresh.push(id),
                             Task::Refresh(_) => {}
                         }
@@ -159,7 +245,16 @@ impl Exporter {
                         && write_private(&paths.ics, ics.as_bytes()).is_ok()
                         && !registered
                     {
-                        registered = register(&paths, create_through_registry);
+                        registered = register(&paths.source_file(), &source_key_file(&paths.ics), SOURCE_UID, create_through_registry);
+                    }
+                    if let Some(cards) = waiting.take() {
+                        if !book_registered {
+                            book_registered = register(&paths.book_source_file(), &book_key_file(), BOOK_UID, create_through_registry);
+                        }
+                        // Not written (EDS not running yet): tried again in a while.
+                        if !mirror_through_eds(&cards, &mut sent) {
+                            waiting = Some(cards);
+                        }
                     }
                     for id in refresh {
                         refresh_through_eds(&id);
@@ -167,7 +262,7 @@ impl Exporter {
                 }
             })
             .ok()?;
-        Some(Exporter { tx, last: None, checked: None, pushed: None, push_pending: false })
+        Some(Exporter { tx, last: None, last_contacts: None, checked: None, pushed: None, push_pending: false })
     }
 
     /// Each frame: once a second, writes the events again if they changed. A change to a calendar
@@ -185,6 +280,11 @@ impl Exporter {
             let _ = self.tx.send(Task::Write(export(&session.store, linked)));
             // Only changes made here wait to be sent; what a Send/Receive brought does not.
             self.push_pending = linked && !session.calendar_sync_state().changes.is_empty();
+        }
+        let contacts = session.store.all_contacts();
+        if self.last_contacts.as_deref() != Some(contacts) {
+            self.last_contacts = Some(contacts.to_vec());
+            let _ = self.tx.send(Task::Contacts(export_contacts(&session.store, linked)));
         }
         if self.push_pending && !syncing && self.pushed.is_none_or(|t| t.elapsed() >= PUSH_EVERY) {
             self.push_pending = false;
@@ -257,25 +357,24 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-/// Makes sure EDS knows the calendar: `true` once it does (or will at the next login).
-fn register(paths: &Paths, create: fn(&str) -> bool) -> bool {
-    let file = paths.source_file();
+/// Makes sure EDS knows source `uid` (key file `file`, text `data`): `true` once it does (or will
+/// at the next login).
+fn register(file: &Path, data: &str, uid: &str, create: fn(&str, &str) -> bool) -> bool {
     if file.exists() {
         return true;
     }
-    let data = source_key_file(&paths.ics);
-    if create(&data) && file.exists() {
+    if create(uid, data) && file.exists() {
         return true;
     }
-    write_private(&file, data.as_bytes()).is_ok()
+    write_private(file, data.as_bytes()).is_ok()
 }
 
 /// `SourceManager.CreateSources` on the running source registry: it writes the key file and
 /// shows the calendar at once.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn create_through_registry(data: &str) -> bool {
+fn create_through_registry(uid: &str, data: &str) -> bool {
     let Ok(bus) = zbus::blocking::Connection::session() else { return false };
-    let sources = std::collections::HashMap::from([(SOURCE_UID, data)]);
+    let sources = std::collections::HashMap::from([(uid, data)]);
     bus.call_method(
         Some("org.gnome.evolution.dataserver.Sources5"),
         "/org/gnome/evolution/dataserver/SourceManager",
@@ -287,8 +386,60 @@ fn create_through_registry(data: &str) -> bool {
 }
 
 #[cfg(not(all(unix, not(target_os = "macos"))))]
-fn create_through_registry(_data: &str) -> bool {
+fn create_through_registry(_uid: &str, _data: &str) -> bool {
     false
+}
+
+/// Makes the EDS address book hold `cards`, through the address book factory; `sent` keeps what
+/// it was given. `false` when EDS could not be reached (nothing is lost: the caller tries again).
+#[cfg(all(unix, not(target_os = "macos")))]
+fn mirror_through_eds(cards: &[(String, String)], sent: &mut HashMap<String, String>) -> bool {
+    let Ok(bus) = zbus::blocking::Connection::session() else { return false };
+    // One connection for the whole exchange: EDS closes a book when the client that opened it
+    // goes away.
+    let opened = bus.call_method(
+        Some("org.gnome.evolution.dataserver.AddressBook10"),
+        "/org/gnome/evolution/dataserver/AddressBookFactory",
+        Some("org.gnome.evolution.dataserver.AddressBookFactory"),
+        "OpenAddressBook",
+        &(BOOK_UID,),
+    );
+    let Ok((path, name)) = opened.and_then(|r| r.body().deserialize::<(String, String)>()) else { return false };
+    const BOOK: &str = "org.gnome.evolution.dataserver.AddressBook";
+    if bus.call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "Open", &()).is_err() {
+        return false;
+    }
+    let existing = bus
+        .call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "GetContactListUids", &("",))
+        .and_then(|r| r.body().deserialize::<Vec<String>>());
+    let ok = match existing {
+        Ok(existing) => {
+            let (remove, create, modify) = plan(&existing, cards, sent);
+            let flags: u32 = 0;
+            let mut ok = true;
+            for chunk in remove.chunks(CHUNK) {
+                ok &= bus.call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "RemoveContacts", &(chunk, flags)).is_ok();
+            }
+            for chunk in create.chunks(CHUNK) {
+                ok &= bus.call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "CreateContacts", &(chunk, flags)).is_ok();
+            }
+            for chunk in modify.chunks(CHUNK) {
+                ok &= bus.call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "ModifyContacts", &(chunk, flags)).is_ok();
+            }
+            if ok {
+                *sent = cards.iter().cloned().collect();
+            }
+            ok
+        }
+        Err(_) => false,
+    };
+    let _ = bus.call_method(Some(name.as_str()), path.as_str(), Some(BOOK), "Close", &());
+    ok
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn mirror_through_eds(_cards: &[(String, String)], _sent: &mut HashMap<String, String>) -> bool {
+    true
 }
 
 /// Asks the calendar factory to open each of the account's EDS calendars and fetch it again
@@ -412,7 +563,7 @@ mod tests {
         // not again for what that Send/Receive brings.
         assert!(!s.calendar_sync_state().changes.is_empty());
         let (tx, rx) = channel();
-        let mut e = Exporter { tx, last: None, checked: None, pushed: None, push_pending: false };
+        let mut e = Exporter { tx, last: None, last_contacts: None, checked: None, pushed: None, push_pending: false };
         s.sync_requested = false;
         e.tick(&mut s, true);
         assert!(!s.sync_requested && e.waiting(), "a Send/Receive running: after it");
@@ -420,6 +571,7 @@ mod tests {
         e.tick(&mut s, false);
         assert!(s.sync_requested && !e.waiting());
         assert!(matches!(rx.try_recv(), Ok(Task::Write(text)) if text.contains("Dentista") && !text.contains("Reunión de equipo")));
+        assert!(matches!(rx.try_recv(), Ok(Task::Contacts(cards)) if !cards.is_empty()));
         s.sync_requested = false;
         e.checked = None;
         e.tick(&mut s, false);
@@ -443,13 +595,101 @@ mod tests {
             assert_eq!(std::fs::metadata(&paths.ics).unwrap().permissions().mode() & 0o777, 0o600);
         }
         // No registry running: the key file is written for the next login.
-        assert!(register(&paths, |_| false));
+        assert!(register(&paths.source_file(), &source_key_file(&paths.ics), SOURCE_UID, |_, _| false));
         let written = std::fs::read_to_string(paths.source_file()).unwrap();
         assert_eq!(written, source_key_file(&paths.ics));
         // Once there, it is left as it is (the person may have changed its colour in EDS).
         std::fs::write(paths.source_file(), "changed").unwrap();
-        assert!(register(&paths, |_| panic!("not asked again")));
+        assert!(register(&paths.source_file(), &source_key_file(&paths.ics), SOURCE_UID, |_, _| panic!("not asked again")));
         assert_eq!(std::fs::read_to_string(paths.source_file()).unwrap(), "changed");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn contacts_go_to_eds_by_uid_and_only_what_changed() {
+        use serde_json::json;
+        let today = ibercorreo_core::Date::new(2026, 11, 4).unwrap();
+        let mut s = Session::new(ibercorreo_engine::sample::store(today).unwrap(), today);
+        s.run("contact.add", &json!({"name": "Ana Ruiz", "email": "ana@example.org"})).unwrap();
+        let cards = export_contacts(&s.store, false);
+        assert_eq!(cards.len(), s.store.all_contacts().len());
+        assert!(cards.iter().all(|(uid, card)| !uid.is_empty() && card.contains(&format!("UID:{uid}"))), "{cards:?}");
+        let ana = cards.iter().find(|(_, c)| c.contains("FN:Ana Ruiz")).unwrap().clone();
+        // Empty book: everything is created.
+        let (remove, create, modify) = plan(&[], &cards, &HashMap::new());
+        assert!(remove.is_empty() && modify.is_empty() && create.len() == cards.len());
+        // All written; then Ana changes and someone else's card is in the book.
+        let sent: HashMap<String, String> = cards.iter().cloned().collect();
+        let mut existing: Vec<String> = cards.iter().map(|(u, _)| u.clone()).collect();
+        existing.push("from-elsewhere".into());
+        let mut now = cards.clone();
+        if let Some(c) = now.iter_mut().find(|(u, _)| *u == ana.0) {
+            c.1 = c.1.replace("Ana Ruiz", "Ana Ruiz Gil");
+        }
+        let (remove, create, modify) = plan(&existing, &now, &sent);
+        assert_eq!(remove, ["from-elsewhere"]);
+        assert!(create.is_empty());
+        assert_eq!(modify.len(), 1);
+        assert!(modify.first().unwrap().contains("Ana Ruiz Gil"));
+        // The same UID twice is written once.
+        let twice = vec![ana.clone(), ana.clone()];
+        assert_eq!(plan(&[], &twice, &HashMap::new()).1.len(), 1);
+        // A CardDAV book EDS shows from GNOME's account is left out.
+        let book = s
+            .store
+            .add_book("Nextcloud", Some(ibercorreo_core::CalendarRemote { href: "/remote.php/dav/addressbooks/ana/c/".into(), ctag: None }))
+            .unwrap();
+        s.run("contact.add", &json!({"name": "Zoe Quintana", "book": book})).unwrap();
+        assert!(export_contacts(&s.store, false).iter().any(|(_, c)| c.contains("Zoe Quintana")));
+        assert!(!export_contacts(&s.store, true).iter().any(|(_, c)| c.contains("Zoe Quintana")));
+    }
+
+    #[test]
+    fn the_address_book_source_is_a_local_eds_book() {
+        let data = book_key_file();
+        assert!(data.starts_with("[Data Source]\n") && data.contains("[Address Book]\nBackendName=local\n"), "{data}");
+        assert!(data.contains("Parent=local-stub\n"));
+    }
+
+    /// Against a running Evolution Data Server (`TINTA_EDS_TEST=1`, a session bus whose
+    /// sources folder has the Tinta Correo book; recipe in docs/gnome.md): contacts reach it,
+    /// change and go.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn contacts_reach_a_running_eds() {
+        if std::env::var_os("TINTA_EDS_TEST").is_none() {
+            return;
+        }
+        let card = |uid: &str, name: &str| (uid.to_string(), format!("BEGIN:VCARD\r\nVERSION:3.0\r\nUID:{uid}\r\nFN:{name}\r\nEND:VCARD\r\n"));
+        let list = || -> Vec<String> {
+            let bus = zbus::blocking::Connection::session().unwrap();
+            let r = bus
+                .call_method(
+                    Some("org.gnome.evolution.dataserver.AddressBook10"),
+                    "/org/gnome/evolution/dataserver/AddressBookFactory",
+                    Some("org.gnome.evolution.dataserver.AddressBookFactory"),
+                    "OpenAddressBook",
+                    &(BOOK_UID,),
+                )
+                .unwrap();
+            let (path, name): (String, String) = r.body().deserialize().unwrap();
+            let book = "org.gnome.evolution.dataserver.AddressBook";
+            bus.call_method(Some(name.as_str()), path.as_str(), Some(book), "Open", &()).unwrap();
+            let r = bus.call_method(Some(name.as_str()), path.as_str(), Some(book), "GetContactList", &("",)).unwrap();
+            let mut cards: Vec<String> = r.body().deserialize().unwrap();
+            cards.sort();
+            cards
+        };
+        let mut sent = HashMap::new();
+        assert!(mirror_through_eds(&[card("t-1", "Ana Ruiz"), card("t-2", "Rui Carvalho")], &mut sent));
+        let got = list();
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert!(got.iter().any(|c| c.contains("FN:Ana Ruiz")) && got.iter().any(|c| c.contains("FN:Rui Carvalho")));
+        assert!(mirror_through_eds(&[card("t-1", "Ana Ruiz Gil")], &mut sent));
+        let got = list();
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(got.first().unwrap().contains("FN:Ana Ruiz Gil"));
+        assert!(mirror_through_eds(&[], &mut sent));
+        assert!(list().is_empty());
     }
 }

@@ -310,3 +310,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	{provider} kalendoriai ir kontaktai sinchronizuojami su šia paskyra, o prie jų prisijungia GNOME nustatymai. Įrašykite.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Kalendoriai ir kontaktai jau sinchronizuojami su kita paskyra; vienu metu juos gali sinchronizuoti tik viena paskyra.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	GNOME nustatymai prašo pirmiausia vėl prisijungti prie šios paskyros, internetinėse paskyrose.
+	Only by hand	Tik rankiniu būdu
+	Every minute	Kas minutę
+	Every {n} min	Kas {n} min.
+	How often Tinta Correo sends and receives on its own	Kaip dažnai Tinta Correo pats siunčia ir gauna paštą

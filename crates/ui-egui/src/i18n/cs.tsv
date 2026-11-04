@@ -310,3 +310,7 @@
 	{provider}'s calendars and contacts sync with this account, and GNOME Settings signs in to them. Save.	Kalendáře a kontakty {provider} se synchronizují s tímto účtem a přihlašuje se k nim Nastavení GNOME. Uložte.
 	Calendars and contacts already sync with another account; one account at a time can sync them.	Kalendáře a kontakty se již synchronizují s jiným účtem; synchronizovat je může vždy jen jeden účet.
 	GNOME Settings asks you to sign in to this account again first, under Online Accounts.	Nastavení GNOME žádá, abyste se k tomuto účtu nejprve znovu přihlásili, v Online účtech.
+	Only by hand	Jen ručně
+	Every minute	Každou minutu
+	Every {n} min	Každých {n} min
+	How often Tinta Correo sends and receives on its own	Jak často Tinta Correo sám odesílá a přijímá poštu
