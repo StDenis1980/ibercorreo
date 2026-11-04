@@ -1,15 +1,17 @@
 # Tinta Correo on the GNOME desktop
 
-Status: 2026-11-03 · first version (Vilna OS request, tintaoffice-web#16)
+Status: 2026-11-04 · the desktop assistant over MCP added (Vilna OS requests tintaoffice-web#16, #28)
 
-Three things tie Correo into a GNOME desktop. All of them are Linux (and BSD) only, need nothing on
-other systems, and change nothing when the desktop does not run the GNOME services they talk to.
+Four things tie Correo into a GNOME desktop. The first three are Linux (and BSD) only, need nothing on
+other systems, and change nothing when the desktop does not run the GNOME services they talk to; the
+fourth, the MCP server, works on every system.
 
 | What | Where in the code | Needs |
 |---|---|---|
 | Opening `.ics`, `.vcf`, `.eml` and `mailto:` links, one window per mailbox | `apps/ibercorreo/src/main.rs` (`open_requested`), `single_instance.rs`, `crates/engine/src/mailto.rs` | the desktop file (`packaging/linux/`) |
 | Correo's events in the clock panel (GNOME Shell's calendar) | `apps/ibercorreo/src/gnome_calendar.rs` | Evolution Data Server (EDS), which GNOME Shell itself depends on |
 | Accounts from GNOME Settings (GNOME Online Accounts) | `apps/ibercorreo/src/goa.rs`, `Account::goa` and `Account::dav_goa` | `goa-daemon` |
+| The desktop assistant reads and drafts mail, events and contacts (MCP), in the open window when there is one | `apps/ibercorreo-cli/src/mcp.rs`, `crates/engine/src/instance.rs`, `docs/mcp.md` | an MCP client starting `ibercorreo-cli mcp` |
 
 ## Events in the clock panel
 
@@ -113,3 +115,4 @@ settings with GNOME's reason, and the form names both linked accounts.
 ## Revision history
 
 - 2026-11-03: first version: the clock panel, accounts from GNOME Settings.
+- 2026-11-04: the assistant over MCP (`docs/mcp.md`).

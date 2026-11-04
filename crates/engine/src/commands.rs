@@ -101,7 +101,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "List messages",
         group: "Home/Find",
         shortcut: None,
-        params: "folder?: number | role — default: the open folder",
+        params: "folder?: number | role — default: the open folder\noffset?: number — skip this many, newest first\nlimit?: number — at most this many",
         edits: false,
         run: message_list,
     },
@@ -191,7 +191,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Reply",
         group: "Home/Respond",
         shortcut: Some("Ctrl+R"),
-        params: "id?: number",
+        params: "id?: number\nbody?: string — the text written above the quoted message",
         edits: true,
         run: |s, p| reply(s, p, false),
     },
@@ -200,7 +200,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Reply All",
         group: "Home/Respond",
         shortcut: Some("Ctrl+Shift+R"),
-        params: "id?: number",
+        params: "id?: number\nbody?: string — the text written above the quoted message",
         edits: true,
         run: |s, p| reply(s, p, true),
     },
@@ -209,7 +209,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Forward",
         group: "Home/Respond",
         shortcut: Some("Ctrl+F"),
-        params: "id?: number\nto?: string",
+        params: "id?: number\nto?: string\nbody?: string — the text written above the forwarded message",
         edits: true,
         run: forward,
     },
@@ -218,7 +218,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Send",
         group: "Message/Send",
         shortcut: Some("Ctrl+Enter"),
-        params: "id?: number — a draft; queued in Outbox until an account can send (M1)",
+        params: "id?: number — a draft; queued in Outbox and sent at the next Send/Receive\ncontentHash?: string — the draft's `contentHash` as message.read gave it: when given, a draft changed since then (recipients, subject, text, attachments) is not sent",
         edits: true,
         run: message_send,
     },
@@ -227,7 +227,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Read message",
         group: "Message/Actions",
         shortcut: None,
-        params: "id?: number — the message with its text, and its formatted body made safe (`rich`) when it has HTML",
+        params: "id?: number — the message with its text, its formatted body made safe (`rich`) when it has HTML, and `contentHash` (what message.send checks)",
         edits: false,
         run: message_read,
     },
@@ -272,7 +272,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Search",
         group: "Home/Find",
         shortcut: Some("Ctrl+E"),
-        params: "query: string — words (all must match, each from its start, accents ignored), \"a phrase\", -word, OR, from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:read, is:flagged, after: before: on: YYYY-MM-DD\nscope?: \"all\" | \"mailbox\" | \"folder\" — every account, the selected folder's account or the selected folder; default: the last scope set (all at first)",
+        params: "limit?: number — at most this many results, 500 at most and by default\nquery: string — words (all must match, each from its start, accents ignored), \"a phrase\", -word, OR, from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:read, is:flagged, after: before: on: YYYY-MM-DD\nscope?: \"all\" | \"mailbox\" | \"folder\" — every account, the selected folder's account or the selected folder; default: the last scope set (all at first)",
         edits: false,
         run: search,
     },
@@ -1008,7 +1008,9 @@ fn folder_delete(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn message_list(s: &mut Session, p: &Value) -> Result<Value> {
     let f = folder_param(s, p, "folder")?.unwrap_or(s.folder);
-    Ok(Value::Array(s.store.messages_in(f).into_iter().map(summary).collect()))
+    let offset = usize::try_from(u64_param(p, "offset")?.unwrap_or(0)).unwrap_or(usize::MAX);
+    let limit = usize::try_from(u64_param(p, "limit")?.unwrap_or(u64::MAX)).unwrap_or(usize::MAX);
+    Ok(Value::Array(s.store.messages_in(f).into_iter().skip(offset).take(limit).map(summary).collect()))
 }
 
 fn message_select(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1204,7 +1206,8 @@ fn reply(s: &mut Session, p: &Value, all: bool) -> Result<Value> {
         to = orig.to.clone();
     }
     let subject = prefixed("Re", &orig.subject);
-    new_draft(s, account, DraftParts { to, cc, bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig, &text) })
+    let body = str_param(p, "body")?.unwrap_or("");
+    new_draft(s, account, DraftParts { to, cc, bcc: Vec::new(), subject: &subject, body, signed: true, quoted: &quote(&orig, &text) })
 }
 
 fn forward(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1214,7 +1217,8 @@ fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     let to = Address::parse_list(str_param(p, "to")?.unwrap_or(""))?;
     let subject = prefixed("Fwd", &orig.subject);
     let account = account_of_message(s, id)?;
-    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body: "", signed: true, quoted: &quote(&orig, &text) })
+    let body = str_param(p, "body")?.unwrap_or("");
+    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body, signed: true, quoted: &quote(&orig, &text) })
 }
 
 fn rfc5322_date(dt: DateTime) -> String {
@@ -1238,12 +1242,51 @@ pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     ibercorreo_mime::write(m, &content, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
 }
 
+/// A fingerprint of what a message says and who it goes to: the account it is sent from, the
+/// sender, the recipients (To, Cc, Bcc), the subject, the text, the formatted body, the meeting
+/// part and the attachments' names, types and sizes. `sha256:` and 64 hex digits.
+///
+/// Whoever shows a draft to a person for approval passes this to `message.send`, which refuses
+/// a draft that changed in between, so what is sent is what was approved.
+pub fn content_hash(s: &Session, id: MessageId) -> Result<String> {
+    use sha2::Digest;
+    let m = s.store.message(id)?;
+    let content = s.store.content(id)?;
+    let addresses = |list: &[Address]| list.iter().map(|a| json!([a.name, a.email])).collect::<Vec<_>>();
+    let rich = content.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
+    // An array, so the order is fixed whatever the map type.
+    let canonical = json!([
+        "tinta-correo-draft-1",
+        s.store.account_of(m.folder)?.0,
+        m.from.as_ref().map(|a| json!([a.name, a.email])),
+        addresses(&m.to),
+        addresses(&m.cc),
+        addresses(&m.bcc),
+        m.subject,
+        content.body,
+        rich,
+        content.invite,
+        m.attachments.iter().map(|a| json!([a.name, a.mime_type, a.size])).collect::<Vec<_>>(),
+    ]);
+    let bytes = serde_json::to_vec(&canonical).map_err(|e| Error::invalid("message", e.to_string()))?;
+    let digest = sha2::Sha256::digest(&bytes);
+    Ok(format!("sha256:{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>()))
+}
+
 fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
     let id = target_message(s, p)?;
     let account = account_of_message(s, id)?;
     let drafts = s.store.folder_by_role(account, FolderRole::Drafts)?;
     if s.store.message(id)?.folder != drafts {
         return Err(Error::invalid("message", "only drafts can be sent"));
+    }
+    if let Some(expected) = str_param(p, "contentHash")?
+        && !content_hash(s, id)?.eq_ignore_ascii_case(expected.trim())
+    {
+        return Err(Error::invalid(
+            "contentHash",
+            "the draft changed since it was shown (recipients, subject, text or attachments): read it again and show it before sending",
+        ));
     }
     // Fails on no recipients; proves the message can be written before it leaves Drafts.
     render(s, id)?;
@@ -1267,6 +1310,12 @@ fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
         let rich = content.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
         o.insert("rich".into(), rich.unwrap_or(Value::Null));
         o.insert("invite".into(), invite_info(s, m, &content).map(|i| i.to_json()).unwrap_or(Value::Null));
+        o.insert(
+            "attachmentList".into(),
+            json!(m.attachments.iter().map(|a| json!({ "name": a.name, "type": a.mime_type, "size": a.size })).collect::<Vec<_>>()),
+        );
+        o.insert("account".into(), json!(s.store.account_of(m.folder)?.0));
+        o.insert("contentHash".into(), json!(content_hash(s, id)?));
     }
     Ok(v)
 }
@@ -1329,8 +1378,9 @@ fn search(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(scope) = str_param(p, "scope")? {
         s.search_scope = crate::SearchScope::from_id(scope).ok_or_else(|| Error::invalid("params", "scope must be all, mailbox or folder"))?;
     }
+    let limit = usize::try_from(u64_param(p, "limit")?.unwrap_or(500).min(500)).unwrap_or(500);
     s.search = ibercorreo_core::clamp_text(q, 1024).to_string();
-    Ok(Value::Array(s.search_results(&s.search).into_iter().take(500).map(summary).collect()))
+    Ok(Value::Array(s.search_results(&s.search).into_iter().take(limit).map(summary).collect()))
 }
 
 // ---- meeting invitations (iTIP, RFC 5546, by mail: iMIP, RFC 6047) ----
