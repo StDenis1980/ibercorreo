@@ -66,6 +66,59 @@ fn compose_send_and_undo() {
 }
 
 #[test]
+fn a_draft_is_sent_only_while_it_says_what_its_hash_says() {
+    let mut s = session();
+    let id =
+        s.run("message.compose", &json!({"to": "ana@example.org", "subject": "Cita", "body": "El lunes a las 10."})).unwrap()["id"].as_u64().unwrap();
+    let hash = s.run("message.read", &json!({"id": id})).unwrap()["contentHash"].as_str().unwrap().to_string();
+    assert_eq!(hash, commands::content_hash(&s, MessageId(id)).unwrap(), "the same each time");
+    let drafts = s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap();
+    // Every part a person approves changes it.
+    for change in [
+        json!({"to": "otra@example.org"}),
+        json!({"cc": "x@example.org"}),
+        json!({"bcc": "y@example.org"}),
+        json!({"subject": "Cita!"}),
+        json!({"body": "El martes."}),
+    ] {
+        let mut t = s.clone();
+        let mut p = change.clone();
+        p["id"] = json!(id);
+        t.run("message.update", &p).unwrap();
+        let e = t.run("message.send", &json!({"id": id, "contentHash": hash})).unwrap_err();
+        assert!(e.to_string().contains("changed"), "{change}: {e}");
+        assert_eq!(t.store.message(MessageId(id)).unwrap().folder, drafts, "{change}: still a draft");
+    }
+    let mut t = s.clone();
+    t.store.message_mut(MessageId(id)).unwrap().attachments.push(ibercorreo_core::mail::Attachment {
+        name: "x.pdf".into(),
+        mime_type: "application/pdf".into(),
+        size: 1,
+    });
+    assert!(t.run("message.send", &json!({"id": id, "contentHash": hash})).is_err(), "an attachment added");
+    assert!(s.run("message.send", &json!({"id": id, "contentHash": 7})).is_err());
+    s.run("message.send", &json!({"id": id, "contentHash": hash.to_uppercase()})).unwrap();
+    assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Outbox).unwrap());
+}
+
+#[test]
+fn replies_take_a_text_and_lists_take_a_page() {
+    let mut s = session();
+    let all = s.run("message.list", &json!({"folder": "inbox"})).unwrap();
+    let all = all.as_array().unwrap();
+    let page = s.run("message.list", &json!({"folder": "inbox", "offset": 1, "limit": 2})).unwrap();
+    assert_eq!(page.as_array().unwrap().as_slice(), all.get(1..3).unwrap());
+    assert_eq!(s.run("message.list", &json!({"folder": "inbox", "offset": u64::MAX})).unwrap(), json!([]));
+    assert_eq!(s.run("search.messages", &json!({"query": "a", "limit": 1})).unwrap().as_array().unwrap().len(), 1);
+    let first = all.first().unwrap()["id"].as_u64().unwrap();
+    for cmd in ["message.reply", "message.replyAll", "message.forward"] {
+        let d = s.run(cmd, &json!({"id": first, "body": "Gracias."})).unwrap()["id"].as_u64().unwrap();
+        let body = s.run("message.read", &json!({"id": d})).unwrap()["body"].as_str().unwrap().to_string();
+        assert!(body.starts_with("Gracias.") && body.contains("> "), "{cmd}: {body}");
+    }
+}
+
+#[test]
 fn a_mailto_link_opens_a_draft_and_never_sends() {
     let mut s = session();
     let id = s

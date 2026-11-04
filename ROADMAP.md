@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-03 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts
+Status: 2026-11-04 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts; M6.1 MCP server (`ibercorreo-cli mcp`)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -285,6 +285,15 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   nothing. Tasks, notes and contact groups are counted and left out.
 
 ## Revision history
+- 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;
+  `docs/mcp.md`). Tools for mail (list, search, read, drafts, replies, forwards, flags, move,
+  archive, delete), calendar and contacts, with read-only and destructive hints. With the window
+  open, commands run there through the instance port (`engine::instance`, one window per
+  mailbox); without it the server loads the mailbox, saves each change and gives way to a window
+  that opens meanwhile. Sending is its own tool, off unless `--allow-send`, and sends only a draft
+  whose `contentHash` (new in `message.read`, checked by `message.send`) still matches what was
+  shown. `--allow-commands`, `--max-messages`. Also: `message.list` takes `offset`/`limit`,
+  `search.messages` `limit`, replies and forwards a `body`.
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
@@ -319,6 +328,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.2 .pst mail (engine, CLI); zero-font-size HTML fix.
 - 2026-11-03 — M5.2 .pst from the window; dropped files; folder.delete.
 - 2026-11-03 — M5.2b .pst calendar and contacts.
+- 2026-11-04 — M6.1 MCP server.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

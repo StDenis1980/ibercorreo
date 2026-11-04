@@ -1,11 +1,12 @@
 //! The engine, L4: a [`Session`] holds the store, what is selected and the undo history, and every
 //! user-visible action is a command in [`commands::REGISTRY`] (id, label, ribbon group, shortcut,
-//! parameter doc, `run`). The interface, the CLI and (later) MCP all dispatch by id, so anything a
+//! parameter doc, `run`). The interface, the CLI and MCP (`ibercorreo-cli mcp`) all dispatch by id, so anything a
 //! person can click a script can do too. Programmatic calls never open dialogs.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod commands;
+pub mod instance;
 pub mod mailto;
 pub mod pst;
 pub mod sample;

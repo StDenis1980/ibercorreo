@@ -48,26 +48,15 @@ const MAX_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
 const AUTOSAVE: Duration = Duration::from_secs(20);
 /// How often mail is fetched while the app runs.
 const AUTO_SYNC: Duration = Duration::from_secs(5 * 60);
-/// The store's folder name on Windows and macOS. Like [`KEYRING_SERVICE`] it keeps the app's
-/// first name, so the mail saved before the rename stays where the app looks for it.
-const DATA_DIR_NAME: &str = "Iber Correo";
 
 fn now() -> DateTime {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     DateTime::from_unix(i64::try_from(secs).unwrap_or(0)).unwrap_or(DateTime::midnight(Date::EPOCH))
 }
 
-/// Where the store lives: `%APPDATA%\Iber Correo`, `~/Library/Application Support/Iber Correo`,
-/// or `$XDG_DATA_HOME/ibercorreo` (default `~/.local/share/ibercorreo`).
+/// Where the store lives (`ibercorreo_engine::instance::data_dir`, shared with the CLI).
 fn data_dir() -> Option<PathBuf> {
-    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    if cfg!(target_os = "windows") {
-        env("APPDATA").map(|p| p.join(DATA_DIR_NAME))
-    } else if cfg!(target_os = "macos") {
-        env("HOME").map(|p| p.join("Library/Application Support").join(DATA_DIR_NAME))
-    } else {
-        env("XDG_DATA_HOME").or_else(|| env("HOME").map(|h| h.join(".local/share"))).map(|p| p.join("ibercorreo"))
-    }
+    ibercorreo_engine::instance::data_dir()
 }
 
 struct Shell {
@@ -653,13 +642,28 @@ impl Shell {
     fn handed_over(&mut self, ctx: &egui::Context) {
         let Some(inbox) = &self.inbox else { return };
         let _ = inbox.ctx.set(ctx.clone());
-        let requests: Vec<_> = inbox.rx.try_iter().collect();
-        for request in requests {
-            if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request, &mut self.pst_queue) {
-                self.app.session.status = e;
+        let incoming: Vec<_> = inbox.rx.try_iter().collect();
+        for item in incoming {
+            match item {
+                single_instance::Incoming::Open(request) => {
+                    if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request, &mut self.pst_queue) {
+                        self.app.session.status = e;
+                    }
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
+                // An assistant's command (`ibercorreo-cli mcp`): runs like a click, without taking
+                // the focus; the autosave writes what it changed.
+                single_instance::Incoming::Command(c) => {
+                    let outcome = self.app.run_external(&c.id, &c.params).map_err(|e| e.to_string());
+                    // A message sent goes out now, as one sent from the window does.
+                    if c.id == "message.send" && outcome.is_ok() {
+                        self.app.session.sync_requested = true;
+                    }
+                    let _ = c.reply.send(outcome);
+                    ctx.request_repaint();
+                }
             }
-            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
     }
 
