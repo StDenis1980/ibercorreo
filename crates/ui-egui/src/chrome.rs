@@ -15,13 +15,17 @@ use crate::theme::{self, Tokens};
 use crate::{App, EventForm, long_date, month_title};
 
 /// The title bar's height; toolbars are as tall.
-pub(crate) const BAR_H: f32 = 40.0;
+pub(crate) const BAR_H: f32 = 48.0;
+/// A toolbar button's height (Fluent's standard control is 32).
+const TOOL_H: f32 = 34.0;
 /// A toolbar button that shows only its icon.
-pub(crate) const TOOL_ICON_W: f32 = 32.0;
+pub(crate) const TOOL_ICON_W: f32 = 36.0;
+/// The rail's width.
+pub(crate) const RAIL_W: f32 = 60.0;
 /// How far down the theme's wash reaches before it is the window's colour.
 const BAND_H: f32 = 180.0;
 /// The gap around cards.
-pub(crate) const GAP: i8 = 6;
+pub(crate) const GAP: i8 = 10;
 /// Days My Day looks ahead for events.
 const MY_DAY_DAYS: i64 = 7;
 
@@ -29,7 +33,7 @@ const MY_DAY_DAYS: i64 = 7;
 pub(crate) fn card(t: &Tokens, inner: i8) -> Frame {
     Frame::NONE
         .fill(t.card)
-        .corner_radius(CornerRadius::same(10))
+        .corner_radius(CornerRadius::same(12))
         .stroke(Stroke::new(1.0, t.border.gamma_multiply(0.6)))
         .inner_margin(Margin::same(inner))
         .outer_margin(Margin { left: 0, right: GAP, top: 0, bottom: GAP })
@@ -55,24 +59,24 @@ impl App {
     /// A square button with an icon: hover and `on` shade it.
     pub(crate) fn icon_button(&self, ui: &mut Ui, icon: Icon, tip: &str, on: bool) -> Response {
         let t = self.tokens;
-        let (rect, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(TOOL_H, TOOL_H), Sense::click());
         if on || resp.hovered() {
-            ui.painter().rect_filled(rect, 6.0, if on { t.accent_soft } else { t.accent_soft.gamma_multiply(0.6) });
+            ui.painter().rect_filled(rect, 8.0, if on { t.accent_soft } else { t.accent_soft.gamma_multiply(0.6) });
         }
-        icons::paint(ui.painter(), rect.shrink(6.0), icon, t.accent);
+        icons::paint(ui.painter(), rect.shrink(8.0), icon, t.accent);
         resp.on_hover_text(tl(tip))
     }
 
     /// How wide a toolbar button with a label `text_w` wide is.
     fn tool_width(text_w: f32) -> f32 {
-        8.0 + 16.0 + 6.0 + text_w + 8.0
+        8.0 + 18.0 + 6.0 + text_w + 10.0
     }
 
     /// How wide toolbar buttons with these labels are, side by side, labels shown.
     pub(crate) fn tools_width(&self, ui: &Ui, labels: &[&str]) -> f32 {
         labels
             .iter()
-            .map(|l| Self::tool_width(ui.painter().layout_no_wrap(tl(l).to_string(), FontId::proportional(13.0), self.tokens.text).size().x))
+            .map(|l| Self::tool_width(ui.painter().layout_no_wrap(tl(l).to_string(), FontId::proportional(theme::BODY), self.tokens.text).size().x))
             .sum()
     }
 
@@ -80,20 +84,21 @@ impl App {
     pub(crate) fn tool(&self, ui: &mut Ui, icon: Icon, label: &str, enabled: bool) -> Response {
         let t = self.tokens;
         let color = if enabled { t.text } else { t.text_weak.gamma_multiply(0.6) };
-        let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(13.0), color);
+        let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(theme::BODY), color);
         let compact = self.compact_tools;
-        let size = if compact { vec2(TOOL_ICON_W, 30.0) } else { vec2(Self::tool_width(galley.size().x), 30.0) };
+        let size = if compact { vec2(TOOL_ICON_W, TOOL_H) } else { vec2(Self::tool_width(galley.size().x), TOOL_H) };
         let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
         if enabled && resp.hovered() {
-            ui.painter().rect_filled(rect, 6.0, t.accent_soft);
+            ui.painter().rect_filled(rect, 8.0, t.accent_soft);
         }
-        let icon_rect = Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(16.0, 16.0));
+        let icon_x = if compact { rect.center().x } else { rect.left() + 17.0 };
+        let icon_rect = Rect::from_center_size(pos2(icon_x, rect.center().y), vec2(18.0, 18.0));
         let icon_color = if icon == Icon::Flag && enabled { t.flag } else { color };
         icons::paint(ui.painter(), icon_rect, icon, icon_color);
         if compact {
             return resp.on_hover_text(tl(label));
         }
-        ui.painter().galley(pos2(rect.left() + 30.0, rect.center().y - galley.size().y / 2.0), galley, color);
+        ui.painter().galley(pos2(rect.left() + 32.0, rect.center().y - galley.size().y / 2.0), galley, color);
         resp
     }
 
@@ -101,16 +106,16 @@ impl App {
     /// white button with the accent's icon and label.
     pub(crate) fn new_button(&self, ui: &mut Ui, icon: Icon, label: &str, compact: bool) -> Response {
         let t = self.tokens;
-        let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(13.0), t.accent);
-        let w = if compact { 34.0 } else { 12.0 + 16.0 + 7.0 + galley.size().x + 12.0 };
-        let (rect, resp) = ui.allocate_exact_size(vec2(w, 28.0), Sense::click());
+        let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(theme::BODY), t.accent);
+        let w = if compact { 40.0 } else { 14.0 + 18.0 + 8.0 + galley.size().x + 16.0 };
+        let (rect, resp) = ui.allocate_exact_size(vec2(w, TOOL_H), Sense::click());
         let fill = if resp.hovered() { theme::mix(t.card, t.accent, 0.08) } else { t.card };
         ui.painter().rect(rect, 8.0, fill, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
-        let ix = if compact { rect.center().x } else { rect.left() + 20.0 };
-        icons::paint(ui.painter(), Rect::from_center_size(pos2(ix, rect.center().y), vec2(15.0, 15.0)), icon, t.accent);
+        let ix = if compact { rect.center().x } else { rect.left() + 23.0 };
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(ix, rect.center().y), vec2(17.0, 17.0)), icon, t.accent);
         if !compact {
             let y = rect.center().y - galley.size().y / 2.0;
-            ui.painter().galley(pos2(rect.left() + 35.0, y), galley, t.accent);
+            ui.painter().galley(pos2(rect.left() + 40.0, y), galley, t.accent);
         }
         if compact { resp.on_hover_text(tl(label)) } else { resp }
     }
@@ -122,9 +127,10 @@ impl App {
             if self.icon_button(ui, Icon::Menu, "Hide the folder pane", false).clicked() {
                 self.run("view.folderPane", json!({ "visible": false }));
             }
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             new = self.new_button(ui, icon, label, false).clicked();
         });
+        ui.add_space(4.0);
         new
     }
 
@@ -137,7 +143,7 @@ impl App {
             self.run("view.folderPane", json!({ "visible": true }));
         }
         let new = self.new_button(ui, icon, label, true).clicked();
-        ui.add_space(8.0);
+        ui.add_space(12.0);
         new
     }
 
@@ -146,9 +152,9 @@ impl App {
     pub(crate) fn title_bar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         let (full, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_H), Sense::hover());
-        let search_w = (full.width() - 260.0).clamp(140.0, 520.0);
-        let search = Rect::from_center_size(full.center(), vec2(search_w, 28.0));
-        let left = Rect::from_min_max(pos2(full.left() + 8.0, full.top()), pos2(search.left() - 8.0, full.bottom()));
+        let search_w = (full.width() - 300.0).clamp(160.0, 640.0);
+        let search = Rect::from_center_size(full.center(), vec2(search_w, 34.0));
+        let left = Rect::from_min_max(pos2(full.left() + 12.0, full.top()), pos2(search.left() - 12.0, full.bottom()));
         ui.scope_builder(UiBuilder::new().max_rect(left).layout(Layout::left_to_right(Align::Center)), |ui| {
             if self.icon_button(ui, Icon::Undo, "Undo (Ctrl+Z)", false).clicked() && self.session.can_undo() {
                 self.run("edit.undo", json!({}));
@@ -161,11 +167,11 @@ impl App {
             let frame = Frame::NONE
                 .fill(t.card.gamma_multiply(0.85))
                 .stroke(Stroke::new(1.0, t.border))
-                .corner_radius(CornerRadius::same(8))
-                .inner_margin(Margin::symmetric(8, 4));
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin::symmetric(12, 7));
             frame.show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+                    let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
                     icons::paint(ui.painter(), r, Icon::Search, t.accent);
                     let edit = egui::TextEdit::singleline(&mut self.search)
                         .hint_text(tl("Search mail"))
@@ -182,7 +188,7 @@ impl App {
                 });
             });
         });
-        let right = Rect::from_min_max(pos2(search.right() + 8.0, full.top()), pos2(full.right() - 8.0, full.bottom()));
+        let right = Rect::from_min_max(pos2(search.right() + 12.0, full.top()), pos2(full.right() - 12.0, full.bottom()));
         ui.scope_builder(UiBuilder::new().max_rect(right).layout(Layout::right_to_left(Align::Center)), |ui| {
             if self.session.view != View::Contacts {
                 let shown = !self.session.store.hide_my_day;
@@ -201,34 +207,34 @@ impl App {
         let chosen = self.session.store.theme.clone();
         let mode = self.session.store.appearance.clone();
         let mut pick: Option<(Option<&str>, Option<&str>)> = None;
-        let (rect, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(TOOL_H, TOOL_H), Sense::click());
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
         if open || resp.hovered() {
-            ui.painter().rect_filled(rect, 6.0, t.accent_soft);
+            ui.painter().rect_filled(rect, 8.0, t.accent_soft);
         }
-        icons::paint(ui.painter(), rect.shrink(6.0), Icon::Palette, t.accent);
+        icons::paint(ui.painter(), rect.shrink(8.0), Icon::Palette, t.accent);
         let resp = resp.on_hover_text(tl("Theme"));
         egui::Popup::menu(&resp).show(|ui| {
-            ui.set_min_width(300.0);
-            ui.label(RichText::new(tl("Theme")).strong().color(t.text));
-            ui.add_space(6.0);
+            ui.set_min_width(320.0);
+            ui.label(RichText::new(tl("Theme")).size(theme::SUBTITLE).strong().color(t.text));
+            ui.add_space(8.0);
             egui::Grid::new("themes").spacing(vec2(8.0, 8.0)).show(ui, |ui| {
                 for (i, id) in theme::ids().enumerate() {
                     let (band, accent) = Tokens::swatch(id, dark);
                     let on = chosen.as_deref().unwrap_or("teal") == id;
-                    let (cell, r) = ui.allocate_exact_size(vec2(88.0, 64.0), Sense::click());
+                    let (cell, r) = ui.allocate_exact_size(vec2(96.0, 72.0), Sense::click());
                     let p = ui.painter();
                     if on || r.hovered() {
                         p.rect_stroke(cell, 8.0, Stroke::new(if on { 2.0 } else { 1.0 }, accent), egui::StrokeKind::Inside);
                     }
-                    let chip = Rect::from_center_size(pos2(cell.center().x, cell.top() + 22.0), vec2(60.0, 32.0));
+                    let chip = Rect::from_center_size(pos2(cell.center().x, cell.top() + 24.0), vec2(64.0, 34.0));
                     p.rect(chip, 6.0, band, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
                     p.circle_filled(chip.right_bottom() - vec2(10.0, 10.0), 6.0, accent);
                     p.text(
-                        pos2(cell.center().x, cell.bottom() - 10.0),
+                        pos2(cell.center().x, cell.bottom() - 11.0),
                         Align2::CENTER_CENTER,
                         tl(theme_name(id)),
-                        FontId::proportional(12.0),
+                        FontId::proportional(13.0),
                         t.text,
                     );
                     if r.on_hover_text(tl(theme_name(id))).clicked() {
@@ -266,37 +272,38 @@ impl App {
     pub(crate) fn rail(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         ui.vertical_centered(|ui| {
-            let (mark, _) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::hover());
-            ui.painter().rect_filled(mark, 8.0, t.accent);
-            icons::paint(ui.painter(), mark.shrink(6.0), Icon::Mail, t.on_accent);
-            ui.add_space(10.0);
+            ui.add_space(4.0);
+            let (mark, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
+            ui.painter().rect_filled(mark, 10.0, t.accent);
+            icons::paint(ui.painter(), mark.shrink(8.0), Icon::Mail, t.on_accent);
+            ui.add_space(16.0);
             for (icon, view, id, tip) in [
                 (Icon::Mail, View::Mail, "view.mail", "Mail (Ctrl+1)"),
                 (Icon::Calendar, View::Calendar, "view.calendar", "Calendar (Ctrl+2)"),
                 (Icon::People, View::Contacts, "view.contacts", "People (Ctrl+3)"),
             ] {
-                let (rect, resp) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
                 let active = self.session.view == view;
                 if active {
-                    ui.painter().rect(rect, 8.0, t.card, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
+                    ui.painter().rect(rect, 10.0, t.card, Stroke::new(1.0, t.border), egui::StrokeKind::Inside);
                 } else if resp.hovered() {
-                    ui.painter().rect_filled(rect, 8.0, t.accent_soft.gamma_multiply(0.7));
+                    ui.painter().rect_filled(rect, 10.0, t.accent_soft.gamma_multiply(0.7));
                 }
-                icons::paint(ui.painter(), rect.shrink(8.0), icon, if active { t.accent } else { t.text_weak });
+                icons::paint(ui.painter(), rect.shrink(11.0), icon, if active { t.accent } else { t.text_weak });
                 if resp.on_hover_text(tl(tip)).clicked() {
                     self.run(id, json!({}));
                 }
-                ui.add_space(4.0);
+                ui.add_space(8.0);
             }
-            let space = ui.available_height() - 44.0;
+            let space = ui.available_height() - 52.0;
             if space > 0.0 {
                 ui.add_space(space);
             }
-            let (rect, resp) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::click());
+            let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
             if resp.hovered() {
-                ui.painter().rect_filled(rect, 8.0, t.accent_soft.gamma_multiply(0.7));
+                ui.painter().rect_filled(rect, 10.0, t.accent_soft.gamma_multiply(0.7));
             }
-            icons::paint(ui.painter(), rect.shrink(8.0), Icon::Gear, t.text_weak);
+            icons::paint(ui.painter(), rect.shrink(11.0), Icon::Gear, t.text_weak);
             if resp.on_hover_text(tl("The settings of the account whose folder is open")).clicked() {
                 let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
                 self.open_account_settings(current, "");
@@ -308,16 +315,16 @@ impl App {
     pub(crate) fn my_day(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tl("My Day")).strong().color(t.text));
+            ui.label(RichText::new(tl("My Day")).size(theme::SUBTITLE).strong().color(t.text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if self.icon_button(ui, Icon::Plus, "New Appointment", false).clicked() {
                     self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.today()), ..EventForm::default() };
                 }
             });
         });
-        ui.add_space(4.0);
+        ui.add_space(8.0);
         self.mini_month(ui, true);
-        ui.add_space(6.0);
+        ui.add_space(10.0);
         ui.separator();
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.coming_days(ui));
     }
@@ -334,11 +341,11 @@ impl App {
             ui.label(RichText::new(month_title(first)).strong().color(t.text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let small = |ui: &mut Ui, icon: Icon, tip: &str| {
-                    let (r, resp) = ui.allocate_exact_size(vec2(22.0, 22.0), Sense::click());
+                    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
                     if resp.hovered() {
-                        ui.painter().rect_filled(r, 4.0, t.accent_soft);
+                        ui.painter().rect_filled(r, 6.0, t.accent_soft);
                     }
-                    icons::paint(ui.painter(), r.shrink(4.0), icon, t.text_weak);
+                    icons::paint(ui.painter(), r.shrink(6.0), icon, t.text_weak);
                     resp.on_hover_text(tl(tip)).clicked()
                 };
                 if small(ui, Icon::ChevronRight, "Next month") {
@@ -350,9 +357,9 @@ impl App {
             });
         });
         let Ok(start) = first.add_days(-i64::from(first.weekday().index())) else { return };
-        let cell = ((ui.available_width() / 7.0).floor()).clamp(22.0, 34.0);
+        let cell = ((ui.available_width() / 7.0).floor()).clamp(28.0, 40.0);
         let (grid, _) = ui.allocate_exact_size(vec2(cell * 7.0, cell * 7.0), Sense::hover());
-        let font = FontId::proportional(11.5);
+        let font = FontId::proportional(13.0);
         for (i, name) in crate::WEEKDAYS.iter().enumerate() {
             let c = pos2(grid.left() + cell * (i as f32 + 0.5), grid.top() + cell * 0.5);
             let letter: String = tl(name).chars().take(2).collect();
@@ -420,7 +427,7 @@ impl App {
                 1 => format!("{} • {}", tl("Tomorrow"), long_date(d)),
                 _ => long_date(d),
             };
-            ui.add_space(6.0);
+            ui.add_space(12.0);
             ui.label(RichText::new(heading).small().strong().color(if n == 0 { t.accent } else { t.text }));
             if events.is_empty() {
                 ui.label(RichText::new(tl("No appointments")).small().color(t.text_weak));
@@ -435,19 +442,22 @@ impl App {
                     }
                 };
                 let color = self.calendar_color(calendar);
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    ui.allocate_ui_with_layout(vec2(46.0, 32.0), Layout::top_down(Align::Min), |ui| {
-                        ui.label(RichText::new(&time).size(11.5).color(t.text));
+                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.allocate_ui_with_layout(vec2(58.0, 38.0), Layout::top_down(Align::Min), |ui| {
+                        ui.label(RichText::new(&time).size(13.0).color(t.text));
                         if !length.is_empty() {
-                            ui.label(RichText::new(&length).size(10.5).color(t.text_weak));
+                            ui.label(RichText::new(&length).size(theme::CAPTION).color(t.text_weak));
                         }
                     });
-                    let (bar, _) = ui.allocate_exact_size(vec2(3.0, 30.0), Sense::hover());
+                    let (bar, _) = ui.allocate_exact_size(vec2(3.0, 36.0), Sense::hover());
                     ui.painter().rect_filled(bar, 2.0, color);
+                    ui.add_space(2.0);
                     ui.vertical(|ui| {
-                        ui.label(RichText::new(&summary).size(12.0).strong().color(t.text));
+                        ui.label(RichText::new(&summary).size(theme::BODY).strong().color(t.text));
                         if !location.is_empty() {
-                            ui.label(RichText::new(&location).size(11.0).color(t.text_weak));
+                            ui.label(RichText::new(&location).size(theme::CAPTION).color(t.text_weak));
                         }
                     });
                 });

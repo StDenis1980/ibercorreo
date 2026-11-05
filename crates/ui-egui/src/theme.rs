@@ -165,6 +165,75 @@ impl Tokens {
     }
 }
 
+/// The type ramp, after Fluent 2 (the Windows standard): captions 12, body 14, headings 20.
+pub const CAPTION: f32 = 12.0;
+pub const BODY: f32 = 14.0;
+pub const SUBTITLE: f32 = 16.0;
+pub const TITLE: f32 = 20.0;
+
+/// Sizes, spacing and colours for everything egui draws itself (dialogs, menus, buttons,
+/// fields, the reminder window), from theme `id`, light and dark alike. Spacing keeps to a 4
+/// point grid; controls are at least 28 points high.
+pub fn apply(ctx: &egui::Context, id: Option<&str>) {
+    use egui::{CornerRadius, FontId, Margin, Shadow, Stroke, TextStyle, vec2};
+    ctx.all_styles_mut(|s| {
+        s.text_styles = [
+            (TextStyle::Small, FontId::proportional(CAPTION)),
+            (TextStyle::Body, FontId::proportional(BODY)),
+            (TextStyle::Button, FontId::proportional(BODY)),
+            (TextStyle::Monospace, FontId::monospace(13.0)),
+            (TextStyle::Heading, FontId::proportional(TITLE)),
+        ]
+        .into();
+        let sp = &mut s.spacing;
+        sp.item_spacing = vec2(8.0, 6.0);
+        sp.button_padding = vec2(10.0, 5.0);
+        sp.interact_size = vec2(40.0, 28.0);
+        sp.menu_margin = Margin::same(8);
+        sp.window_margin = Margin::same(16);
+        sp.icon_width = 16.0;
+        sp.icon_width_inner = 10.0;
+        sp.icon_spacing = 6.0;
+        sp.combo_height = 320.0;
+
+        let t = Tokens::themed(id, s.visuals.dark_mode);
+        let v = &mut s.visuals;
+        v.window_fill = t.card;
+        v.panel_fill = t.window;
+        v.window_stroke = Stroke::new(1.0, t.border);
+        v.window_corner_radius = CornerRadius::same(12);
+        v.menu_corner_radius = CornerRadius::same(8);
+        v.window_shadow = Shadow { offset: [0, 6], blur: 24, spread: 0, color: Color32::from_black_alpha(if v.dark_mode { 110 } else { 40 }) };
+        v.popup_shadow = Shadow { offset: [0, 4], blur: 14, spread: 0, color: Color32::from_black_alpha(if v.dark_mode { 100 } else { 32 }) };
+        v.hyperlink_color = t.accent;
+        v.faint_bg_color = mix(t.card, t.window, 0.5);
+        v.extreme_bg_color = t.card;
+        v.text_edit_bg_color = Some(t.card);
+        v.selection.bg_fill = mix(t.card, t.accent, if v.dark_mode { 0.45 } else { 0.28 });
+        v.selection.stroke = Stroke::new(1.0, t.accent);
+        let control = mix(t.card, t.window, 0.6);
+        let w = &mut v.widgets;
+        w.noninteractive.bg_fill = t.card;
+        w.noninteractive.weak_bg_fill = t.card;
+        w.noninteractive.bg_stroke = Stroke::new(1.0, t.border);
+        w.noninteractive.fg_stroke = Stroke::new(1.0, t.text);
+        for (st, fill, stroke) in [
+            (&mut w.inactive, control, t.border),
+            (&mut w.hovered, t.accent_soft, mix(t.border, t.accent, 0.5)),
+            (&mut w.active, mix(t.card, t.accent, 0.22), t.accent),
+            (&mut w.open, t.accent_soft, mix(t.border, t.accent, 0.5)),
+        ] {
+            st.bg_fill = fill;
+            st.weak_bg_fill = fill;
+            st.bg_stroke = Stroke::new(1.0, stroke);
+            st.fg_stroke = Stroke::new(1.0, t.text);
+            st.corner_radius = CornerRadius::same(6);
+            st.expansion = 0.0;
+        }
+        w.noninteractive.corner_radius = CornerRadius::same(6);
+    });
+}
+
 /// Theme ids the interface knows, in the store's order.
 pub fn ids() -> impl Iterator<Item = &'static str> {
     THEMES.iter().map(|t| t.id)
@@ -213,6 +282,24 @@ mod tests {
                     assert!(c >= min, "{id} dark={dark}: {what} is {c:.2}:1");
                 }
             }
+        }
+    }
+
+    /// Dialogs and menus egui draws itself (the reminder window among them) take the theme's
+    /// colours, light and dark, and the larger type.
+    #[test]
+    fn windows_and_menus_follow_the_theme() {
+        let ctx = egui::Context::default();
+        apply(&ctx, Some("sea"));
+        for theme in [egui::Theme::Light, egui::Theme::Dark] {
+            ctx.set_theme(theme);
+            let t = Tokens::themed(Some("sea"), theme == egui::Theme::Dark);
+            let s = ctx.global_style();
+            assert_eq!(s.visuals.window_fill, t.card);
+            assert_eq!(s.visuals.window_stroke.color, t.border);
+            assert_eq!(s.visuals.hyperlink_color, t.accent);
+            assert_eq!(s.text_styles.get(&egui::TextStyle::Body).map(|f| f.size), Some(BODY));
+            assert_eq!(s.text_styles.get(&egui::TextStyle::Small).map(|f| f.size), Some(CAPTION));
         }
     }
 

@@ -515,12 +515,14 @@ pub struct App {
     invite_reply: usize,
     /// Folder pane headings folded shut: an account's id, or [`FOLD_FAVORITES`].
     folded: std::collections::HashSet<u32>,
+    /// The theme egui's own widgets were last styled for ([`theme::apply`]); `None`: not yet.
+    styled: Option<Option<String>>,
 }
 
 /// The Favorites heading's key among [`App::folded`] (account ids are far below it).
 const FOLD_FAVORITES: u32 = u32::MAX;
 /// The height of a row in the message list.
-const ROW_HEIGHT: f32 = 64.0;
+const ROW_HEIGHT: f32 = 84.0;
 
 impl App {
     pub fn new(session: Session) -> App {
@@ -564,6 +566,7 @@ impl App {
             zone_names: Vec::new(),
             due: Vec::new(),
             due_checked: None,
+            styled: None,
             last_calendar: None,
             invite: None,
             content: None,
@@ -1045,6 +1048,10 @@ impl App {
         if ui.ctx().options(|o| o.theme_preference) != preference {
             ui.ctx().set_theme(preference);
         }
+        if self.styled.as_ref() != Some(&self.session.store.theme) {
+            theme::apply(ui.ctx(), self.session.store.theme.as_deref());
+            self.styled = Some(self.session.store.theme.clone());
+        }
         self.tokens = Tokens::themed(self.session.store.theme.as_deref(), ui.visuals().dark_mode);
         self.shortcuts(ui);
         self.sync_draft();
@@ -1052,11 +1059,11 @@ impl App {
         let t = self.tokens;
         chrome::paint_window(ui.ctx(), &t);
         egui::Panel::top("title").exact_size(chrome::BAR_H).resizable(false).frame(Frame::NONE).show(ui, |ui| self.title_bar(ui));
-        egui::Panel::bottom("status").frame(Frame::NONE.inner_margin(Margin::symmetric(10, 2))).show(ui, |ui| self.status_bar(ui));
+        egui::Panel::bottom("status").frame(Frame::NONE.inner_margin(Margin::symmetric(14, 4))).show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("rail")
-            .exact_size(48.0)
+            .exact_size(chrome::RAIL_W)
             .resizable(false)
-            .frame(Frame::NONE.inner_margin(Margin { left: 0, right: 0, top: 0, bottom: 6 }))
+            .frame(Frame::NONE.inner_margin(Margin { left: 0, right: 0, top: 4, bottom: 10 }))
             .show(ui, |ui| self.rail(ui));
         match self.session.view {
             View::Mail => self.mail(ui),
@@ -1273,16 +1280,19 @@ impl App {
             .id(egui::Id::new("reminders"))
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-20.0, -44.0])
             .show(ui.ctx(), |ui| {
-                ui.set_width(340.0);
-                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                ui.set_width(380.0);
+                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                     for r in &self.due {
                         let id = r["id"].clone();
                         let start = r["start"].clone();
-                        Frame::NONE.fill(t.card).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(
-                            ui,
-                            |ui| {
+                        Frame::NONE
+                            .fill(theme::mix(t.card, t.window, 0.55))
+                            .corner_radius(CornerRadius::same(8))
+                            .stroke(Stroke::new(1.0, t.border))
+                            .inner_margin(12)
+                            .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
                                 let when = r["start"].as_str().unwrap_or("").replace('T', " ");
@@ -1291,7 +1301,7 @@ impl App {
                                 ui.horizontal(|ui| {
                                     ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui.small_button(tl("Dismiss")).clicked() {
+                                        if ui.button(tl("Dismiss")).clicked() {
                                             action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
                                         }
                                         ui.menu_button(tl("Snooze…"), |ui| {
@@ -1304,9 +1314,8 @@ impl App {
                                         });
                                     });
                                 });
-                            },
-                        );
-                        ui.add_space(4.0);
+                            });
+                        ui.add_space(8.0);
                     }
                 });
                 ui.separator();
@@ -1397,7 +1406,7 @@ impl App {
 
     /// A thin upright line between groups of toolbar buttons.
     fn tool_gap(&self, ui: &mut Ui) {
-        let (r, _) = ui.allocate_exact_size(vec2(9.0, 22.0), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(13.0, 24.0), Sense::hover());
         ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, self.tokens.border));
     }
 
@@ -1412,8 +1421,8 @@ impl App {
         // replying, Send/Receive and Rules too.
         let own = ["Delete", "Archive", "Move", "Flag", read_label];
         let rest = ["Reply", "Reply All", "Forward", sync_label, "Rules…"];
-        let head = if self.session.store.hide_folder_pane { 80.0 } else { 0.0 };
-        let fixed = head + 2.0 * 11.0 + 120.0 + 2.0 * (own.len() + rest.len()) as f32;
+        let head = if self.session.store.hide_folder_pane { 96.0 } else { 0.0 };
+        let fixed = head + 2.0 * 15.0 + 115.0 + 4.0 * (own.len() + rest.len()) as f32;
         let (own_w, rest_w) = (self.tools_width(ui, &own), self.tools_width(ui, &rest));
         let icons_w = chrome::TOOL_ICON_W * own.len() as f32;
         let avail = ui.available_width();
@@ -1421,7 +1430,7 @@ impl App {
         self.compact_tools = own_compact;
         ui.set_min_height(chrome::BAR_H);
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.spacing_mut().item_spacing.x = 4.0;
             if self.hidden_pane_head(ui, Icon::Pencil, "New Email") {
                 self.run("message.compose", json!({}));
             }
@@ -1479,7 +1488,7 @@ impl App {
         self.compact_tools = false;
         ui.set_min_height(chrome::BAR_H);
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
+            ui.spacing_mut().item_spacing.x = 6.0;
             if self.hidden_pane_head(ui, Icon::Calendar, "New Appointment") {
                 self.new_appointment();
             }
@@ -1492,7 +1501,7 @@ impl App {
             if self.icon_button(ui, Icon::ChevronRight, "Forward", false).clicked() {
                 self.run("calendar.next", json!({}));
             }
-            ui.label(RichText::new(range_title(&self.session)).size(15.0).strong().color(self.tokens.text));
+            ui.label(RichText::new(range_title(&self.session)).size(17.0).strong().color(self.tokens.text));
             self.tool_gap(ui);
             let modes = [
                 (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
@@ -1529,7 +1538,7 @@ impl App {
         self.compact_tools = false;
         ui.set_min_height(chrome::BAR_H);
         ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.spacing_mut().item_spacing.x = 4.0;
             if self.hidden_pane_head(ui, Icon::PersonAdd, "New Contact") {
                 self.contact_form = ContactForm::new_in(self.default_book());
             }
@@ -1636,7 +1645,7 @@ impl App {
             if self.syncing
                 && let Some((what, done)) = &self.sync_progress
             {
-                let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(140.0).desired_height(10.0).fill(self.tokens.accent);
+                let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(160.0).desired_height(10.0).fill(self.tokens.accent);
                 ui.add(bar);
                 ui.label(RichText::new(what).small().color(self.tokens.text_weak));
                 ui.separator();
@@ -1678,9 +1687,9 @@ impl App {
         let t = self.tokens;
         if !self.session.store.hide_folder_pane {
             egui::Panel::left("folders")
-                .default_size(232.0)
-                .size_range(170.0..=360.0)
-                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 6, top: 0, bottom: 6 }))
+                .default_size(260.0)
+                .size_range(190.0..=400.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::Pencil, "New Email") {
                         self.run("message.compose", json!({}));
@@ -1690,10 +1699,10 @@ impl App {
         }
         egui::Panel::top("mail-tools").frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
         if !self.session.store.hide_my_day {
-            egui::Panel::right("my-day").default_size(250.0).size_range(210.0..=380.0).frame(chrome::card(&t, 10)).show(ui, |ui| self.my_day(ui));
+            egui::Panel::right("my-day").default_size(300.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| self.my_day(ui));
         }
-        egui::Panel::left("list").default_size(340.0).size_range(240.0..=640.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
-        egui::CentralPanel::no_frame().frame(chrome::card(&t, 16)).show(ui, |ui| {
+        egui::Panel::left("list").default_size(380.0).size_range(280.0..=680.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 24)).show(ui, |ui| {
             if self.draft.is_some() {
                 self.compose(ui);
             } else {
@@ -1722,16 +1731,18 @@ impl App {
                     self.folder_row(ui, *id, several);
                 }
                 if favorites.is_empty() {
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(30.0);
-                        ui.label(RichText::new(tl("Right-click a folder: Add to Favorites")).small().color(self.tokens.text_weak));
+                    ui.add_space(4.0);
+                    // Wrapped, so a long translation never widens the pane.
+                    Frame::NONE.inner_margin(Margin { left: 36, right: 6, top: 0, bottom: 0 }).show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(tl("Right-click a folder: Add to Favorites")).small().color(self.tokens.text_weak)).wrap(),
+                        );
                     });
                     ui.add_space(4.0);
                 }
             }
             for (account, email) in groups {
-                ui.add_space(6.0);
+                ui.add_space(10.0);
                 let key = account.map_or(u32::MAX - 1, |a| a.0);
                 let (open, gear) = self.folder_heading(ui, key, &email, account);
                 if gear {
@@ -1760,25 +1771,25 @@ impl App {
     fn folder_heading(&mut self, ui: &mut Ui, key: u32, title: &str, account: Option<AccountId>) -> (bool, bool) {
         let t = self.tokens;
         let open = !self.folded.contains(&key);
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         let painter = ui.painter_at(rect);
         if resp.hovered() {
-            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+            painter.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.5));
         }
         let chevron = if open { "⏷" } else { "⏵" };
         painter.text(
             egui::pos2(rect.left() + 4.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             chevron,
-            egui::FontId::proportional(10.0),
+            egui::FontId::proportional(11.0),
             t.text_weak,
         );
-        let mut x = rect.left() + 18.0;
+        let mut x = rect.left() + 20.0;
         if key == FOLD_FAVORITES {
-            icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(x + 7.0, rect.center().y), vec2(15.0, 15.0)), Icon::Star, t.text);
-            x += 20.0;
+            icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), vec2(17.0, 17.0)), Icon::Star, t.text);
+            x += 24.0;
         }
-        let font = egui::FontId::proportional(13.0);
+        let font = egui::FontId::proportional(theme::BODY);
         painter.text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, title, font, t.text);
         let mut gear = false;
         if account.is_some() {
@@ -1789,7 +1800,7 @@ impl App {
                     g.center(),
                     egui::Align2::CENTER_CENTER,
                     "⚙",
-                    egui::FontId::proportional(13.0),
+                    egui::FontId::proportional(15.0),
                     if r.hovered() { t.accent } else { t.text_weak },
                 );
             }
@@ -1816,14 +1827,14 @@ impl App {
         let unread = self.unread.get(&id).copied().unwrap_or(0);
         let favorite = store.is_favorite(id);
         let selected = self.session.folder == id && self.search.is_empty();
-        let height = if email.is_some() { 38.0 } else { 28.0 };
+        let height = if email.is_some() { 46.0 } else { 34.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let painter = ui.painter_at(rect);
         if selected {
-            painter.rect_filled(rect, 4.0, t.accent_soft);
-            painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 6.0), vec2(3.0, height - 12.0)), 1.5, t.accent);
+            painter.rect_filled(rect, 6.0, t.accent_soft);
+            painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(3.0, height - 16.0)), 1.5, t.accent);
         } else if resp.hovered() {
-            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+            painter.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.5));
         }
         let icon = match role {
             FolderRole::Inbox => Icon::Inbox,
@@ -1837,29 +1848,29 @@ impl App {
         };
         let strong = unread > 0;
         let color = if strong { t.unread } else { t.text };
-        let line = if email.is_some() { rect.top() + 14.0 } else { rect.center().y };
-        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + 30.0, line), vec2(16.0, 16.0)), icon, color);
+        let line = if email.is_some() { rect.top() + 16.0 } else { rect.center().y };
+        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + 32.0, line), vec2(18.0, 18.0)), icon, color);
         let count = if unread > 0 { unread.to_string() } else { String::new() };
         let count_w = if count.is_empty() {
             0.0
         } else {
-            let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(12.0), t.unread);
+            let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(13.0), t.unread);
             let w = g.size().x;
-            painter.galley(egui::pos2(rect.right() - 8.0 - w, line - g.size().y / 2.0), g, t.unread);
+            painter.galley(egui::pos2(rect.right() - 10.0 - w, line - g.size().y / 2.0), g, t.unread);
             w + 12.0
         };
-        let text_left = rect.left() + 46.0;
-        let room = (rect.right() - count_w - 8.0 - text_left).max(0.0);
-        let font = egui::FontId::proportional(14.0);
+        let text_left = rect.left() + 52.0;
+        let room = (rect.right() - count_w - 10.0 - text_left).max(0.0);
+        let font = egui::FontId::proportional(15.0);
         let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(room);
         let g = painter.layout_job(job);
         painter.galley(egui::pos2(text_left, line - g.size().y / 2.0), g, color);
         if let Some(email) = &email {
-            let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(11.0), t.text_weak);
+            let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(theme::CAPTION), t.text_weak);
             job.wrap = egui::text::TextWrapping::truncate_at_width(room);
             let g = painter.layout_job(job);
-            painter.galley(egui::pos2(text_left, rect.top() + 25.0 - g.size().y / 2.0), g, t.text_weak);
+            painter.galley(egui::pos2(text_left, rect.top() + 32.0 - g.size().y / 2.0), g, t.text_weak);
         }
         let resp = match &email {
             Some(e) => resp.on_hover_text(format!("{name} — {e}")),
@@ -1894,7 +1905,7 @@ impl App {
         } else {
             tf("Results for “{query}”", &[("query", &self.search)])
         };
-        Frame::NONE.inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+        Frame::NONE.inner_margin(Margin { left: 18, right: 16, top: 14, bottom: 10 }).show(ui, |ui| {
             ui.label(RichText::new(title).heading().color(t.text));
             if !self.search.is_empty() {
                 // Where to look, as Outlook's scope list; shown while searching.
@@ -1941,19 +1952,19 @@ impl App {
                 if !seen {
                     painter.rect_filled(egui::Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, t.unread);
                 }
-                let x = rect.left() + 14.0;
+                let x = rect.left() + 18.0;
                 let font = |size: f32| egui::FontId::proportional(size);
                 let strong = if seen { t.text } else { t.unread };
-                painter.text(egui::pos2(x, rect.top() + 8.0), egui::Align2::LEFT_TOP, &who, font(14.0), strong);
-                painter.text(egui::pos2(rect.right() - 10.0, rect.top() + 8.0), egui::Align2::RIGHT_TOP, &when, font(11.5), t.text_weak);
+                painter.text(egui::pos2(x, rect.top() + 12.0), egui::Align2::LEFT_TOP, &who, font(15.0), strong);
+                painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 13.0), egui::Align2::RIGHT_TOP, &when, font(theme::CAPTION), t.text_weak);
                 let mut subj = subject;
                 if attachment {
                     subj = format!("📎 {subj}");
                 }
-                painter.text(egui::pos2(x, rect.top() + 27.0), egui::Align2::LEFT_TOP, &subj, font(12.5), if seen { t.text } else { strong });
-                painter.text(egui::pos2(x, rect.top() + 44.0), egui::Align2::LEFT_TOP, &preview, font(11.5), t.text_weak);
+                painter.text(egui::pos2(x, rect.top() + 35.0), egui::Align2::LEFT_TOP, &subj, font(theme::BODY), if seen { t.text } else { strong });
+                painter.text(egui::pos2(x, rect.top() + 57.0), egui::Align2::LEFT_TOP, &preview, font(13.0), t.text_weak);
                 if flagged {
-                    painter.text(egui::pos2(rect.right() - 10.0, rect.top() + 27.0), egui::Align2::RIGHT_TOP, "⚑", font(13.0), t.flag);
+                    painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 35.0), egui::Align2::RIGHT_TOP, "⚑", font(14.0), t.flag);
                 }
                 painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.6)));
                 if resp.clicked() {
@@ -1988,11 +1999,11 @@ impl App {
             ui.centered_and_justified(|ui| ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak)));
             return;
         };
-        ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(20.0).strong().color(t.text));
-        ui.add_space(8.0);
+        ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(24.0).strong().color(t.text));
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
-            ui.label(RichText::new(who).strong().color(t.text));
+            ui.label(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new(m.date.map(|d| self.session.zone().from_utc(d).to_string().replace('T', " ")).unwrap_or_default())
@@ -2056,12 +2067,13 @@ impl App {
                 });
             });
         }
-        ui.add_space(10.0);
+        ui.add_space(14.0);
         ui.separator();
+        ui.add_space(8.0);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match (&content, rich) {
             (_, Some(rich)) if !self.session.plain_text => rich_body(ui, &t, rich),
             (Some(Ok(c)), _) => {
-                ui.add(egui::Label::new(RichText::new(&c.body).size(14.0).color(t.text)).wrap());
+                ui.add(egui::Label::new(RichText::new(&c.body).size(15.0).color(t.text)).wrap());
             }
             (Some(Err(e)), _) => {
                 ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
@@ -2123,9 +2135,9 @@ impl App {
         let t = self.tokens;
         if !self.session.store.hide_folder_pane {
             egui::Panel::left("calendar-pane")
-                .default_size(232.0)
-                .size_range(190.0..=360.0)
-                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 8, top: 0, bottom: 6 }))
+                .default_size(260.0)
+                .size_range(210.0..=400.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::Calendar, "New Appointment") {
                         self.new_appointment();
@@ -2137,11 +2149,11 @@ impl App {
         }
         egui::Panel::top("calendar-tools").frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
         if !self.session.store.hide_my_day {
-            egui::Panel::right("agenda").default_size(270.0).size_range(220.0..=400.0).frame(chrome::card(&t, 12)).show(ui, |ui| {
+            egui::Panel::right("agenda").default_size(300.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
             });
         }
-        egui::CentralPanel::no_frame().frame(chrome::card(&t, 10)).show(ui, |ui| {
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 12)).show(ui, |ui| {
             if self.session.calendar_mode == CalendarMode::Month {
                 self.month(ui);
             } else {
@@ -2159,11 +2171,11 @@ impl App {
         let names = WEEKDAYS.map(tl);
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
-        let cell_h = ((avail.y - 24.0) / 6.0).max(40.0);
+        let cell_h = ((avail.y - 28.0) / 6.0).max(48.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             for n in names {
-                ui.add_sized([cell_w, 20.0], egui::Label::new(RichText::new(n).small().color(t.text_weak)));
+                ui.add_sized([cell_w, 24.0], egui::Label::new(RichText::new(n).small().color(t.text_weak)));
             }
         });
         for week in 0..6i64 {
@@ -2187,14 +2199,14 @@ impl App {
                         },
                     );
                     p.rect_stroke(rect, 0.0, Stroke::new(0.5, t.border), StrokeKind::Inside);
-                    let num_pos = rect.left_top() + vec2(6.0, 4.0);
+                    let num_pos = rect.left_top() + vec2(8.0, 6.0);
                     if day == today {
-                        p.circle_filled(num_pos + vec2(8.0, 9.0), 11.0, t.today);
+                        p.circle_filled(num_pos + vec2(9.0, 10.0), 13.0, t.today);
                         p.text(
-                            num_pos + vec2(8.0, 9.0),
+                            num_pos + vec2(9.0, 10.0),
                             egui::Align2::CENTER_CENTER,
                             day.day().to_string(),
-                            egui::FontId::proportional(12.0),
+                            egui::FontId::proportional(13.0),
                             Color32::WHITE,
                         );
                     } else {
@@ -2202,18 +2214,18 @@ impl App {
                             num_pos,
                             egui::Align2::LEFT_TOP,
                             day.day().to_string(),
-                            egui::FontId::proportional(12.0),
+                            egui::FontId::proportional(13.0),
                             if in_month { t.text } else { t.text_weak },
                         );
                     }
-                    let mut y = rect.top() + 26.0;
+                    let mut y = rect.top() + 32.0;
                     for o in self.session.store.events_on(day, self.session.zone()) {
                         let e = o.event;
-                        if y + 16.0 > rect.bottom() {
-                            p.text(egui::pos2(rect.left() + 6.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(11.0), t.text_weak);
+                        if y + 20.0 > rect.bottom() {
+                            p.text(egui::pos2(rect.left() + 8.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(12.0), t.text_weak);
                             break;
                         }
-                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0, y), vec2(rect.width() - 6.0, 16.0));
+                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 4.0, y), vec2(rect.width() - 8.0, 20.0));
                         let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
                         let label = match o.when {
                             When::Timed { start, .. } if start.date == day => {
@@ -2223,13 +2235,13 @@ impl App {
                         };
                         p.rect_filled(chip, 3.0, self.calendar_color(e.calendar).gamma_multiply(0.85));
                         p.with_clip_rect(chip).text(
-                            chip.left_center() + vec2(4.0, 0.0),
+                            chip.left_center() + vec2(6.0, 0.0),
                             egui::Align2::LEFT_CENTER,
                             label,
-                            egui::FontId::proportional(11.0),
+                            egui::FontId::proportional(12.0),
                             Color32::WHITE,
                         );
-                        y += 18.0;
+                        y += 22.0;
                     }
                     if resp.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
@@ -2245,9 +2257,9 @@ impl App {
     /// Day, work week and week: a column per day, an all-day strip on top and the hours below,
     /// with overlapping appointments side by side.
     fn time_grid(&mut self, ui: &mut Ui) {
-        const GUTTER: f32 = 48.0;
-        const HOUR: f32 = 44.0;
-        const ALL_DAY_ROW: f32 = 20.0;
+        const GUTTER: f32 = 56.0;
+        const HOUR: f32 = 52.0;
+        const ALL_DAY_ROW: f32 = 24.0;
         let t = self.tokens;
         let (from, to) = self.session.calendar_range();
         let count = usize::try_from(to.day_number().saturating_sub(from.day_number()).saturating_add(1)).unwrap_or(1).clamp(1, 7);
@@ -2257,14 +2269,20 @@ impl App {
         let x_of = |left: f32, n: usize| left + GUTTER + col_w * n as f32;
 
         // Day headings.
-        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::hover());
         let p = ui.painter_at(head);
         for (n, day) in days.iter().enumerate() {
             let x = x_of(head.left(), n);
             let is_today = *day == now.date;
             let colour = if is_today { t.today } else { t.text };
-            p.text(egui::pos2(x + 6.0, head.top() + 2.0), egui::Align2::LEFT_TOP, weekday_abbr(*day), egui::FontId::proportional(11.0), t.text_weak);
-            p.text(egui::pos2(x + 6.0, head.top() + 16.0), egui::Align2::LEFT_TOP, day.day().to_string(), egui::FontId::proportional(18.0), colour);
+            p.text(
+                egui::pos2(x + 8.0, head.top() + 4.0),
+                egui::Align2::LEFT_TOP,
+                weekday_abbr(*day),
+                egui::FontId::proportional(theme::CAPTION),
+                t.text_weak,
+            );
+            p.text(egui::pos2(x + 8.0, head.top() + 20.0), egui::Align2::LEFT_TOP, day.day().to_string(), egui::FontId::proportional(22.0), colour);
             if *day == self.session.day {
                 p.rect_filled(egui::Rect::from_min_size(egui::pos2(x + 2.0, head.bottom() - 3.0), vec2(col_w - 4.0, 3.0)), 1.0, t.accent);
             }
@@ -2303,7 +2321,7 @@ impl App {
                         chip.left_center() + vec2(4.0, 0.0),
                         egui::Align2::LEFT_CENTER,
                         summary,
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(12.5),
                         t.text,
                     );
                 }
@@ -2346,7 +2364,7 @@ impl App {
                         egui::pos2(grid.left() + GUTTER - 6.0, y),
                         egui::Align2::RIGHT_CENTER,
                         format!("{hour:02}:00"),
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(theme::CAPTION),
                         t.text_weak,
                     );
                 }
@@ -2383,7 +2401,7 @@ impl App {
                 for ((e, when, (start, end)), (column, columns)) in occurrences.iter().zip(ibercorreo_core::calendar::columns(&spans)) {
                     let w = (col_w - 6.0) / columns.max(1) as f32;
                     let top = y_of(*start);
-                    let bottom = y_of(*end).max(top + 20.0);
+                    let bottom = y_of(*end).max(top + 24.0);
                     let rect = egui::Rect::from_min_max(
                         egui::pos2(x + 2.0 + w * column as f32, top + 1.0),
                         egui::pos2(x + 2.0 + w * (column + 1) as f32 - 2.0, bottom - 1.0),
@@ -2409,14 +2427,20 @@ impl App {
                     let clip = p.with_clip_rect(rect.shrink(1.0));
                     let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
                     let title = format!("{repeat}{}", e.summary);
-                    if rect.height() < 30.0 {
-                        clip.text(rect.left_center() + vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(11.5), t.text);
+                    if rect.height() < 36.0 {
+                        clip.text(rect.left_center() + vec2(8.0, 0.0), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(13.0), t.text);
                     } else {
-                        clip.text(rect.left_top() + vec2(6.0, 2.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(11.5), t.text);
+                        clip.text(rect.left_top() + vec2(8.0, 4.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
                     }
-                    if rect.height() > 32.0 {
+                    if rect.height() > 40.0 {
                         let detail = if e.location.is_empty() { times } else { e.location.clone() };
-                        clip.text(rect.left_top() + vec2(6.0, 17.0), egui::Align2::LEFT_TOP, detail, egui::FontId::proportional(10.5), t.text_weak);
+                        clip.text(
+                            rect.left_top() + vec2(8.0, 22.0),
+                            egui::Align2::LEFT_TOP,
+                            detail,
+                            egui::FontId::proportional(theme::CAPTION),
+                            t.text_weak,
+                        );
                     }
                 }
                 // The current time, on today's column.
@@ -2596,14 +2620,14 @@ impl App {
         }
         if !self.session.store.hide_folder_pane {
             egui::Panel::left("books")
-                .default_size(232.0)
-                .size_range(170.0..=360.0)
-                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 6, top: 0, bottom: 6 }))
+                .default_size(260.0)
+                .size_range(190.0..=400.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::PersonAdd, "New Contact") {
                         self.contact_form = ContactForm::new_in(self.default_book());
                     }
-                    ui.add_space(4.0);
+                    ui.add_space(8.0);
                     ui.label(RichText::new(tl("Address books")).small().strong().color(t.text_weak));
                     let total = self.session.store.contacts("").len();
                     if self.pane_row(ui, Icon::People, tl("All contacts"), total, self.contact_book.is_none()) {
@@ -2628,25 +2652,25 @@ impl App {
     /// A row of a left pane: an icon, a name, a count; shaded when chosen. True when clicked.
     fn pane_row(&self, ui: &mut Ui, icon: Icon, label: &str, count: usize, chosen: bool) -> bool {
         let t = self.tokens;
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
         if chosen || resp.hovered() {
             ui.painter().rect_filled(rect, 6.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
         }
         let color = if chosen { t.accent } else { t.text };
         icons::paint(
             ui.painter(),
-            Rect::from_center_size(egui::pos2(rect.left() + 16.0, rect.center().y), vec2(15.0, 15.0)),
+            Rect::from_center_size(egui::pos2(rect.left() + 18.0, rect.center().y), vec2(18.0, 18.0)),
             icon,
             if chosen { t.accent } else { t.text_weak },
         );
-        let font = egui::FontId::proportional(13.0);
-        ui.painter().text(egui::pos2(rect.left() + 32.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), color);
+        let font = egui::FontId::proportional(theme::BODY);
+        ui.painter().text(egui::pos2(rect.left() + 38.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), color);
         if count > 0 {
             ui.painter().text(
-                egui::pos2(rect.right() - 8.0, rect.center().y),
+                egui::pos2(rect.right() - 10.0, rect.center().y),
                 egui::Align2::RIGHT_CENTER,
                 count.to_string(),
-                egui::FontId::proportional(11.5),
+                egui::FontId::proportional(13.0),
                 t.text_weak,
             );
         }
@@ -2657,11 +2681,11 @@ impl App {
     /// shows the contact's card.
     fn contact_table(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        Frame::NONE.inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 6 }).show(ui, |ui| {
+        Frame::NONE.inner_margin(Margin { left: 18, right: 16, top: 14, bottom: 10 }).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(tl("Contacts")).size(15.0).strong().color(t.text));
+                ui.label(RichText::new(tl("Contacts")).size(theme::TITLE).strong().color(t.text));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(220.0));
+                    ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(260.0));
                 });
             });
         });
@@ -2685,11 +2709,11 @@ impl App {
         }
         const SHARES: [f32; 5] = [0.26, 0.27, 0.16, 0.13, 0.18];
         let headings = ["Name", "Email", "Phone", "Address book", "Title and company"];
-        let font = egui::FontId::proportional(13.0);
-        let small = egui::FontId::proportional(11.5);
+        let font = egui::FontId::proportional(theme::BODY);
+        let small = egui::FontId::proportional(theme::CAPTION);
         let columns = |rect: Rect| -> Vec<Rect> {
-            let mut x = rect.left() + 12.0;
-            let w = (rect.width() - 24.0).max(200.0);
+            let mut x = rect.left() + 18.0;
+            let w = (rect.width() - 34.0).max(200.0);
             SHARES
                 .iter()
                 .map(|s| {
@@ -2699,14 +2723,14 @@ impl App {
                 })
                 .collect()
         };
-        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
         for (r, h) in columns(head).into_iter().zip(headings) {
             ui.painter().with_clip_rect(r).text(egui::pos2(r.left(), r.center().y), egui::Align2::LEFT_CENTER, tl(h), small.clone(), t.text_weak);
         }
         ui.painter().line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.border));
-        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, 38.0, contacts.len(), |ui, rows| {
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, 48.0, contacts.len(), |ui, rows| {
             for c in contacts.get(rows).unwrap_or_default() {
-                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
                 let chosen = self.contact_form.id == Some(c.id);
                 if chosen || resp.hovered() {
                     ui.painter().rect_filled(rect, 0.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
@@ -2728,10 +2752,10 @@ impl App {
                 for (i, (r, text)) in cols.iter().zip(cells).enumerate() {
                     let p = ui.painter().with_clip_rect(*r);
                     if i == 0 {
-                        let dot = egui::pos2(r.left() + 12.0, r.center().y);
-                        p.circle_filled(dot, 12.0, avatar_color(&c.name));
+                        let dot = egui::pos2(r.left() + 15.0, r.center().y);
+                        p.circle_filled(dot, 15.0, avatar_color(&c.name));
                         p.text(dot, egui::Align2::CENTER_CENTER, &initials, small.clone(), Color32::WHITE);
-                        p.text(egui::pos2(r.left() + 32.0, r.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), t.text);
+                        p.text(egui::pos2(r.left() + 40.0, r.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), t.text);
                     } else {
                         p.text(
                             egui::pos2(r.left(), r.center().y),
@@ -3221,7 +3245,7 @@ fn long_date(d: Date) -> String {
 /// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
 /// Links show their real address on hover; a link whose text names another site is marked ⚠.
 fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
-    ui.spacing_mut().item_spacing.y = 6.0;
+    ui.spacing_mut().item_spacing.y = 8.0;
     for block in &rich.blocks {
         let quote = f32::from(block.quote) * 14.0;
         if block.kind == BlockKind::Rule {
@@ -3235,9 +3259,9 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
             BlockKind::Heading(1) => (22.0, None, 0.0),
             BlockKind::Heading(2) => (19.0, None, 0.0),
             BlockKind::Heading(_) => (16.5, None, 0.0),
-            BlockKind::Bullet { depth } => (14.0, Some("•".to_string()), f32::from(depth) * 18.0),
-            BlockKind::Numbered { depth, number } => (14.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
-            _ => (14.0, None, 0.0),
+            BlockKind::Bullet { depth } => (15.0, Some("•".to_string()), f32::from(depth) * 18.0),
+            BlockKind::Numbered { depth, number } => (15.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
+            _ => (15.0, None, 0.0),
         };
         let pre = block.kind == BlockKind::Pre;
         if matches!(block.kind, BlockKind::Heading(_)) {
