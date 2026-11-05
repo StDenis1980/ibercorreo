@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/mime", "crates/ical", "crates/vcard", "crates/outlook", "crates/store", "crates/imap", "crates/smtp", "crates/dav", "crates/net", "crates/sync", "crates/engine", "crates/ui-egui", "apps/ibercorreo", "apps/ibercorreo-cli", "xtask"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
