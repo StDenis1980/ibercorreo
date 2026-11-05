@@ -116,14 +116,20 @@ enum Sent {
     Taken(Option<String>),
     /// Refused for good (malformed, too large): retrying would not help.
     Refused,
-    /// No connection, a server error or too busy: try again later.
+    /// No connection, a server error, too busy, or a server that has no feedback endpoint yet
+    /// (404): try again later.
     NotNow,
 }
 
 fn send(endpoint: &str, body: &Value) -> Sent {
-    match report::post_json(endpoint, "/v1/feedback", body) {
+    judge(report::post_json(endpoint, "/v1/feedback", body))
+}
+
+/// What the server's answer (`None`: it could not be reached) means for the feedback.
+fn judge(reply: Option<(u16, Value)>) -> Sent {
+    match reply {
         Some((s, reply)) if (200..300).contains(&s) => Sent::Taken(reply.get("id").and_then(Value::as_str).map(|id| id.chars().take(36).collect())),
-        Some((s, _)) if (400..500).contains(&s) && s != 429 => Sent::Refused,
+        Some((s, _)) if (400..500).contains(&s) && s != 429 && s != 404 => Sent::Refused,
         _ => Sent::NotNow,
     }
 }
@@ -218,5 +224,18 @@ mod tests {
         let mut fb = Feedback::default();
         tick(&mut fb, "es");
         assert_eq!(fb.available, report::ENDPOINT.is_some());
+    }
+
+    #[test]
+    fn a_server_without_the_endpoint_keeps_it_queued_and_a_refusal_drops_it() {
+        // The app only talks HTTPS, so the answers are judged without a server.
+        for s in [404, 429, 500, 503] {
+            assert!(matches!(judge(Some((s, Value::Null))), Sent::NotNow), "{s}");
+        }
+        assert!(matches!(judge(None), Sent::NotNow));
+        assert!(matches!(judge(Some((400, Value::Null))), Sent::Refused));
+        assert!(matches!(judge(Some((413, Value::Null))), Sent::Refused));
+        assert!(matches!(judge(Some((200, json!({})))), Sent::Taken(None)));
+        assert!(matches!(judge(Some((201, json!({"id": "abc"})))), Sent::Taken(Some(id)) if id == "abc"));
     }
 }
