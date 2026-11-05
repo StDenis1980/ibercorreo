@@ -349,6 +349,34 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: language,
     },
     CommandSpec {
+        id: "view.theme",
+        label: "Theme",
+        group: "View/Appearance",
+        shortcut: None,
+        params: "theme?: teal, terracotta, sea, lavender, olive or azulejo; mode?: light, dark or system — default: just say which are chosen",
+        // Saved, but not undone: Undo is for mail.
+        edits: false,
+        run: theme,
+    },
+    CommandSpec {
+        id: "view.folderPane",
+        label: "Folder Pane",
+        group: "View/Layout",
+        shortcut: None,
+        params: "visible?: true or false — default: show it if hidden, hide it if shown",
+        edits: false,
+        run: |s, p| toggle_pane(s, p, Pane::Folders),
+    },
+    CommandSpec {
+        id: "view.myDay",
+        label: "My Day",
+        group: "View/Layout",
+        shortcut: None,
+        params: "visible?: true or false — default: show it if hidden, hide it if shown",
+        edits: false,
+        run: |s, p| toggle_pane(s, p, Pane::MyDay),
+    },
+    CommandSpec {
         id: "file.errorReports",
         label: "Error reports",
         group: "File/Options",
@@ -1696,6 +1724,59 @@ fn language(s: &mut Session, p: &Value) -> Result<Value> {
         };
     }
     Ok(json!({ "language": s.store.language.as_deref().unwrap_or("auto"), "followsSystem": s.store.language.is_none() }))
+}
+
+/// The colour theme and light or dark: saved with the person's other choices, not undone.
+fn theme(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::THEMES;
+    let before = (s.store.theme.clone(), s.store.appearance.clone());
+    if let Some(t) = str_param(p, "theme")? {
+        let t = t.trim().to_ascii_lowercase();
+        let Some(id) = THEMES.iter().find(|id| **id == t) else {
+            return Err(Error::invalid("theme", format!("one of {}", THEMES.join(", "))));
+        };
+        s.store.theme = (Some(id) != THEMES.first()).then(|| (*id).to_string());
+    }
+    if let Some(m) = str_param(p, "mode")? {
+        s.store.appearance = match m.trim().to_ascii_lowercase().as_str() {
+            "light" => Some("light".to_string()),
+            "dark" => Some("dark".to_string()),
+            "system" | "auto" | "" => None,
+            _ => return Err(Error::invalid("mode", "light, dark or system")),
+        };
+    }
+    if (s.store.theme.clone(), s.store.appearance.clone()) != before {
+        s.dirty = true;
+    }
+    Ok(json!({
+        "theme": s.store.theme.as_deref().unwrap_or(THEMES.first().copied().unwrap_or_default()),
+        "mode": s.store.appearance.as_deref().unwrap_or("system"),
+        "themes": THEMES,
+    }))
+}
+
+/// The panes that can be hidden.
+enum Pane {
+    Folders,
+    MyDay,
+}
+
+/// Shows or hides a pane (`visible`), or turns it over; saved, not undone.
+fn toggle_pane(s: &mut Session, p: &Value, pane: Pane) -> Result<Value> {
+    let hidden = match pane {
+        Pane::Folders => &mut s.store.hide_folder_pane,
+        Pane::MyDay => &mut s.store.hide_my_day,
+    };
+    let was = *hidden;
+    *hidden = match bool_param(p, "visible")? {
+        Some(v) => !v,
+        None => !was,
+    };
+    let visible = !*hidden;
+    if *hidden != was {
+        s.dirty = true;
+    }
+    Ok(json!({ "visible": visible }))
 }
 
 /// Tinta Office: whether error reports may be sent. The desktop app asks at the first start and

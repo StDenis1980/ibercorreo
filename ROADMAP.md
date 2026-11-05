@@ -299,6 +299,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   the address book's D-Bus API, checked against EDS 3.52. The automatic Send/Receive period can be
   chosen (list beside Send/Receive: only by hand, 1–60 minutes; command `account.syncInterval`,
   kept in the mailbox; default 5).
+- 2026-11-05 — New look, after Outlook for macOS with our own icons: search in the title bar,
+  a light rail (Mail, Calendar, People, settings), a pane of folders, calendars or address books
+  with its New button, one row of labelled tools per view, white cards on a window washed with the
+  theme's colour, and My Day (month and the coming days) on the right of Mail and Calendar. Six
+  colour themes (teal, terracotta, sea, lavender, olive, azulejo), each light or dark or as the
+  computer (`view.theme`), and buttons that hide the folder pane and My Day (`view.folderPane`,
+  `view.myDay`); all kept in the mailbox. People is a table of contacts beside the contact card.
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
@@ -335,6 +342,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.2b .pst calendar and contacts.
 - 2026-11-04 — M6.1 MCP server.
 - 2026-11-04 — contacts in GNOME (EDS); Send/Receive period.
+- 2026-11-05 — new look after Outlook for macOS; colour themes; hideable panes.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

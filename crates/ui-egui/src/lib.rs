@@ -6,6 +6,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod chrome;
 pub mod i18n;
 pub mod icons;
 pub mod theme;
@@ -13,7 +14,8 @@ pub mod tinta_feedback;
 mod tinta_reports_ui;
 
 use crate::i18n::{Language, tf, tl};
-use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use chrome::avatar_color;
+use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
@@ -176,8 +178,6 @@ impl ContactForm {
 /// others as the server names them.
 /// The search box's tooltip: what a query can say.
 const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
-/// The search box on the mail ribbon.
-const SEARCH_WIDTH: f32 = 220.0;
 
 /// A rule's condition and actions in one line, for the Rules list.
 fn rule_summary(r: &Value) -> String {
@@ -489,6 +489,8 @@ pub struct App {
     rule_form: RuleForm,
     password: Option<(AccountId, String)>,
     tokens: Tokens,
+    /// The toolbar is too narrow for labels this frame: its buttons show only their icons.
+    compact_tools: bool,
     draft: Option<Draft>,
     event_form: EventForm,
     contact_form: ContactForm,
@@ -550,6 +552,7 @@ impl App {
             rule_form: RuleForm::default(),
             password: None,
             tokens: Tokens::light(),
+            compact_tools: false,
             draft: None,
             event_form: EventForm::default(),
             contact_form: ContactForm::default(),
@@ -1034,14 +1037,27 @@ impl App {
 
     pub fn ui(&mut self, ui: &mut Ui) {
         i18n::set_current(i18n::resolve(self.session.store.language.as_deref()));
-        self.tokens = if ui.visuals().dark_mode { Tokens::dark() } else { Tokens::light() };
+        let preference = match self.session.store.appearance.as_deref() {
+            Some("light") => egui::ThemePreference::Light,
+            Some("dark") => egui::ThemePreference::Dark,
+            _ => egui::ThemePreference::System,
+        };
+        if ui.ctx().options(|o| o.theme_preference) != preference {
+            ui.ctx().set_theme(preference);
+        }
+        self.tokens = Tokens::themed(self.session.store.theme.as_deref(), ui.visuals().dark_mode);
         self.shortcuts(ui);
         self.sync_draft();
         self.unread = self.session.store.unread_counts();
         let t = self.tokens;
-        egui::Panel::left("rail").exact_size(56.0).resizable(false).frame(Frame::NONE.fill(t.rail)).show(ui, |ui| self.rail(ui));
-        egui::Panel::top("ribbon").frame(Frame::NONE.fill(t.pane).inner_margin(Margin::symmetric(10, 6))).show(ui, |ui| self.ribbon(ui));
-        egui::Panel::bottom("status").frame(Frame::NONE.fill(t.pane).inner_margin(Margin::symmetric(10, 3))).show(ui, |ui| self.status_bar(ui));
+        chrome::paint_window(ui.ctx(), &t);
+        egui::Panel::top("title").exact_size(chrome::BAR_H).resizable(false).frame(Frame::NONE).show(ui, |ui| self.title_bar(ui));
+        egui::Panel::bottom("status").frame(Frame::NONE.inner_margin(Margin::symmetric(10, 2))).show(ui, |ui| self.status_bar(ui));
+        egui::Panel::left("rail")
+            .exact_size(48.0)
+            .resizable(false)
+            .frame(Frame::NONE.inner_margin(Margin { left: 0, right: 0, top: 0, bottom: 6 }))
+            .show(ui, |ui| self.rail(ui));
         match self.session.view {
             View::Mail => self.mail(ui),
             View::Calendar => self.calendar(ui),
@@ -1264,7 +1280,7 @@ impl App {
                     for r in &self.due {
                         let id = r["id"].clone();
                         let start = r["start"].clone();
-                        Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(
+                        Frame::NONE.fill(t.card).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(
                             ui,
                             |ui| {
                                 ui.set_width(ui.available_width());
@@ -1379,142 +1395,167 @@ impl App {
         }
     }
 
-    fn rail(&mut self, ui: &mut Ui) {
-        let t = self.tokens;
-        ui.add_space(10.0);
-        ui.vertical_centered(|ui| {
-            for (icon, view, id, tip) in [
-                (Icon::Mail, View::Mail, "view.mail", "Mail (Ctrl+1)"),
-                (Icon::Calendar, View::Calendar, "view.calendar", "Calendar (Ctrl+2)"),
-                (Icon::People, View::Contacts, "view.contacts", "People (Ctrl+3)"),
-            ] {
-                let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
-                let active = self.session.view == view;
-                if active || resp.hovered() {
-                    ui.painter().rect_filled(rect, 8.0, if active { t.accent } else { t.accent.gamma_multiply(0.35) });
-                }
-                icons::paint(ui.painter(), rect.shrink(9.0), icon, t.rail_icon);
-                if resp.on_hover_text(tl(tip)).clicked() {
-                    self.run(id, json!({}));
-                }
-                ui.add_space(6.0);
+    /// A thin upright line between groups of toolbar buttons.
+    fn tool_gap(&self, ui: &mut Ui) {
+        let (r, _) = ui.allocate_exact_size(vec2(9.0, 22.0), Sense::hover());
+        ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, self.tokens.border));
+    }
+
+    /// Mail's toolbar: delete, archive, move, flag, read or unread; reply, reply all, forward;
+    /// Send/Receive and how often; rules.
+    fn mail_tools(&mut self, ui: &mut Ui) {
+        let has_message = self.session.message.is_some();
+        let seen = self.session.message.and_then(|id| self.session.store.message(id).ok()).is_some_and(|m| m.seen);
+        let read_label = if seen { "Mark as unread" } else { "Mark as read" };
+        let sync_label = if self.syncing { "Sending and receiving…" } else { "Send/Receive" };
+        // When the labels do not fit, the message's own buttons give theirs up first, then
+        // replying, Send/Receive and Rules too.
+        let own = ["Delete", "Archive", "Move", "Flag", read_label];
+        let rest = ["Reply", "Reply All", "Forward", sync_label, "Rules…"];
+        let head = if self.session.store.hide_folder_pane { 80.0 } else { 0.0 };
+        let fixed = head + 2.0 * 11.0 + 120.0 + 2.0 * (own.len() + rest.len()) as f32;
+        let (own_w, rest_w) = (self.tools_width(ui, &own), self.tools_width(ui, &rest));
+        let icons_w = chrome::TOOL_ICON_W * own.len() as f32;
+        let avail = ui.available_width();
+        let (own_compact, rest_compact) = if fixed + own_w + rest_w <= avail { (false, false) } else { (true, fixed + icons_w + rest_w > avail) };
+        self.compact_tools = own_compact;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            if self.hidden_pane_head(ui, Icon::Pencil, "New Email") {
+                self.run("message.compose", json!({}));
             }
+            if self.tool(ui, Icon::Trash, "Delete", has_message).clicked() {
+                self.run("message.delete", json!({}));
+            }
+            if self.tool(ui, Icon::Archive, "Archive", has_message).clicked() {
+                self.run("message.archive", json!({}));
+            }
+            let mv = self.tool(ui, Icon::Move, "Move", has_message);
+            if has_message {
+                let folders: Vec<(FolderId, String)> =
+                    self.session.store.folders_of(self.session.current_account()).iter().map(|f| (f.id, folder_label(f))).collect();
+                let current = self.session.folder;
+                egui::Popup::menu(&mv).show(|ui| {
+                    for (id, name) in folders {
+                        if id != current && ui.button(name).clicked() {
+                            self.run("message.move", json!({ "folder": id.0 }));
+                        }
+                    }
+                });
+            }
+            if self.tool(ui, Icon::Flag, "Flag", has_message).clicked() {
+                self.run("message.flag", json!({}));
+            }
+            if self.tool(ui, Icon::Unread, read_label, has_message).clicked() {
+                self.run("message.markRead", json!({ "read": !seen }));
+            }
+            self.compact_tools = rest_compact;
+            self.tool_gap(ui);
+            if self.tool(ui, Icon::Reply, "Reply", has_message).clicked() {
+                self.run("message.reply", json!({}));
+            }
+            if self.tool(ui, Icon::ReplyAll, "Reply All", has_message).clicked() {
+                self.run("message.replyAll", json!({}));
+            }
+            if self.tool(ui, Icon::Forward, "Forward", has_message).clicked() {
+                self.run("message.forward", json!({}));
+            }
+            self.tool_gap(ui);
+            if self.tool(ui, Icon::Sync, sync_label, !self.syncing).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
+                self.sync_or_set_up("Set up your mail server to send and receive.");
+            }
+            self.sync_interval(ui);
+            if self.tool(ui, Icon::Rules, "Rules…", true).on_hover_text(tl("Sort, mark or delete mail as it arrives")).clicked() {
+                self.rule_form = RuleForm { open: true, ..RuleForm::default() };
+            }
+            self.compact_tools = false;
         });
     }
 
-    fn button(&mut self, ui: &mut Ui, label: &str, id: &str, enabled: bool) {
-        if ui.add_enabled(enabled, egui::Button::new(tl(label))).clicked() {
-            self.run(id, json!({}));
-        }
-    }
-
-    fn ribbon(&mut self, ui: &mut Ui) {
-        let has_message = self.session.message.is_some();
-        // Wrapped, so a narrow window (or long translated labels) moves buttons to a second row
-        // instead of drawing them over Undo, Redo and the search box.
-        ui.horizontal_wrapped(|ui| {
-            match self.session.view {
-                View::Mail => {
-                    if ui.add(egui::Button::new(RichText::new(tl("✉ New Email")).strong()).fill(self.tokens.accent_soft)).clicked() {
-                        self.run("message.compose", json!({}));
-                    }
-                    ui.separator();
-                    self.button(ui, "Reply", "message.reply", has_message);
-                    self.button(ui, "Reply All", "message.replyAll", has_message);
-                    self.button(ui, "Forward", "message.forward", has_message);
-                    ui.separator();
-                    self.button(ui, "Delete", "message.delete", has_message);
-                    self.button(ui, "Archive", "message.archive", has_message);
-                    self.button(ui, "Flag", "message.flag", has_message);
-                    self.button(ui, "Unread", "message.markRead", has_message);
-                    if has_message && ui.small_button("↺").on_hover_text(tl("Mark as unread")).clicked() {
-                        self.run("message.markRead", json!({ "read": false }));
-                    }
-                    ui.separator();
-                    let label = tl(if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" });
-                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
-                        self.sync_or_set_up("Set up your mail server to send and receive.");
-                    }
-                    self.sync_interval(ui);
-                    if ui.button(tl("Account…")).on_hover_text(tl("The settings of the account whose folder is open")).clicked() {
-                        let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
-                        self.open_account_settings(current, "");
-                    }
-                    if ui.button(tl("Rules…")).on_hover_text(tl("Sort, mark or delete mail as it arrives")).clicked() {
-                        self.rule_form = RuleForm { open: true, ..RuleForm::default() };
-                    }
-                }
-                View::Calendar => {
-                    if ui.add(egui::Button::new(RichText::new(tl("+ New Appointment")).strong()).fill(self.tokens.accent_soft)).clicked() {
-                        self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.day), ..EventForm::default() };
-                    }
-                    ui.separator();
-                    if ui.button(tl("Today")).clicked() {
-                        self.run("calendar.goto", json!({ "date": "today" }));
-                    }
-                    self.button(ui, "◀", "calendar.prev", true);
-                    self.button(ui, "▶", "calendar.next", true);
-                    ui.label(RichText::new(range_title(&self.session)).heading());
-                    ui.separator();
-                    for (mode, label, id, tip) in [
-                        (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
-                        (CalendarMode::WorkWeek, "Work Week", "calendar.viewWorkWeek", "Ctrl+Alt+2"),
-                        (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
-                        (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
-                    ] {
-                        if ui.selectable_label(self.session.calendar_mode == mode, tl(label)).on_hover_text(tip).clicked() {
-                            self.run(id, json!({}));
-                            self.scroll_to_morning = true;
-                        }
-                    }
-                    ui.separator();
-                    self.zone_picker(ui);
-                    ui.separator();
-                    self.sync_button(ui, "Set up your account to sync calendars.");
-                }
-                View::Contacts => {
-                    ui.label(RichText::new(tl("People")).heading());
-                    ui.separator();
-                    self.sync_button(ui, "Set up your account to sync contacts.");
-                }
+    /// The calendar's toolbar: Today, back and forward, what is shown, the view, the time zone,
+    /// Send/Receive.
+    fn calendar_tools(&mut self, ui: &mut Ui) {
+        self.compact_tools = false;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if self.hidden_pane_head(ui, Icon::Calendar, "New Appointment") {
+                self.new_appointment();
             }
-            if ui.available_size_before_wrap().x < self.ribbon_right_width(ui) {
-                ui.end_row();
+            if ui.add(egui::Button::new(tl("Today")).corner_radius(6.0).fill(self.tokens.card)).clicked() {
+                self.run("calendar.goto", json!({ "date": "today" }));
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                self.button(ui, "Redo", "edit.redo", self.session.can_redo());
-                self.button(ui, "Undo", "edit.undo", self.session.can_undo());
-                if self.session.view == View::Mail {
-                    let r = ui
-                        .add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(SEARCH_WIDTH))
-                        .on_hover_text(tl(SEARCH_HELP));
-                    if r.changed() {
-                        let q = self.search.clone();
-                        self.run("search.messages", json!({ "query": q }));
+            if self.icon_button(ui, Icon::ChevronLeft, "Back", false).clicked() {
+                self.run("calendar.prev", json!({}));
+            }
+            if self.icon_button(ui, Icon::ChevronRight, "Forward", false).clicked() {
+                self.run("calendar.next", json!({}));
+            }
+            ui.label(RichText::new(range_title(&self.session)).size(15.0).strong().color(self.tokens.text));
+            self.tool_gap(ui);
+            let modes = [
+                (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
+                (CalendarMode::WorkWeek, "Work Week", "calendar.viewWorkWeek", "Ctrl+Alt+2"),
+                (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
+                (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
+            ];
+            let current = modes.iter().find(|m| m.0 == self.session.calendar_mode).map_or("Week", |m| m.1);
+            let mut pick: Option<&str> = None;
+            ui.menu_button(format!("{} ⏷", tl(current)), |ui| {
+                for (mode, label, id, keys) in modes {
+                    if ui.selectable_label(self.session.calendar_mode == mode, tl(label)).on_hover_text(keys).clicked() {
+                        pick = Some(id);
+                        ui.close();
                     }
                 }
             });
+            if let Some(id) = pick {
+                self.run(id, json!({}));
+                self.scroll_to_morning = true;
+            }
+            self.zone_picker(ui);
+            let label = if self.syncing { "Syncing…" } else { "Send/Receive" };
+            if self.tool(ui, Icon::Sync, label, !self.syncing).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
+                self.sync_or_set_up("Set up your account to sync calendars.");
+            }
         });
     }
 
-    /// The width the ribbon's right-hand group (search box, Undo, Redo) needs.
-    fn ribbon_right_width(&self, ui: &Ui) -> f32 {
-        let style = ui.style();
-        let font = egui::TextStyle::Button.resolve(style);
-        let text = |s: &str| ui.fonts_mut(|f| f.layout_no_wrap(tl(s).to_string(), font.clone(), egui::Color32::WHITE).size().x);
-        let button = |s: &str| text(s) + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x;
-        let search =
-            if self.session.view == View::Mail { SEARCH_WIDTH + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x } else { 0.0 };
-        button("Undo") + button("Redo") + search
+    /// People's toolbar: write to the chosen contact, edit, delete; Send/Receive.
+    fn people_tools(&mut self, ui: &mut Ui) {
+        let chosen = self.contact_form.id;
+        let email = chosen.and_then(|id| self.session.store.contact(id).ok()).and_then(|c| c.emails.first().map(|a| a.to_string()));
+        self.compact_tools = false;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            if self.hidden_pane_head(ui, Icon::PersonAdd, "New Contact") {
+                self.contact_form = ContactForm::new_in(self.default_book());
+            }
+            if self.tool(ui, Icon::Mail, "Email", email.is_some()).clicked()
+                && let Some(to) = &email
+            {
+                self.run("message.compose", json!({ "to": to }));
+                self.run("view.mail", json!({}));
+            }
+            if self.tool(ui, Icon::Trash, "Delete", chosen.is_some()).clicked()
+                && let Some(id) = chosen
+            {
+                self.run("contact.delete", json!({ "id": id }));
+                self.contact_form = ContactForm::default();
+            }
+            self.tool_gap(ui);
+            let label = if self.syncing { "Syncing…" } else { "Send/Receive" };
+            if self.tool(ui, Icon::Sync, label, !self.syncing).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
+                self.sync_or_set_up("Set up your account to sync contacts.");
+            }
+        });
     }
 
-    /// Send/Receive, which also syncs the calendars and address books; without an account it
-    /// opens the account settings with `setup` as the reason.
-    fn sync_button(&mut self, ui: &mut Ui, setup: &str) {
-        let label = tl(if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" });
-        if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
-            self.sync_or_set_up(setup);
-        }
+    /// Opens the form for a new appointment on the day shown, at nine.
+    fn new_appointment(&mut self) {
+        self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.day), ..EventForm::default() };
     }
 
     /// How often Send/Receive runs on its own, as Outlook's "Schedule an automatic send/receive
@@ -1635,13 +1676,24 @@ impl App {
 
     fn mail(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::left("folders")
-            .default_size(190.0)
-            .size_range(140.0..=320.0)
-            .frame(Frame::NONE.fill(t.pane).inner_margin(8))
-            .show(ui, |ui| self.folders(ui));
-        egui::Panel::left("list").default_size(360.0).size_range(240.0..=640.0).frame(Frame::NONE.fill(t.list)).show(ui, |ui| self.message_list(ui));
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
+        if !self.session.store.hide_folder_pane {
+            egui::Panel::left("folders")
+                .default_size(232.0)
+                .size_range(170.0..=360.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 6, top: 0, bottom: 6 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::Pencil, "New Email") {
+                        self.run("message.compose", json!({}));
+                    }
+                    self.folders(ui);
+                });
+        }
+        egui::Panel::top("mail-tools").frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
+        if !self.session.store.hide_my_day {
+            egui::Panel::right("my-day").default_size(250.0).size_range(210.0..=380.0).frame(chrome::card(&t, 10)).show(ui, |ui| self.my_day(ui));
+        }
+        egui::Panel::left("list").default_size(340.0).size_range(240.0..=640.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 16)).show(ui, |ui| {
             if self.draft.is_some() {
                 self.compose(ui);
             } else {
@@ -2069,8 +2121,27 @@ impl App {
 
     fn calendar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::right("agenda").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| self.agenda(ui));
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(10)).show(ui, |ui| {
+        if !self.session.store.hide_folder_pane {
+            egui::Panel::left("calendar-pane")
+                .default_size(232.0)
+                .size_range(190.0..=360.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 8, top: 0, bottom: 6 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::Calendar, "New Appointment") {
+                        self.new_appointment();
+                    }
+                    ui.add_space(4.0);
+                    self.mini_month(ui, false);
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.calendar_list(ui));
+                });
+        }
+        egui::Panel::top("calendar-tools").frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
+        if !self.session.store.hide_my_day {
+            egui::Panel::right("agenda").default_size(270.0).size_range(220.0..=400.0).frame(chrome::card(&t, 12)).show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
+            });
+        }
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 10)).show(ui, |ui| {
             if self.session.calendar_mode == CalendarMode::Month {
                 self.month(ui);
             } else {
@@ -2110,9 +2181,9 @@ impl App {
                         if selected {
                             t.accent_soft
                         } else if in_month {
-                            t.reading
+                            t.card
                         } else {
-                            t.list
+                            theme::mix(t.card, t.window, 0.6)
                         },
                     );
                     p.rect_stroke(rect, 0.0, Stroke::new(0.5, t.border), StrokeKind::Inside);
@@ -2216,7 +2287,7 @@ impl App {
         if rows > 0 {
             let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW * rows as f32 + 4.0), Sense::hover());
             let p = ui.painter_at(strip);
-            p.rect_filled(strip, 0.0, t.list);
+            p.rect_filled(strip, 0.0, theme::mix(t.card, t.window, 0.6));
             for (n, list) in all_day.iter().enumerate() {
                 for (row, (summary, day, calendar)) in list.iter().take(rows).enumerate() {
                     let chip = egui::Rect::from_min_size(
@@ -2227,7 +2298,7 @@ impl App {
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
-                    p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.reading));
+                    p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.card));
                     p.with_clip_rect(chip).text(
                         chip.left_center() + vec2(4.0, 0.0),
                         egui::Align2::LEFT_CENTER,
@@ -2256,9 +2327,9 @@ impl App {
                     if *day == self.session.day {
                         t.accent_soft.gamma_multiply(0.4)
                     } else if weekend {
-                        t.list
+                        theme::mix(t.card, t.window, 0.6)
                     } else {
-                        t.reading
+                        t.card
                     },
                 );
                 p.line_segment([egui::pos2(x, grid.top()), egui::pos2(x, grid.bottom())], Stroke::new(0.5, t.border));
@@ -2333,7 +2404,7 @@ impl App {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
                     let color = self.calendar_color(e.calendar);
-                    p.rect_filled(rect, 3.0, soft(color, t.reading));
+                    p.rect_filled(rect, 3.0, soft(color, t.card));
                     p.rect_filled(egui::Rect::from_min_size(rect.left_top(), vec2(3.0, rect.height())), 1.0, color);
                     let clip = p.with_clip_rect(rect.shrink(1.0));
                     let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
@@ -2372,7 +2443,7 @@ impl App {
                 When::AllDay { .. } => tl("All day").to_string(),
                 When::Timed { start, end, .. } => format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute()),
             };
-            Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
+            Frame::NONE.fill(t.card).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(when).small().color(t.accent));
@@ -2411,7 +2482,6 @@ impl App {
             });
             ui.add_space(6.0);
         }
-        self.calendar_list(ui);
     }
 
     /// The calendars, with their colours; the ones synced from a server are marked.
@@ -2520,42 +2590,88 @@ impl App {
 
     fn people(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::right("contact-card").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
-        });
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(320.0));
-                if ui.button(tl("➕ New Contact")).clicked() {
-                    self.contact_form = ContactForm::new_in(self.default_book());
-                }
-            });
-            // The address books, when there is more than one: all, or one of them.
-            let books: Vec<(u32, String, bool)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone(), b.remote.is_some())).collect();
-            if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
-                self.contact_book = None;
-            }
-            if books.len() > 1 {
-                ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    if ui.selectable_label(self.contact_book.is_none(), tl("All")).clicked() {
+        let books: Vec<(u32, String, bool)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone(), b.remote.is_some())).collect();
+        if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
+            self.contact_book = None;
+        }
+        if !self.session.store.hide_folder_pane {
+            egui::Panel::left("books")
+                .default_size(232.0)
+                .size_range(170.0..=360.0)
+                .frame(Frame::NONE.inner_margin(Margin { left: 2, right: 6, top: 0, bottom: 6 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::PersonAdd, "New Contact") {
+                        self.contact_form = ContactForm::new_in(self.default_book());
+                    }
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(tl("Address books")).small().strong().color(t.text_weak));
+                    let total = self.session.store.contacts("").len();
+                    if self.pane_row(ui, Icon::People, tl("All contacts"), total, self.contact_book.is_none()) {
                         self.contact_book = None;
                     }
                     for (id, name, synced) in &books {
-                        let label = if *synced { format!("⟳ {name}") } else { name.clone() };
-                        let r = ui.selectable_label(self.contact_book == Some(*id), label);
-                        let r = if *synced { r.on_hover_text(tl("Synced with the CardDAV server at Send/Receive")) } else { r };
-                        if r.clicked() {
+                        let n = self.session.store.contacts("").iter().filter(|c| c.book == *id).count();
+                        let label = if *synced { format!("{name} ⟳") } else { name.clone() };
+                        if self.pane_row(ui, Icon::Folder, &label, n, self.contact_book == Some(*id)) {
                             self.contact_book = Some(*id);
                         }
                     }
                 });
-            }
-            ui.add_space(8.0);
-            let q = self.contact_query.to_lowercase();
-            let book = self.contact_book;
-            let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
-            if contacts.is_empty() {
+        }
+        egui::Panel::top("people-tools").frame(Frame::NONE).show(ui, |ui| self.people_tools(ui));
+        egui::Panel::right("contact-card").default_size(300.0).size_range(240.0..=420.0).frame(chrome::card(&t, 14)).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
+        });
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 0)).show(ui, |ui| self.contact_table(ui));
+    }
+
+    /// A row of a left pane: an icon, a name, a count; shaded when chosen. True when clicked.
+    fn pane_row(&self, ui: &mut Ui, icon: Icon, label: &str, count: usize, chosen: bool) -> bool {
+        let t = self.tokens;
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+        if chosen || resp.hovered() {
+            ui.painter().rect_filled(rect, 6.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
+        }
+        let color = if chosen { t.accent } else { t.text };
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(egui::pos2(rect.left() + 16.0, rect.center().y), vec2(15.0, 15.0)),
+            icon,
+            if chosen { t.accent } else { t.text_weak },
+        );
+        let font = egui::FontId::proportional(13.0);
+        ui.painter().text(egui::pos2(rect.left() + 32.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), color);
+        if count > 0 {
+            ui.painter().text(
+                egui::pos2(rect.right() - 8.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+                count.to_string(),
+                egui::FontId::proportional(11.5),
+                t.text_weak,
+            );
+        }
+        resp.clicked()
+    }
+
+    /// The contacts as a table: name, e-mail, phone, address book, title and company. A click
+    /// shows the contact's card.
+    fn contact_table(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        Frame::NONE.inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 6 }).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl("Contacts")).size(15.0).strong().color(t.text));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(220.0));
+                });
+            });
+        });
+        let q = self.contact_query.to_lowercase();
+        let book = self.contact_book;
+        let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
+        let books: std::collections::HashMap<u32, String> = self.session.store.books().iter().map(|b| (b.id, b.name.clone())).collect();
+        if contacts.is_empty() {
+            ui.add_space(24.0);
+            ui.vertical_centered(|ui| {
                 ui.label(
                     RichText::new(tl(if q.is_empty() {
                         "No contacts yet. Add one, or open a .vcf file with Tinta Correo."
@@ -2564,43 +2680,73 @@ impl App {
                     }))
                     .color(t.text_weak),
                 );
-            }
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                for c in contacts {
-                    let selected = self.contact_form.id == Some(c.id);
-                    let row = Frame::NONE
-                        .fill(if selected { t.accent_soft } else { Color32::TRANSPARENT })
-                        .inner_margin(Margin::symmetric(6, 4))
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-                                ui.painter().circle_filled(rect.center(), 18.0, t.accent_soft);
-                                let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
-                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.0), t.accent);
-                                ui.vertical(|ui| {
-                                    ui.label(RichText::new(&c.name).strong().color(t.text));
-                                    let mut line: Vec<String> = c.emails.first().map(|a| a.email.clone()).into_iter().collect();
-                                    line.extend(c.phones.first().map(|p| p.number.clone()));
-                                    line.extend(c.organization.clone());
-                                    ui.label(RichText::new(line.join("  ·  ")).small().color(t.text_weak));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if let Some(a) = c.emails.first()
-                                        && ui.button(tl("Email")).clicked()
-                                    {
-                                        self.run("message.compose", json!({ "to": a.to_string() }));
-                                        self.run("view.mail", json!({}));
-                                    }
-                                });
-                            });
-                        });
-                    if row.response.interact(Sense::click()).clicked() {
-                        self.contact_form = ContactForm::of(&c);
-                    }
-                    ui.separator();
-                }
             });
+            return;
+        }
+        const SHARES: [f32; 5] = [0.26, 0.27, 0.16, 0.13, 0.18];
+        let headings = ["Name", "Email", "Phone", "Address book", "Title and company"];
+        let font = egui::FontId::proportional(13.0);
+        let small = egui::FontId::proportional(11.5);
+        let columns = |rect: Rect| -> Vec<Rect> {
+            let mut x = rect.left() + 12.0;
+            let w = (rect.width() - 24.0).max(200.0);
+            SHARES
+                .iter()
+                .map(|s| {
+                    let r = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(x + w * s - 8.0, rect.bottom()));
+                    x += w * s;
+                    r
+                })
+                .collect()
+        };
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
+        for (r, h) in columns(head).into_iter().zip(headings) {
+            ui.painter().with_clip_rect(r).text(egui::pos2(r.left(), r.center().y), egui::Align2::LEFT_CENTER, tl(h), small.clone(), t.text_weak);
+        }
+        ui.painter().line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.border));
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, 38.0, contacts.len(), |ui, rows| {
+            for c in contacts.get(rows).unwrap_or_default() {
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+                let chosen = self.contact_form.id == Some(c.id);
+                if chosen || resp.hovered() {
+                    ui.painter().rect_filled(rect, 0.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
+                }
+                let cols = columns(rect);
+                let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
+                let company = match (&c.title, &c.organization) {
+                    (Some(a), Some(b)) => format!("{a}, {b}"),
+                    (Some(a), None) | (None, Some(a)) => a.clone(),
+                    (None, None) => String::new(),
+                };
+                let cells = [
+                    c.name.clone(),
+                    c.emails.first().map(|a| a.email.clone()).unwrap_or_default(),
+                    c.phones.first().map(|p| p.number.clone()).unwrap_or_default(),
+                    books.get(&c.book).cloned().unwrap_or_default(),
+                    company,
+                ];
+                for (i, (r, text)) in cols.iter().zip(cells).enumerate() {
+                    let p = ui.painter().with_clip_rect(*r);
+                    if i == 0 {
+                        let dot = egui::pos2(r.left() + 12.0, r.center().y);
+                        p.circle_filled(dot, 12.0, avatar_color(&c.name));
+                        p.text(dot, egui::Align2::CENTER_CENTER, &initials, small.clone(), Color32::WHITE);
+                        p.text(egui::pos2(r.left() + 32.0, r.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), t.text);
+                    } else {
+                        p.text(
+                            egui::pos2(r.left(), r.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            text,
+                            font.clone(),
+                            if i == 1 { t.accent } else { t.text },
+                        );
+                    }
+                }
+                ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.6)));
+                if resp.clicked() {
+                    self.contact_form = ContactForm::of(c);
+                }
+            }
         });
     }
 
@@ -2688,7 +2834,7 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
     use ibercorreo_core::calendar::When;
     let cancelled = info.method == "CANCEL";
     let mut out = None;
-    let fill = if cancelled { soft(t.flag, t.reading) } else { t.accent_soft };
+    let fill = if cancelled { soft(t.flag, t.card) } else { t.accent_soft };
     Frame::NONE.fill(fill).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let answered = |s: &str| {
@@ -4102,35 +4248,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The toolbar never draws one button over another: Ukrainian labels are long, and on a
-    /// narrow window the left buttons ran under Undo, Redo and the search box.
+    /// The toolbar never draws one label over another, nor past the window's edge: Ukrainian
+    /// labels are long, so on a narrow window the buttons give up their labels instead.
     #[test]
-    fn the_toolbar_buttons_never_overlap() {
-        for width in [1360.0, 1100.0, 900.0] {
-            let mut store = ibercorreo_store::Store::new();
-            store.language = Some("uk".into());
-            let mut app = App::new(Session::new(store, Date::EPOCH));
-            let ctx = egui::Context::default();
-            let input =
-                || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 860.0))), ..Default::default() };
-            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
-            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
-            out.textures_delta.clear();
-            i18n::set_current(Language::En);
-            let rect = |label: &str| {
-                out.shapes.iter().find_map(|c| match &c.shape {
-                    egui::Shape::Text(t) if t.galley.job.text.contains(label) => Some(t.galley.rect.translate(t.pos.to_vec2())),
-                    _ => None,
-                })
-            };
-            let sync = rect("Надіслати/отримати").unwrap();
-            for other in ["Скасувати", "Повторити", "Правила…"] {
-                let r = rect(other).unwrap_or_else(|| panic!("{other} is drawn at {width} px"));
-                assert!(r == sync || !r.intersects(sync), "{other} {r:?} overlaps Send/Receive {sync:?} at {width} px");
+    fn the_toolbar_labels_never_overlap_nor_run_off_the_window() {
+        for hide_folders in [false, true] {
+            for width in [1600.0, 1360.0, 1100.0, 900.0] {
+                let mut store = ibercorreo_store::Store::new();
+                store.language = Some("uk".into());
+                store.hide_folder_pane = hide_folders;
+                let mut app = App::new(Session::new(store, Date::EPOCH));
+                let ctx = egui::Context::default();
+                let input =
+                    || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 860.0))), ..Default::default() };
+                ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+                let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+                out.textures_delta.clear();
+                i18n::set_current(Language::En);
+                let band = chrome::BAR_H..chrome::BAR_H * 2.0;
+                let labels: Vec<(String, egui::Rect)> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|c| match &c.shape {
+                        egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.galley.rect.translate(t.pos.to_vec2()))),
+                        _ => None,
+                    })
+                    .filter(|(_, r)| band.contains(&r.center().y))
+                    .collect();
+                if width >= 1360.0 {
+                    assert!(labels.iter().any(|(l, _)| l == "Відповісти"), "Reply keeps its label at {width} px: {labels:?}");
+                }
+                for (i, (a, ra)) in labels.iter().enumerate() {
+                    assert!(ra.max.x <= width, "{a} runs off a {width} px window at {ra:?}");
+                    for (b, rb) in labels.iter().skip(i + 1) {
+                        assert!(!ra.intersects(*rb), "{a} {ra:?} overlaps {b} {rb:?} at {width} px");
+                    }
+                }
             }
-            let undo = rect("Скасувати").unwrap();
-            let rules = rect("Правила…").unwrap();
-            assert!(!undo.intersects(rules), "Undo {undo:?} overlaps Rules {rules:?} at {width} px");
         }
     }
 }

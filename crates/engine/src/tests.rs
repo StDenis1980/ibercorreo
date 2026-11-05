@@ -250,6 +250,38 @@ fn day_week_and_month_views_step_and_list_their_range() {
 }
 
 #[test]
+fn theme_and_mode_are_saved_not_undone_and_refuse_unknown_values() {
+    let mut s = session();
+    let out = s.run("view.theme", &Value::Null).unwrap();
+    assert_eq!((out["theme"].as_str(), out["mode"].as_str()), (Some("teal"), Some("system")));
+    assert!(!s.dirty, "asking changes nothing");
+    let out = s.run("view.theme", &json!({"theme": " Terracotta ", "mode": "dark"})).unwrap();
+    assert_eq!((out["theme"].as_str(), out["mode"].as_str()), (Some("terracotta"), Some("dark")));
+    assert_eq!((s.store.theme.as_deref(), s.store.appearance.as_deref()), (Some("terracotta"), Some("dark")));
+    assert!(s.dirty, "saved with the store");
+    assert!(!s.can_undo(), "Undo is for mail");
+    for bad in [json!({"theme": "neon"}), json!({"theme": 3}), json!({"mode": "sepia"}), json!({"theme": "sea", "mode": "x"})] {
+        assert!(s.run("view.theme", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.theme.as_deref(), Some("terracotta"), "a refused theme changes nothing");
+    s.run("view.theme", &json!({"theme": "teal", "mode": "system"})).unwrap();
+    assert_eq!((s.store.theme.as_ref(), s.store.appearance.as_ref()), (None, None), "the default is kept as none");
+}
+
+#[test]
+fn folder_pane_and_my_day_turn_over_or_take_a_value() {
+    let mut s = session();
+    assert_eq!(s.run("view.folderPane", &Value::Null).unwrap()["visible"], false);
+    assert!(s.store.hide_folder_pane && s.dirty);
+    assert_eq!(s.run("view.folderPane", &Value::Null).unwrap()["visible"], true);
+    assert_eq!(s.run("view.myDay", &json!({"visible": false})).unwrap()["visible"], false);
+    assert_eq!(s.run("view.myDay", &json!({"visible": false})).unwrap()["visible"], false, "a value is not a toggle");
+    assert!(s.store.hide_my_day && !s.store.hide_folder_pane);
+    assert!(s.run("view.myDay", &json!({"visible": "yes"})).is_err());
+    assert!(!s.can_undo());
+}
+
+#[test]
 fn interface_language_is_chosen_normalised_and_follows_the_computer_by_default() {
     let mut s = session();
     assert_eq!(s.run("app.language", &Value::Null).unwrap()["language"], "auto");

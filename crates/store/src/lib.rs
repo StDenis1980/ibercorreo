@@ -53,6 +53,10 @@ const STANDARD_FOLDERS: [(&str, FolderRole); 7] = [
     ("Trash", FolderRole::Trash),
 ];
 
+/// The colour themes, by id: each tints the window and the accent (the colours themselves are the
+/// interface's). The first is the default.
+pub const THEMES: &[&str] = &["teal", "terracotta", "sea", "lavender", "olive", "azulejo"];
+
 /// Minutes between automatic Send/Receives unless the person chose otherwise.
 pub const DEFAULT_SYNC_MINUTES: u32 = 5;
 /// The longest period that can be chosen: a day.
@@ -90,6 +94,18 @@ pub struct Store {
     /// [`DEFAULT_SYNC_MINUTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_minutes: Option<u32>,
+    /// The colour theme (an id from [`THEMES`]), chosen by the person; `None` the first one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// Light or dark, chosen by the person (`"light"`, `"dark"`); `None` follows the computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<String>,
+    /// The folder pane is hidden (View › Folder pane).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_folder_pane: bool,
+    /// The My Day pane (the coming days' events, beside mail and the calendar) is hidden.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_my_day: bool,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,

@@ -1,5 +1,5 @@
-//! The icon set, drawn in code (original artwork, no files): envelope, calendar, people, and
-//! the small folder icons of the folder pane.
+//! The icon set, drawn in code (original artwork, no files): envelope, calendar, people, the
+//! small folder icons of the folder pane, and the toolbar's line icons.
 
 use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, pos2, vec2};
 
@@ -20,6 +20,32 @@ pub enum Icon {
     Trash,
     Folder,
     Star,
+    /// Toolbars: reply (one arrow back), reply all (two), forward, a flag, an open envelope
+    /// (unread / read), two turning arrows (Send/Receive), a funnel (rules), three lines (the
+    /// folder pane), a palette (theme), a window with its right side shaded (My Day), plus,
+    /// undo, redo, a magnifier, a gear, a folder with an arrow (move), chevrons, a person with a
+    /// plus, a bell and a pencil (new message).
+    Reply,
+    ReplyAll,
+    Forward,
+    Flag,
+    Unread,
+    Sync,
+    Rules,
+    Menu,
+    Palette,
+    PanelRight,
+    Plus,
+    Undo,
+    Redo,
+    Search,
+    Gear,
+    Move,
+    ChevronLeft,
+    ChevronRight,
+    PersonAdd,
+    Bell,
+    Pencil,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -101,5 +127,145 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
                 .collect();
             p.add(egui::Shape::line(points, w));
         }
+        Icon::Reply | Icon::ReplyAll => {
+            let dx = if icon == Icon::ReplyAll { 0.08 } else { 0.0 };
+            p.add(egui::Shape::line(vec![at(-0.02 + dx, -0.26), at(-0.3 + dx, 0.0), at(-0.02 + dx, 0.26)], w));
+            if icon == Icon::ReplyAll {
+                p.add(egui::Shape::line(vec![at(-0.12, -0.26), at(-0.38, 0.0), at(-0.12, 0.26)], w));
+            }
+            arc(p, at(-0.3 + dx, 0.0), at(0.34, 0.32), w);
+        }
+        Icon::Forward => {
+            p.add(egui::Shape::line(vec![at(0.04, -0.26), at(0.32, 0.0), at(0.04, 0.26)], w));
+            arc(p, at(0.32, 0.0), at(-0.34, 0.32), w);
+        }
+        Icon::Flag => {
+            p.line_segment([at(-0.24, -0.34), at(-0.24, 0.36)], w);
+            p.add(egui::Shape::line(vec![at(-0.24, -0.3), at(0.3, -0.3), at(0.18, -0.12), at(0.3, 0.06), at(-0.24, 0.06)], w));
+        }
+        Icon::Unread => {
+            p.add(egui::Shape::line(vec![at(-0.34, -0.06), at(0.0, -0.32), at(0.34, -0.06), at(0.34, 0.3), at(-0.34, 0.3), at(-0.34, -0.06)], w));
+            p.add(egui::Shape::line(vec![at(-0.34, -0.06), at(0.0, 0.16), at(0.34, -0.06)], w));
+        }
+        Icon::Sync => {
+            let r = s * 0.28;
+            let pts = |from: f32, to: f32| -> Vec<Pos2> {
+                (0..=12).map(|i| from + (to - from) * i as f32 / 12.0).map(|a: f32| pos2(c.x + r * a.cos(), c.y + r * a.sin())).collect()
+            };
+            let pi = std::f32::consts::PI;
+            p.add(egui::Shape::line(pts(-pi * 0.95, -pi * 0.15), w));
+            p.add(egui::Shape::line(pts(pi * 0.05, pi * 0.85), w));
+            p.add(egui::Shape::line(vec![at(0.26, -0.3), at(0.26, -0.1), at(0.06, -0.1)], w));
+            p.add(egui::Shape::line(vec![at(-0.26, 0.3), at(-0.26, 0.1), at(-0.06, 0.1)], w));
+        }
+        Icon::Rules => {
+            p.add(egui::Shape::line(
+                vec![at(-0.34, -0.28), at(0.34, -0.28), at(0.08, 0.04), at(0.08, 0.32), at(-0.08, 0.24), at(-0.08, 0.04), at(-0.34, -0.28)],
+                w,
+            ));
+        }
+        Icon::Menu => {
+            for y in [-0.22, 0.0, 0.22] {
+                p.line_segment([at(-0.32, y), at(0.32, y)], w);
+            }
+        }
+        Icon::Palette => {
+            p.circle_stroke(c, s * 0.34, w);
+            for (x, y) in [(-0.14, -0.12), (0.04, -0.2), (0.18, -0.04)] {
+                p.circle_filled(at(x, y), s * 0.045, color);
+            }
+            p.circle_stroke(at(-0.02, 0.16), s * 0.07, w);
+        }
+        Icon::PanelRight => {
+            let r = Rect::from_center_size(c, vec2(s * 0.72, s * 0.6));
+            p.rect_stroke(r, s * 0.06, w, StrokeKind::Middle);
+            p.line_segment([at(0.12, -0.3), at(0.12, 0.3)], w);
+        }
+        Icon::Plus => {
+            p.line_segment([at(0.0, -0.3), at(0.0, 0.3)], w);
+            p.line_segment([at(-0.3, 0.0), at(0.3, 0.0)], w);
+        }
+        Icon::Undo | Icon::Redo => {
+            let m = if icon == Icon::Undo { 1.0 } else { -1.0 };
+            p.add(egui::Shape::line(vec![at(-0.12 * m, -0.3), at(-0.32 * m, -0.1), at(-0.12 * m, 0.1)], w));
+            p.add(egui::Shape::line(
+                vec![
+                    at(-0.32 * m, -0.1),
+                    at(0.08 * m, -0.1),
+                    at(0.22 * m, -0.04),
+                    at(0.3 * m, 0.08),
+                    at(0.26 * m, 0.22),
+                    at(0.1 * m, 0.3),
+                    at(-0.06 * m, 0.3),
+                ],
+                w,
+            ));
+        }
+        Icon::Search => {
+            p.circle_stroke(at(-0.06, -0.06), s * 0.22, w);
+            p.line_segment([at(0.1, 0.1), at(0.32, 0.32)], w);
+        }
+        Icon::Gear => {
+            p.circle_stroke(c, s * 0.12, w);
+            for i in 0..8 {
+                let a = std::f32::consts::PI * i as f32 / 4.0;
+                p.line_segment([pos2(c.x + s * 0.2 * a.cos(), c.y + s * 0.2 * a.sin()), pos2(c.x + s * 0.32 * a.cos(), c.y + s * 0.32 * a.sin())], w);
+            }
+        }
+        Icon::Move => {
+            let shape = [at(-0.34, -0.24), at(-0.1, -0.24), at(-0.02, -0.14), at(0.34, -0.14), at(0.34, 0.28), at(-0.34, 0.28), at(-0.34, -0.24)];
+            p.add(egui::Shape::line(shape.to_vec(), w));
+            p.line_segment([at(-0.14, 0.08), at(0.16, 0.08)], w);
+            p.add(egui::Shape::line(vec![at(0.06, -0.02), at(0.16, 0.08), at(0.06, 0.18)], w));
+        }
+        Icon::ChevronLeft => {
+            p.add(egui::Shape::line(vec![at(0.1, -0.24), at(-0.12, 0.0), at(0.1, 0.24)], w));
+        }
+        Icon::ChevronRight => {
+            p.add(egui::Shape::line(vec![at(-0.1, -0.24), at(0.12, 0.0), at(-0.1, 0.24)], w));
+        }
+        Icon::PersonAdd => {
+            p.circle_stroke(at(-0.08, -0.12), s * 0.13, w);
+            p.add(egui::Shape::line(vec![at(-0.34, 0.32), at(-0.28, 0.1), at(-0.08, 0.04), at(0.08, 0.08)], w));
+            p.line_segment([at(0.22, 0.04), at(0.22, 0.32)], w);
+            p.line_segment([at(0.08, 0.18), at(0.36, 0.18)], w);
+        }
+        Icon::Bell => {
+            p.add(egui::Shape::line(
+                vec![
+                    at(-0.26, 0.18),
+                    at(-0.2, 0.08),
+                    at(-0.2, -0.08),
+                    at(-0.12, -0.24),
+                    at(0.0, -0.3),
+                    at(0.12, -0.24),
+                    at(0.2, -0.08),
+                    at(0.2, 0.08),
+                    at(0.26, 0.18),
+                    at(-0.26, 0.18),
+                ],
+                w,
+            ));
+            p.line_segment([at(-0.06, 0.3), at(0.06, 0.3)], w);
+        }
+        Icon::Pencil => {
+            p.add(egui::Shape::line(vec![at(-0.3, 0.3), at(-0.3, 0.16), at(0.14, -0.28), at(0.28, -0.14), at(-0.16, 0.3), at(-0.3, 0.3)], w));
+            p.line_segment([at(0.04, -0.18), at(0.18, -0.04)], w);
+        }
     }
+}
+
+/// A quarter-ish curve from `from` to `to`, bending through the corner at `to`'s x and
+/// `from`'s y (the tail of a reply or forward arrow).
+fn arc(p: &Painter, from: Pos2, to: Pos2, w: Stroke) {
+    let corner = pos2(to.x, from.y);
+    let pts: Vec<Pos2> = (0..=10)
+        .map(|i| {
+            let t = i as f32 / 10.0;
+            let a = from + (corner - from) * t;
+            let b = corner + (to - corner) * t;
+            a + (b - a) * t
+        })
+        .collect();
+    p.add(egui::Shape::line(pts, w));
 }
