@@ -27,6 +27,7 @@ use ibercorreo_ui_egui::{GnomeAccount, GnomeMail};
 
 /// A D-Bus property value, as far as GOA's accounts need it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))] // built only by the GNOME (Linux, BSD) code and the tests
 pub enum Prop {
     Str(String),
     Bool(bool),
@@ -153,6 +154,7 @@ impl SecretSource for GoaSecret {
 }
 
 /// How GOA's refusals read in Correo: Account settings shows them.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))] // used only by the GNOME (Linux, BSD) code and the tests
 fn refused(detail: &str) -> Error {
     Error::External(format!("GNOME Settings could not sign in ({detail}): sign in again under Online Accounts in GNOME Settings"))
 }

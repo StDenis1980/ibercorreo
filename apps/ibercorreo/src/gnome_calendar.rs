@@ -48,6 +48,7 @@ pub const BOOK_UID: &str = "tinta-correo-contacts";
 /// A mirror of the contacts that could not be written (EDS not up yet) is tried again this often.
 const RETRY_EVERY: Duration = Duration::from_secs(30);
 /// Contacts sent to EDS in one D-Bus call.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))] // used only by the GNOME (Linux, BSD) code and the tests
 const CHUNK: usize = 100;
 /// How often the window looks for changed events.
 const EVERY: Duration = Duration::from_secs(1);
@@ -166,6 +167,7 @@ fn export_contacts(store: &Store, linked: bool) -> Vec<(String, String)> {
 /// What to change in the EDS book so it holds `cards`: the UIDs to remove, then the cards to
 /// create and to modify. `existing` are the UIDs the book has; `sent` what was last written, so a
 /// card that did not change is not written again.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))] // used only by the GNOME (Linux, BSD) code and the tests
 fn plan<'a>(existing: &[String], cards: &'a [(String, String)], sent: &HashMap<String, String>) -> (Vec<String>, Vec<&'a str>, Vec<&'a str>) {
     let ours: std::collections::HashSet<&str> = cards.iter().map(|(uid, _)| uid.as_str()).collect();
     let have: std::collections::HashSet<&str> = existing.iter().map(String::as_str).collect();
@@ -308,6 +310,7 @@ impl Exporter {
 /// The EDS calendars made from GNOME Online Accounts account `goa`, by their EDS ids: the
 /// children of its collection source (`[GNOME Online Accounts] AccountId=…`), given each
 /// source's id and key file.
+#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))] // used only by the GNOME (Linux, BSD) code and the tests
 pub fn goa_calendars(sources: &[(String, String)], goa: &str) -> Vec<String> {
     let value = |data: &str, section: &str, key: &str| -> Option<String> {
         let mut inside = false;
