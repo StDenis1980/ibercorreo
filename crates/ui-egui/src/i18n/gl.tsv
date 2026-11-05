@@ -350,3 +350,6 @@
 	Smaller (Ctrl+-)	Máis pequeno (Ctrl+-)
 	Larger (Ctrl+=)	Máis grande (Ctrl+=)
 	Reset	Restablecer
+	Hide subfolders	Ocultar subcartafoles
+	Show subfolders	Amosar subcartafoles
+	Back to {percent} % (Ctrl+0)	Volver a {percent} % (Ctrl+0)

@@ -352,3 +352,6 @@
 	Smaller (Ctrl+-)	Kleiner (Strg+-)
 	Larger (Ctrl+=)	Größer (Strg+=)
 	Reset	Zurücksetzen
+	Hide subfolders	Unterordner ausblenden
+	Show subfolders	Unterordner einblenden
+	Back to {percent} % (Ctrl+0)	Zurück auf {percent} % (Strg+0)

@@ -517,6 +517,104 @@ pub struct App {
     folded: std::collections::HashSet<u32>,
     /// The theme egui's own widgets were last styled for ([`theme::apply`]); `None`: not yet.
     styled: Option<Option<String>>,
+    /// Folders folded shut in the folder pane, by account and path ([`TreeRow::key`]).
+    folded_paths: std::collections::HashSet<(u32, String)>,
+    /// The size the status bar's slider is being dragged to, saved when it is let go.
+    zoom_drag: Option<f32>,
+    /// The interface size's default, smallest and largest, in percent (from `view.zoom`).
+    zoom_limits: Option<(u16, u16, u16)>,
+}
+
+/// How far in each level of subfolders sits in the folder pane.
+const FOLDER_INDENT: f32 = 16.0;
+
+/// How a row of the folder pane is drawn.
+#[derive(Debug, Clone, Default)]
+struct FolderLine {
+    /// The name shown; `None`: the folder's own label.
+    label: Option<String>,
+    /// How many levels of subfolders in.
+    depth: usize,
+    /// `Some(open)` when it has subfolders to fold.
+    fold: Option<bool>,
+    /// Unread mail in its folded-away subfolders, counted on it.
+    folded_unread: usize,
+    /// Show the account's address under the name (Favorites, with several accounts).
+    with_account: bool,
+}
+
+/// A row of an account's folder tree.
+#[derive(Debug, Clone, PartialEq)]
+struct TreeRow {
+    /// `None`: a path subfolders share that is no folder here (a server's `[Gmail]`, say).
+    folder: Option<FolderId>,
+    /// The path in lower case, segments joined by "/": what folding remembers.
+    key: String,
+    /// The last segment, as the server spells it; a standard folder's own label.
+    label: String,
+    depth: usize,
+    children: bool,
+}
+
+/// An account's folders as a tree, in the store's order, subfolders right under their parent.
+/// A folder's name is its server path with "/" between levels ("Clients/Acme"); Inbox's
+/// subfolders ("INBOX/Work") go under the Inbox. Standard folders are never nested.
+fn folder_tree(folders: &[&ibercorreo_core::Folder]) -> Vec<TreeRow> {
+    struct Node {
+        row: TreeRow,
+        kids: Vec<usize>,
+    }
+    let mut nodes: Vec<Node> = Vec::new();
+    let mut roots: Vec<usize> = Vec::new();
+    let mut by_key: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for f in folders {
+        let segments: Vec<&str> = if f.role == FolderRole::Other { f.name.split('/').filter(|s| !s.is_empty()).collect() } else { Vec::new() };
+        let segments = if segments.is_empty() { vec![f.name.as_str()] } else { segments };
+        let mut parent: Option<usize> = None;
+        let mut key = String::new();
+        for (i, segment) in segments.iter().enumerate() {
+            if i > 0 {
+                key.push('/');
+            }
+            key.push_str(&segment.to_lowercase());
+            let last = i + 1 == segments.len();
+            let label = if last && f.role != FolderRole::Other { folder_label(f) } else { (*segment).to_string() };
+            let found = by_key.get(&key).copied();
+            let reuse = match found.and_then(|n| nodes.get(n).map(|node| (n, node.row.folder.is_none()))) {
+                Some((n, _)) if !last => Some(n),
+                Some((n, true)) => Some(n),
+                _ => None,
+            };
+            let n = if let Some(n) = reuse {
+                if last && let Some(node) = nodes.get_mut(n) {
+                    node.row.folder = Some(f.id);
+                    node.row.label = label;
+                }
+                n
+            } else {
+                let n = nodes.len();
+                nodes.push(Node {
+                    row: TreeRow { folder: last.then_some(f.id), key: key.clone(), label, depth: i, children: false },
+                    kids: Vec::new(),
+                });
+                by_key.entry(key.clone()).or_insert(n);
+                match parent.and_then(|p| nodes.get_mut(p)) {
+                    Some(p) => p.kids.push(n),
+                    None => roots.push(n),
+                }
+                n
+            };
+            parent = Some(n);
+        }
+    }
+    let mut out = Vec::with_capacity(nodes.len());
+    let mut stack: Vec<(usize, usize)> = roots.iter().rev().map(|&n| (n, 0)).collect();
+    while let Some((n, depth)) = stack.pop() {
+        let Some(node) = nodes.get(n) else { continue };
+        out.push(TreeRow { depth, children: !node.kids.is_empty(), ..node.row.clone() });
+        stack.extend(node.kids.iter().rev().map(|&k| (k, depth + 1)));
+    }
+    out
 }
 
 /// The Favorites heading's key among [`App::folded`] (account ids are far below it).
@@ -567,6 +665,9 @@ impl App {
             due: Vec::new(),
             due_checked: None,
             styled: None,
+            folded_paths: std::collections::HashSet::new(),
+            zoom_drag: None,
+            zoom_limits: None,
             last_calendar: None,
             invite: None,
             content: None,
@@ -1273,18 +1374,29 @@ impl App {
         let t = self.tokens;
         let mut action: Option<(&'static str, Value)> = None;
         let title = if self.due.len() == 1 {
-            tl("🔔 1 Reminder").to_string()
+            tl("🔔 1 Reminder").trim_start_matches('🔔').trim().to_string()
         } else {
-            format!("🔔 {}", tf("{n} Reminders", &[("n", &self.due.len().to_string())]))
+            tf("{n} Reminders", &[("n", &self.due.len().to_string())])
         };
-        egui::Window::new(title)
+        // A compact header of our own, as a mail app's reminder: a bell and the count, on the left.
+        let frame = Frame::window(&ui.ctx().global_style()).inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 12 });
+        egui::Window::new(&title)
             .id(egui::Id::new("reminders"))
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::RIGHT_BOTTOM, [-20.0, -44.0])
+            .frame(frame)
+            // Above the status bar, never over it.
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
             .show(ui.ctx(), |ui| {
                 ui.set_width(380.0);
-                egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let (bell, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                    icons::paint(ui.painter(), bell, Icon::Bell, t.accent);
+                    ui.label(RichText::new(&title).size(15.0).strong().color(t.text));
+                });
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
                     for r in &self.due {
                         let id = r["id"].clone();
                         let start = r["start"].clone();
@@ -1292,15 +1404,20 @@ impl App {
                             .fill(theme::mix(t.card, t.window, 0.55))
                             .corner_radius(CornerRadius::same(8))
                             .stroke(Stroke::new(1.0, t.border))
-                            .inner_margin(12)
+                            .inner_margin(Margin { left: 12, right: 10, top: 8, bottom: 8 })
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
+                                ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
                                 let when = r["start"].as_str().unwrap_or("").replace('T', " ");
                                 let place = r["location"].as_str().filter(|l| !l.is_empty()).map(|l| format!(" · 📍 {l}")).unwrap_or_default();
-                                ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                // When and where, how soon, and the buttons, on one line.
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                    ui.vertical(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                        ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                    });
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                         if ui.button(tl("Dismiss")).clicked() {
                                             action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
@@ -1316,7 +1433,7 @@ impl App {
                                     });
                                 });
                             });
-                        ui.add_space(8.0);
+                        ui.add_space(6.0);
                     }
                 });
                 ui.separator();
@@ -1680,20 +1797,58 @@ impl App {
                 ui.separator();
             }
             ui.label(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                self.language_menu(ui);
-                tinta_reports_ui::menu(self, ui);
-                let _ = tinta_feedback::button(ui, &mut self.tinta_feedback, i18n::current().code());
-            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.zoom_slider(ui));
         });
     }
 
-    /// The status bar's interface language menu: Automatic (the computer's) or one by hand.
+    /// The interface's size at the right of the status bar, as in an office suite: −, a slider in
+    /// steps of 10, +, and the percent (a click on it goes back to the default). A drag is saved
+    /// once, when let go.
+    fn zoom_slider(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        // The default and the range, as view.zoom says them (asked once; asking changes nothing).
+        let (default, lo, hi) = *self.zoom_limits.get_or_insert_with(|| {
+            let v = self.session.run("view.zoom", &Value::Null).unwrap_or_default();
+            let n = |k: &str, d: u16| v.get(k).and_then(Value::as_u64).and_then(|n| u16::try_from(n).ok()).unwrap_or(d);
+            (n("default", 110), n("min", 80), n("max", 200))
+        });
+        let kept = self.session.store.zoom();
+        let mut value = self.zoom_drag.unwrap_or(f32::from(kept));
+        let mut set: Option<Value> = None;
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let percent = ui
+            .add(egui::Label::new(RichText::new(format!("{} %", value.round())).small().color(t.text_weak)).sense(Sense::click()))
+            .on_hover_text(tf("Back to {percent} % (Ctrl+0)", &[("percent", &default.to_string())]));
+        if percent.clicked() {
+            set = Some(json!({ "reset": true }));
+        }
+        if ui.small_button("+").on_hover_text(tl("Larger (Ctrl+=)")).clicked() {
+            set = Some(json!({ "step": 1 }));
+        }
+        let range = f32::from(lo)..=f32::from(hi.max(lo));
+        let slider = ui.add_sized(vec2(110.0, 18.0), egui::Slider::new(&mut value, range).step_by(10.0).show_value(false)).on_hover_text(tl("Size"));
+        if slider.dragged() {
+            self.zoom_drag = Some(value);
+        } else if slider.drag_stopped() || slider.changed() {
+            self.zoom_drag = None;
+            set = Some(json!({ "percent": value.round() }));
+        }
+        if ui.small_button("−").on_hover_text(tl("Smaller (Ctrl+-)")).clicked() {
+            set = Some(json!({ "step": -1 }));
+        }
+        if let Some(p) = set {
+            self.zoom_drag = None;
+            self.run("view.zoom", p);
+        }
+    }
+
+    /// The title bar's interface language menu: Automatic (the computer's) or one by hand.
     fn language_menu(&mut self, ui: &mut Ui) {
         let chosen = self.session.store.language.clone();
         let current = i18n::current();
         let mut pick: Option<&str> = None;
-        ui.menu_button(RichText::new(format!("🌐 {}", current.name())).small(), |ui| {
+        let tip = format!("{}: {}", tl("Interface language"), current.name());
+        self.icon_menu(ui, Icon::Globe, &tip, |ui| {
             if ui.selectable_label(chosen.is_none(), tl("Automatic (system language)")).clicked() {
                 pick = Some(i18n::AUTO);
             }
@@ -1702,9 +1857,7 @@ impl App {
                     pick = Some(l.code());
                 }
             }
-        })
-        .response
-        .on_hover_text(tl("Interface language"));
+        });
         if let Some(code) = pick {
             self.run("app.language", json!({ "language": code }));
         }
@@ -1756,8 +1909,9 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if self.folder_heading(ui, FOLD_FAVORITES, tl("Favorites"), None).0 {
+                let line = FolderLine { with_account: several, ..FolderLine::default() };
                 for id in &favorites {
-                    self.folder_row(ui, *id, several);
+                    self.folder_row(ui, Some(*id), &line);
                 }
                 if favorites.is_empty() {
                     ui.add_space(4.0);
@@ -1779,10 +1933,8 @@ impl App {
                 }
                 if open {
                     let account = account.unwrap_or_else(|| self.session.store.first_account());
-                    let ids: Vec<FolderId> = self.session.store.folders_of(account).iter().map(|f| f.id).collect();
-                    for id in ids {
-                        self.folder_row(ui, id, false);
-                    }
+                    let rows = folder_tree(&self.session.store.folders_of(account));
+                    self.folder_tree_rows(ui, account, &rows);
                 }
             }
             ui.add_space(10.0);
@@ -1845,17 +1997,26 @@ impl App {
         (open, gear)
     }
 
-    /// One folder in the pane: its icon, name and unread count. `with_account` adds the
-    /// account's address (in Favorites, when there are several).
-    fn folder_row(&mut self, ui: &mut Ui, id: FolderId, with_account: bool) {
+    /// One row of the folder pane: a folder's icon, name and unread count, or a path its
+    /// subfolders share that is no folder here (`id` `None`). `line` says how far in it sits,
+    /// whether it folds and what it shows; true when its chevron was clicked.
+    fn folder_row(&mut self, ui: &mut Ui, id: Option<FolderId>, line: &FolderLine) -> bool {
         let t = self.tokens;
         let store = &self.session.store;
-        let Ok(folder) = store.folder(id) else { return };
-        let (name, role) = (folder_label(folder), folder.role);
-        let email = if with_account { store.account(folder.account).map(|a| a.address.email.clone()).ok() } else { None };
-        let unread = self.unread.get(&id).copied().unwrap_or(0);
-        let favorite = store.is_favorite(id);
-        let selected = self.session.folder == id && self.search.is_empty();
+        let folder = id.and_then(|id| store.folder(id).ok());
+        if id.is_some() && folder.is_none() {
+            return false;
+        }
+        let name = match (&line.label, folder) {
+            (Some(l), _) => l.clone(),
+            (None, Some(f)) => folder_label(f),
+            (None, None) => String::new(),
+        };
+        let role = folder.map_or(FolderRole::Other, |f| f.role);
+        let email = if line.with_account { folder.and_then(|f| store.account(f.account).ok()).map(|a| a.address.email.clone()) } else { None };
+        let unread = id.and_then(|id| self.unread.get(&id).copied()).unwrap_or(0).saturating_add(line.folded_unread);
+        let favorite = id.is_some_and(|id| store.is_favorite(id));
+        let selected = id.is_some_and(|id| self.session.folder == id) && self.search.is_empty();
         let height = if email.is_some() { 46.0 } else { 34.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let painter = ui.painter_at(rect);
@@ -1876,36 +2037,59 @@ impl App {
             FolderRole::Other => Icon::Folder,
         };
         let strong = unread > 0;
-        let color = if strong { t.unread } else { t.text };
-        let line = if email.is_some() { rect.top() + 16.0 } else { rect.center().y };
-        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + 32.0, line), vec2(18.0, 18.0)), icon, color);
+        let color = if strong {
+            t.unread
+        } else if id.is_none() {
+            t.text_weak
+        } else {
+            t.text
+        };
+        let line_y = if email.is_some() { rect.top() + 16.0 } else { rect.center().y };
+        let indent = FOLDER_INDENT * line.depth as f32;
+        let mut toggled = false;
+        if let Some(open) = line.fold {
+            let chevron = egui::Rect::from_center_size(egui::pos2(rect.left() + indent + 11.0, line_y), vec2(20.0, 24.0));
+            let r = ui.interact(chevron, resp.id.with("fold"), Sense::click());
+            if r.hovered() {
+                painter.rect_filled(chevron, 4.0, t.accent_soft);
+            }
+            let glyph = if open { "⏷" } else { "⏵" };
+            painter.text(chevron.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(11.0), t.text_weak);
+            toggled = r.on_hover_text(tl(if open { "Hide subfolders" } else { "Show subfolders" })).clicked();
+        }
+        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + indent + 32.0, line_y), vec2(18.0, 18.0)), icon, color);
         let count = if unread > 0 { unread.to_string() } else { String::new() };
         let count_w = if count.is_empty() {
             0.0
         } else {
             let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(13.0), t.unread);
             let w = g.size().x;
-            painter.galley(egui::pos2(rect.right() - 10.0 - w, line - g.size().y / 2.0), g, t.unread);
+            painter.galley(egui::pos2(rect.right() - 10.0 - w, line_y - g.size().y / 2.0), g, t.unread);
             w + 12.0
         };
-        let text_left = rect.left() + 52.0;
+        let text_left = rect.left() + indent + 52.0;
         let room = (rect.right() - count_w - 10.0 - text_left).max(0.0);
         let font = egui::FontId::proportional(15.0);
         let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(room);
         let g = painter.layout_job(job);
-        painter.galley(egui::pos2(text_left, line - g.size().y / 2.0), g, color);
+        painter.galley(egui::pos2(text_left, line_y - g.size().y / 2.0), g, color);
         if let Some(email) = &email {
             let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(theme::CAPTION), t.text_weak);
             job.wrap = egui::text::TextWrapping::truncate_at_width(room);
             let g = painter.layout_job(job);
             painter.galley(egui::pos2(text_left, rect.top() + 32.0 - g.size().y / 2.0), g, t.text_weak);
         }
-        let resp = match &email {
-            Some(e) => resp.on_hover_text(format!("{name} — {e}")),
-            None => resp,
+        let resp = match (&email, folder) {
+            (Some(e), _) => resp.on_hover_text(format!("{name} — {e}")),
+            (None, Some(f)) if line.label.is_some() => resp.on_hover_text(folder_label(f)),
+            _ => resp,
         };
-        if resp.clicked() {
+        let Some(id) = id else {
+            // A shared path is no folder to open: a click folds it.
+            return toggled || resp.clicked();
+        };
+        if resp.clicked() && !toggled {
             self.search.clear();
             self.run("folder.select", json!({ "folder": id.0 }));
         }
@@ -1920,6 +2104,47 @@ impl App {
                 ui.close();
             }
         });
+        toggled
+    }
+
+    /// An account's folders as a tree: subfolders under their parent, a folded parent's hidden
+    /// and its unread mail counted on it.
+    fn folder_tree_rows(&mut self, ui: &mut Ui, account: AccountId, rows: &[TreeRow]) {
+        let mut hidden_below: Option<usize> = None;
+        for (i, row) in rows.iter().enumerate() {
+            if let Some(depth) = hidden_below {
+                if row.depth > depth {
+                    continue;
+                }
+                hidden_below = None;
+            }
+            let key = (account.0, row.key.clone());
+            let open = !self.folded_paths.contains(&key);
+            let folded_unread = if row.children && !open {
+                hidden_below = Some(row.depth);
+                rows.iter()
+                    .skip(i + 1)
+                    .take_while(|r| r.depth > row.depth)
+                    .filter_map(|r| r.folder.and_then(|id| self.unread.get(&id).copied()))
+                    .fold(0usize, usize::saturating_add)
+            } else {
+                0
+            };
+            let line = FolderLine {
+                label: Some(row.label.clone()),
+                depth: row.depth,
+                fold: row.children.then_some(open),
+                folded_unread,
+                with_account: false,
+            };
+            if self.folder_row(ui, row.folder, &line) && row.children {
+                if open {
+                    self.folded_paths.insert(key);
+                } else {
+                    self.folded_paths.remove(&key);
+                }
+            }
+        }
     }
 
     fn message_list(&mut self, ui: &mut Ui) {
@@ -4304,6 +4529,88 @@ mod tests {
         let shown = texts(&mut app);
         assert!(shown.iter().any(|t| t.contains("could not be read")), "{shown:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Subfolders sit under their parent ("INBOX/Work" under the Inbox), a path no folder
+    /// holds still gets a row, and standard folders are never nested.
+    #[test]
+    fn the_folder_pane_is_a_tree() {
+        let mut store = ibercorreo_store::Store::new();
+        let a = store.first_account();
+        for name in ["Clients/Acme", "Clients", "INBOX/Work", "[Gmail]/Important", "Clients/Acme/2026", "Notes"] {
+            store.add_folder(a, name, FolderRole::Other);
+        }
+        let rows = folder_tree(&store.folders_of(a));
+        let shown: Vec<(usize, &str, bool, bool)> = rows.iter().map(|r| (r.depth, r.label.as_str(), r.folder.is_some(), r.children)).collect();
+        let at = |label: &str| shown.iter().position(|(_, l, _, _)| *l == label).unwrap();
+        assert_eq!(shown.iter().filter(|(_, l, _, _)| *l == "Clients").count(), 1, "the folder fills the path's row: {shown:?}");
+        assert_eq!(shown[at("Clients")], (0, "Clients", true, true));
+        assert_eq!(shown[at("Acme")], (1, "Acme", true, true));
+        assert_eq!(shown[at("2026")], (2, "2026", true, false));
+        assert_eq!(at("Acme"), at("Clients") + 1);
+        assert_eq!(at("2026"), at("Acme") + 1);
+        assert_eq!(shown[at("Work")].0, 1);
+        assert_eq!(at("Work"), at("Inbox") + 1, "under the Inbox: {shown:?}");
+        assert_eq!(shown[at("Inbox")], (0, "Inbox", true, true));
+        assert_eq!(shown[at("[Gmail]")], (0, "[Gmail]", false, true), "a path no folder holds");
+        assert_eq!(shown[at("Important")].0, 1);
+        assert_eq!(shown[at("Notes")], (0, "Notes", true, false));
+        assert!(shown.iter().filter(|r| r.0 == 0).count() >= 8, "standard folders stay at the top level");
+    }
+
+    /// Folding a parent hides its subfolders, and their unread mail is counted on it.
+    #[test]
+    fn a_folded_folder_hides_its_subfolders() {
+        let mut store = ibercorreo_store::Store::new();
+        let a = store.first_account();
+        store.add_folder(a, "Clients", FolderRole::Other);
+        let acme = store.add_folder(a, "Clients/Acme", FolderRole::Other);
+        for _ in 0..3 {
+            store.add_message(ibercorreo_core::Message::new(MessageId(0), acme)).unwrap();
+        }
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1360.0, 860.0))), ..Default::default() };
+        let texts = |app: &mut App| {
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None })
+                .collect::<Vec<_>>()
+        };
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t == "Acme"), "{shown:?}");
+        app.folded_paths.insert((a.0, "clients".into()));
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t == "Clients"), "{shown:?}");
+        assert!(!shown.iter().any(|t| t == "Acme"), "hidden under its folded parent: {shown:?}");
+        assert!(shown.iter().any(|t| t == "3"), "Acme's unread counted on Clients: {shown:?}");
+    }
+
+    /// The status bar's size slider shows the size kept, and its + saves a step.
+    #[test]
+    fn the_size_slider_follows_the_size_kept() {
+        let mut store = ibercorreo_store::Store::new();
+        store.zoom = Some(150);
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        let mut shown = Vec::new();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            shown =
+                out.shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        }
+        assert!(shown.iter().any(|t| t == "150 %"), "{shown:?}");
+        app.session.store.zoom = Some(90);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let shown: Vec<String> =
+            out.shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        assert!(shown.iter().any(|t| t == "90 %"), "{shown:?}");
+        assert_eq!(app.zoom_drag, None, "nothing dragged, nothing pending");
     }
 
     /// The interface takes the size kept in the mailbox, and Ctrl+= makes it larger even while

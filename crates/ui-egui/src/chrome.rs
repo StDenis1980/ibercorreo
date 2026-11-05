@@ -152,7 +152,8 @@ impl App {
     pub(crate) fn title_bar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         let (full, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_H), Sense::hover());
-        let search_w = (full.width() - 300.0).clamp(160.0, 640.0);
+        // Room on the right for five buttons: feedback, error reports, language, theme, My Day.
+        let search_w = (full.width() - 460.0).clamp(160.0, 640.0);
         let search = Rect::from_center_size(full.center(), vec2(search_w, 34.0));
         let left = Rect::from_min_max(pos2(full.left() + 12.0, full.top()), pos2(search.left() - 12.0, full.bottom()));
         ui.scope_builder(UiBuilder::new().max_rect(left).layout(Layout::left_to_right(Align::Center)), |ui| {
@@ -197,7 +198,34 @@ impl App {
                 }
             }
             self.theme_menu(ui);
+            self.language_menu(ui);
+            crate::tinta_reports_ui::menu(self, ui);
+            self.feedback_button(ui);
         });
+    }
+
+    /// An icon button, like [`App::icon_button`], that opens a menu with `add` in it.
+    pub(crate) fn icon_menu(&self, ui: &mut Ui, icon: Icon, tip: &str, add: impl FnOnce(&mut Ui)) {
+        let t = self.tokens;
+        let (rect, resp) = ui.allocate_exact_size(vec2(TOOL_H, TOOL_H), Sense::click());
+        let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
+        if open || resp.hovered() {
+            ui.painter().rect_filled(rect, 8.0, t.accent_soft);
+        }
+        icons::paint(ui.painter(), rect.shrink(8.0), icon, t.accent);
+        let resp = resp.on_hover_text(tip);
+        egui::Popup::menu(&resp).show(add);
+    }
+
+    /// Send feedback (Tinta Office's dialog), in builds that can send.
+    fn feedback_button(&mut self, ui: &mut Ui) {
+        if !self.tinta_feedback.available {
+            return;
+        }
+        let tip = crate::tinta_feedback::tr(crate::i18n::current().code(), crate::tinta_feedback::BUTTON);
+        if self.icon_button(ui, Icon::Smile, tip, false).clicked() {
+            self.tinta_feedback.start(ui.ctx());
+        }
     }
 
     /// The theme picker: the six themes as swatches, and light, dark or the computer's choice.

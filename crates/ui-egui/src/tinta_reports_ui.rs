@@ -53,12 +53,12 @@ pub(crate) fn first_start(app: &mut App, ctx: &egui::Context) {
     });
 }
 
-/// The status bar's Error reports menu.
+/// The title bar's Error reports menu.
 pub(crate) fn menu(app: &mut App, ui: &mut Ui) {
     let Some(dir) = app.error_reports_dir.clone() else { return };
     let r = app.session.store.error_reports.clone();
     let mut action = None;
-    ui.menu_button(RichText::new(tl(SECTION)).small(), |ui| {
+    app.icon_menu(ui, crate::icons::Icon::Report, tl(SECTION), |ui| {
         ui.set_max_width(420.0);
         let mut on = r.consent == Some(true);
         if ui.checkbox(&mut on, tl(CHECKBOX)).changed() {

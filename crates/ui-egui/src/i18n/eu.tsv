@@ -350,3 +350,6 @@
 	Smaller (Ctrl+-)	Txikiagoa (Ctrl+-)
 	Larger (Ctrl+=)	Handiagoa (Ctrl+=)
 	Reset	Berrezarri
+	Hide subfolders	Ezkutatu azpikarpetak
+	Show subfolders	Erakutsi azpikarpetak
+	Back to {percent} % (Ctrl+0)	Itzuli {percent} %-ra (Ctrl+0)

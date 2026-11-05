@@ -352,3 +352,6 @@
 	Smaller (Ctrl+-)	Plus petit (Ctrl+-)
 	Larger (Ctrl+=)	Plus grand (Ctrl+=)
 	Reset	Réinitialiser
+	Hide subfolders	Masquer les sous-dossiers
+	Show subfolders	Afficher les sous-dossiers
+	Back to {percent} % (Ctrl+0)	Revenir à {percent} % (Ctrl+0)

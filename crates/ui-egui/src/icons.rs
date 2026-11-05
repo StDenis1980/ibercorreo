@@ -46,6 +46,11 @@ pub enum Icon {
     PersonAdd,
     Bell,
     Pencil,
+    /// The title bar: a smiling face (send feedback), a globe (the interface language) and a
+    /// page with a mark on it (error reports).
+    Smile,
+    Globe,
+    Report,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -229,6 +234,38 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             p.add(egui::Shape::line(vec![at(-0.34, 0.32), at(-0.28, 0.1), at(-0.08, 0.04), at(0.08, 0.08)], w));
             p.line_segment([at(0.22, 0.04), at(0.22, 0.32)], w);
             p.line_segment([at(0.08, 0.18), at(0.36, 0.18)], w);
+        }
+        Icon::Smile => {
+            p.circle_stroke(c, s * 0.34, w);
+            p.circle_filled(at(-0.12, -0.09), s * 0.045, color);
+            p.circle_filled(at(0.12, -0.09), s * 0.045, color);
+            let smile: Vec<Pos2> = (0..=8)
+                .map(|i| {
+                    let a = std::f32::consts::PI * (0.2 + 0.6 * i as f32 / 8.0);
+                    at(a.cos() * -0.17, a.sin() * 0.17 + 0.03)
+                })
+                .collect();
+            p.add(egui::Shape::line(smile, w));
+        }
+        Icon::Globe => {
+            p.circle_stroke(c, s * 0.34, w);
+            p.line_segment([at(-0.34, 0.0), at(0.34, 0.0)], w);
+            p.line_segment([at(-0.29, -0.17), at(0.29, -0.17)], w);
+            p.line_segment([at(-0.29, 0.17), at(0.29, 0.17)], w);
+            // The meridian: an ellipse half as wide as the globe.
+            let meridian: Vec<Pos2> = (0..=24)
+                .map(|i| {
+                    let a = std::f32::consts::TAU * i as f32 / 24.0;
+                    at(a.cos() * 0.15, a.sin() * 0.34)
+                })
+                .collect();
+            p.add(egui::Shape::line(meridian, w));
+        }
+        Icon::Report => {
+            let page = [at(-0.24, -0.32), at(0.1, -0.32), at(0.24, -0.18), at(0.24, 0.32), at(-0.24, 0.32), at(-0.24, -0.32)];
+            p.add(egui::Shape::line(page.to_vec(), w));
+            p.line_segment([at(0.0, -0.14), at(0.0, 0.08)], w);
+            p.circle_filled(at(0.0, 0.19), s * 0.045, color);
         }
         Icon::Bell => {
             p.add(egui::Shape::line(
