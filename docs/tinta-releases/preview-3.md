@@ -28,8 +28,8 @@ Novedades:
 - **Linux:** paquetes .deb, .rpm, AppImage y Flatpak; en GNOME, los eventos aparecen en el reloj y
   los contactos en la libreta de direcciones del sistema.
 
-Limitaciones conocidas: el inicio de sesión de Google está en modo de pruebas y pide entrar de nuevo
-cada 7 días; aún no se puede exportar a .pst.
+Limitaciones conocidas: Google aún no ha verificado la aplicación, así que al iniciar sesión con Google
+verá un aviso (o use una contraseña de aplicación); aún no se puede exportar a .pst.
 
 ## Українська
 
@@ -52,8 +52,8 @@ cada 7 días; aún no se puede exportar a .pst.
 - **Linux:** пакети .deb, .rpm, AppImage і Flatpak; у GNOME події видно в годиннику, а контакти в
   системній адресній книзі.
 
-Відомі обмеження: вхід через Google у тестовому режимі, тож раз на 7 днів просить увійти знову;
-експорту в .pst ще немає.
+Відомі обмеження: Google ще не перевірив застосунок, тому під час входу через Google буде
+попередження (або скористайтеся паролем застосунку); експорту в .pst ще немає.
 
 ## English
 
@@ -74,5 +74,5 @@ What's new:
 - **Linux:** .deb, .rpm, AppImage and Flatpak packages; on GNOME, events show in the clock and
   contacts in the system address book.
 
-Known limits: Google sign-in is in testing mode, so it asks you to sign in again every 7 days; no
-export to .pst yet.
+Known limits: Google has not verified the app yet, so Google sign-in shows a warning (or use an app
+password); no export to .pst yet.
