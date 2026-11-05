@@ -28,6 +28,7 @@
 mod gnome_calendar;
 mod goa;
 mod single_instance;
+mod tinta_feedback_send;
 mod tinta_report;
 
 use std::collections::HashMap;
@@ -912,6 +913,7 @@ impl eframe::App for Shell {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         tinta_report::busy();
         tinta_report::tick(&mut self.app);
+        tinta_feedback_send::tick(&mut self.app.tinta_feedback, ibercorreo_ui_egui::i18n::current().code());
         self.app.session.set_now(now());
         if self.ctx.is_none() {
             self.ctx = Some(ui.ctx().clone());

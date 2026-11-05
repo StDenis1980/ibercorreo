@@ -1818,6 +1818,7 @@ dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
  "ibercorreo-store",
+ "png",
  "serde_json",
  "sys-locale",
 ]
