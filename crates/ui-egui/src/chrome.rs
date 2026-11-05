@@ -125,7 +125,12 @@ impl App {
         let mut new = false;
         ui.allocate_ui_with_layout(vec2(ui.available_width(), BAR_H), Layout::left_to_right(Align::Center), |ui| {
             if self.icon_button(ui, Icon::Menu, "Hide the folder pane", false).clicked() {
-                self.run("view.folderPane", json!({ "visible": false }));
+                if self.peek_folders {
+                    // Shown only because it was asked for: hiding it again keeps nothing.
+                    self.peek_folders = false;
+                } else {
+                    self.run("view.folderPane", json!({ "visible": false }));
+                }
             }
             ui.add_space(6.0);
             new = self.new_button(ui, icon, label, false).clicked();
@@ -134,13 +139,54 @@ impl App {
         new
     }
 
+    /// Makes the window `extra` points wider for a pane the person asked to see, within the
+    /// screen, moving it left when its right edge would leave the screen. False when it cannot
+    /// grow: maximized, full screen, already as wide as the screen, or its size unknown.
+    pub(crate) fn grow_window(&self, ctx: &egui::Context, extra: f32) -> bool {
+        if !extra.is_finite() || extra <= 0.0 {
+            return false;
+        }
+        let (inner, outer, monitor, whole) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.inner_rect, v.outer_rect, v.monitor_size, v.maximized == Some(true) || v.fullscreen == Some(true))
+        });
+        let (Some(inner), Some(monitor)) = (inner, monitor) else { return false };
+        if whole {
+            return false;
+        }
+        let frame = outer.map_or(0.0, |o| (o.width() - inner.width()).max(0.0));
+        let width = (inner.width() + extra.ceil()).min(monitor.x - frame);
+        if width <= inner.width() + 0.5 {
+            return false;
+        }
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(vec2(width, inner.height())));
+        if let Some(o) = outer
+            && o.left() + frame + width > monitor.x
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos2((monitor.x - frame - width).max(0.0), o.top())));
+        }
+        true
+    }
+
+    /// Whether the left pane is folded away this frame: hidden by the person, or no room for it.
+    pub(crate) fn folder_pane_collapsed(&self) -> bool {
+        self.session.store.hide_folder_pane || self.folders_squeezed
+    }
+
     /// With the left pane hidden, its two buttons start the toolbar: show the pane, New.
     pub(crate) fn hidden_pane_head(&mut self, ui: &mut Ui, icon: Icon, label: &str) -> bool {
-        if !self.session.store.hide_folder_pane {
+        if !self.folder_pane_collapsed() {
             return false;
         }
         if self.icon_button(ui, Icon::Menu, "Show the folder pane", false).clicked() {
-            self.run("view.folderPane", json!({ "visible": true }));
+            if self.session.store.hide_folder_pane {
+                self.run("view.folderPane", json!({ "visible": true }));
+            } else {
+                // No room: the window grows by what is missing; where it cannot, My Day gives way.
+                self.grow_window(ui.ctx(), self.room_wanted.0);
+                self.peek_folders = true;
+                self.peek_my_day = false;
+            }
         }
         let new = self.new_button(ui, icon, label, true).clicked();
         ui.add_space(12.0);
@@ -192,9 +238,19 @@ impl App {
         let right = Rect::from_min_max(pos2(search.right() + 12.0, full.top()), pos2(full.right() - 12.0, full.bottom()));
         ui.scope_builder(UiBuilder::new().max_rect(right).layout(Layout::right_to_left(Align::Center)), |ui| {
             if self.session.view != View::Contacts {
-                let shown = !self.session.store.hide_my_day;
+                let shown = !self.session.store.hide_my_day && (!self.my_day_squeezed || self.peek_my_day);
                 if self.icon_button(ui, Icon::PanelRight, if shown { "Hide My Day" } else { "Show My Day" }, shown).clicked() {
-                    self.run("view.myDay", json!({}));
+                    if self.peek_my_day {
+                        self.peek_my_day = false;
+                    } else if self.my_day_squeezed {
+                        // No room: the window grows by what is missing; where it cannot, the
+                        // folder pane gives way.
+                        self.grow_window(ui.ctx(), self.room_wanted.1);
+                        self.peek_my_day = true;
+                        self.peek_folders = false;
+                    } else {
+                        self.run("view.myDay", json!({}));
+                    }
                 }
             }
             self.theme_menu(ui);

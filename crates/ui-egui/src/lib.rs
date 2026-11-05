@@ -523,6 +523,69 @@ pub struct App {
     zoom_drag: Option<f32>,
     /// The interface size's default, smallest and largest, in percent (from `view.zoom`).
     zoom_limits: Option<(u16, u16, u16)>,
+    /// This frame the folder pane (or My Day) has no room and gives way to the main pane; not
+    /// kept. `peek_…`: shown anyway, because the person asked to see it.
+    folders_squeezed: bool,
+    my_day_squeezed: bool,
+    peek_folders: bool,
+    peek_my_day: bool,
+    /// How much wider the window would have to be for the folder pane (My Day) to fit.
+    room_wanted: (f32, f32),
+    /// The main pane's card width last frame, inside its border.
+    main_width: f32,
+}
+
+/// The narrowest the main pane of each view gets before side panes give way: the reading pane,
+/// the calendar grid, the contact table.
+const MAIL_MAIN_MIN: f32 = 440.0;
+const CALENDAR_MAIN_MIN: f32 = 480.0;
+const PEOPLE_MAIN_MIN: f32 = 420.0;
+
+/// A side pane's width last frame, and how narrow and wide it may be.
+#[derive(Debug, Clone, Copy)]
+struct Side {
+    wanted: f32,
+    min: f32,
+    max: f32,
+}
+
+/// Which side panes are shown this frame and the widest each may be.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Fit {
+    left: bool,
+    left_max: f32,
+    middle_max: f32,
+    right: bool,
+    right_max: f32,
+    /// The width the view would need to show the left (right) pane too, at its narrowest
+    /// beside the others, with the main pane its room.
+    room_for_left: f32,
+    room_for_right: f32,
+}
+
+/// Lays out a view `full` wide whose main pane needs `main`, as Outlook gives way: first the
+/// right pane (My Day) goes, then the middle (the message list) and left panes shrink to their
+/// narrowest, then the left pane (folders) folds away. A pane in `peek` (left, right) is shown
+/// whatever the room. No pane may grow past what leaves the main pane its room.
+fn fit(full: f32, main: f32, left: Option<Side>, middle: Option<Side>, right: Option<Side>, peek: (bool, bool)) -> Fit {
+    let width = |s: Option<Side>| s.map_or(0.0, |s| s.wanted.clamp(s.min, s.max.max(s.min)));
+    let narrowest = |s: Option<Side>| s.map_or(0.0, |s| s.min);
+    let show_right = right.is_some() && (peek.1 || width(left) + narrowest(middle) + width(right) + main <= full);
+    let rw = if show_right { width(right) } else { 0.0 };
+    let show_left = left.is_some() && (peek.0 || narrowest(left) + narrowest(middle) + rw + main <= full);
+    let lw = if show_left { width(left) } else { 0.0 };
+    let cap = |s: Option<Side>, room: f32| s.map_or(0.0, |s| room.clamp(s.min, s.max.max(s.min)));
+    let left_max = cap(left, full - narrowest(middle) - rw - main);
+    let lw = lw.min(left_max);
+    Fit {
+        left: show_left,
+        left_max,
+        middle_max: cap(middle, full - lw - rw - main),
+        right: show_right,
+        right_max: cap(right, full - lw - narrowest(middle) - main),
+        room_for_left: narrowest(left) + narrowest(middle) + rw + main,
+        room_for_right: lw + narrowest(middle) + width(right) + main,
+    }
 }
 
 /// How far in each level of subfolders sits in the folder pane.
@@ -668,6 +731,12 @@ impl App {
             folded_paths: std::collections::HashSet::new(),
             zoom_drag: None,
             zoom_limits: None,
+            folders_squeezed: false,
+            my_day_squeezed: false,
+            peek_folders: false,
+            peek_my_day: false,
+            room_wanted: (0.0, 0.0),
+            main_width: 0.0,
             last_calendar: None,
             invite: None,
             content: None,
@@ -1567,7 +1636,7 @@ impl App {
         // replying, Send/Receive and Rules too.
         let own = ["Delete", "Archive", "Move", "Flag", read_label];
         let rest = ["Reply", "Reply All", "Forward", sync_label, "Rules…"];
-        let head = if self.session.store.hide_folder_pane { 96.0 } else { 0.0 };
+        let head = if self.folder_pane_collapsed() { 96.0 } else { 0.0 };
         let fixed = head + 2.0 * 15.0 + 115.0 + 4.0 * (own.len() + rest.len()) as f32;
         let (own_w, rest_w) = (self.tools_width(ui, &own), self.tools_width(ui, &rest));
         let icons_w = chrome::TOOL_ICON_W * own.len() as f32;
@@ -1812,34 +1881,76 @@ impl App {
             let n = |k: &str, d: u16| v.get(k).and_then(Value::as_u64).and_then(|n| u16::try_from(n).ok()).unwrap_or(d);
             (n("default", 110), n("min", 80), n("max", 200))
         });
-        let kept = self.session.store.zoom();
-        let mut value = self.zoom_drag.unwrap_or(f32::from(kept));
+        let (lo, hi) = (f32::from(lo), f32::from(hi.max(lo.saturating_add(10))));
+        let kept = f32::from(self.session.store.zoom());
+        let mut value = self.zoom_drag.unwrap_or(kept);
         let mut set: Option<Value> = None;
-        ui.spacing_mut().item_spacing.x = 4.0;
-        let percent = ui
-            .add(egui::Label::new(RichText::new(format!("{} %", value.round())).small().color(t.text_weak)).sense(Sense::click()))
-            .on_hover_text(tf("Back to {percent} % (Ctrl+0)", &[("percent", &default.to_string())]));
-        if percent.clicked() {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        // Right to left: the percent, +, the track, −.
+        let (pct, resp) = ui.allocate_exact_size(vec2(44.0, 20.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(pct, 4.0, t.accent_soft);
+        }
+        ui.painter().text(
+            pct.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{} %", value.round()),
+            egui::FontId::proportional(theme::CAPTION),
+            t.text_weak,
+        );
+        if resp.on_hover_text(tf("Back to {percent} % (Ctrl+0)", &[("percent", &default.to_string())])).clicked() {
             set = Some(json!({ "reset": true }));
         }
-        if ui.small_button("+").on_hover_text(tl("Larger (Ctrl+=)")).clicked() {
+        if self.tiny_button(ui, true, "Larger (Ctrl+=)") {
             set = Some(json!({ "step": 1 }));
         }
-        let range = f32::from(lo)..=f32::from(hi.max(lo));
-        let slider = ui.add_sized(vec2(110.0, 18.0), egui::Slider::new(&mut value, range).step_by(10.0).show_value(false)).on_hover_text(tl("Size"));
-        if slider.dragged() {
-            self.zoom_drag = Some(value);
-        } else if slider.drag_stopped() || slider.changed() {
-            self.zoom_drag = None;
-            set = Some(json!({ "percent": value.round() }));
+        let (track, resp) = ui.allocate_exact_size(vec2(120.0, 20.0), Sense::click_and_drag());
+        let span = (track.width() - 14.0).max(1.0);
+        let x_of = |v: f32| track.left() + 7.0 + span * ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+        if let Some(p) = resp.interact_pointer_pos()
+            && (resp.dragged() || resp.clicked())
+        {
+            let share = ((p.x - track.left() - 7.0) / span).clamp(0.0, 1.0);
+            value = ((lo + share * (hi - lo)) / 10.0).round() * 10.0;
         }
-        if ui.small_button("−").on_hover_text(tl("Smaller (Ctrl+-)")).clicked() {
+        let y = track.center().y;
+        let p = ui.painter();
+        let line = |a: f32, b: f32| egui::Rect::from_min_max(egui::pos2(a, y - 2.0), egui::pos2(b, y + 2.0));
+        p.rect_filled(line(track.left() + 7.0, track.right() - 7.0), 2.0, t.border);
+        p.rect_filled(line(track.left() + 7.0, x_of(value)), 2.0, t.accent);
+        let tick = x_of(f32::from(default));
+        p.line_segment([egui::pos2(tick, y - 6.0), egui::pos2(tick, y - 3.5)], Stroke::new(1.0, t.text_weak));
+        let big = resp.hovered() || resp.dragged();
+        p.circle(egui::pos2(x_of(value), y), if big { 7.5 } else { 6.5 }, t.card, Stroke::new(1.5, t.accent));
+        let resp = resp.on_hover_text(tl("Size"));
+        if resp.dragged() {
+            self.zoom_drag = Some(value);
+        } else if resp.drag_stopped() || resp.clicked() {
+            set = Some(json!({ "percent": value }));
+        }
+        if self.tiny_button(ui, false, "Smaller (Ctrl+-)") {
             set = Some(json!({ "step": -1 }));
         }
         if let Some(p) = set {
             self.zoom_drag = None;
             self.run("view.zoom", p);
         }
+    }
+
+    /// A frameless 20 × 20 point + (`plus`) or − button, drawn in thin strokes; true when clicked.
+    fn tiny_button(&self, ui: &mut Ui, plus: bool, tip: &str) -> bool {
+        let t = self.tokens;
+        let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+        let color = if resp.hovered() { t.accent } else { t.text_weak };
+        if resp.hovered() {
+            ui.painter().rect_filled(r, 4.0, t.accent_soft);
+        }
+        let (c, stroke) = (r.center(), Stroke::new(1.4, color));
+        ui.painter().line_segment([c - vec2(4.5, 0.0), c + vec2(4.5, 0.0)], stroke);
+        if plus {
+            ui.painter().line_segment([c - vec2(0.0, 4.5), c + vec2(0.0, 4.5)], stroke);
+        }
+        resp.on_hover_text(tl(tip)).clicked()
     }
 
     /// The title bar's interface language menu: Automatic (the computer's) or one by hand.
@@ -1865,12 +1976,53 @@ impl App {
 
     // ---- mail ----
 
+    /// Which side panes fit beside a view's main pane this frame, from their widths last frame;
+    /// panes the person hid stay hidden, and a pane they asked to see with no room is shown anyway.
+    fn fit_panes(
+        &mut self,
+        ui: &Ui,
+        main: f32,
+        left: (&str, f32, f32, f32),
+        middle: Option<(&str, f32, f32, f32)>,
+        right: Option<(&str, f32, f32, f32)>,
+        force_right: bool,
+    ) -> Fit {
+        let ctx = ui.ctx();
+        let side = |(id, default, min, max): (&str, f32, f32, f32)| Side {
+            wanted: egui::PanelState::load(ctx, egui::Id::new(id)).map_or(default, |s| s.size().x),
+            min,
+            max,
+        };
+        let store = &self.session.store;
+        let fit = fit(
+            ui.available_width(),
+            main,
+            (!store.hide_folder_pane).then(|| side(left)),
+            middle.map(side),
+            right.filter(|_| force_right || !store.hide_my_day).map(side),
+            (self.peek_folders, self.peek_my_day || force_right),
+        );
+        let missing = |need: f32| (need - ui.available_width()).max(0.0);
+        self.room_wanted = (missing(fit.room_for_left), missing(fit.room_for_right));
+        self.folders_squeezed = !store.hide_folder_pane && !fit.left;
+        self.my_day_squeezed = !force_right && right.is_some() && !store.hide_my_day && !fit.right;
+        fit
+    }
+
     fn mail(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        if !self.session.store.hide_folder_pane {
+        let fit = self.fit_panes(
+            ui,
+            MAIL_MAIN_MIN,
+            ("folders", 260.0, 190.0, 400.0),
+            Some(("list", 360.0, 280.0, 680.0)),
+            Some(("my-day", 280.0, 240.0, 440.0)),
+            false,
+        );
+        if fit.left {
             egui::Panel::left("folders")
                 .default_size(260.0)
-                .size_range(190.0..=400.0)
+                .size_range(190.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::Pencil, "New Email") {
@@ -1880,11 +2032,20 @@ impl App {
                 });
         }
         egui::Panel::top("mail-tools").frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
-        if !self.session.store.hide_my_day {
-            egui::Panel::right("my-day").default_size(280.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| self.my_day(ui));
+        if fit.right {
+            egui::Panel::right("my-day")
+                .default_size(280.0)
+                .size_range(240.0..=fit.right_max)
+                .frame(chrome::card(&t, 14))
+                .show(ui, |ui| self.my_day(ui));
         }
-        egui::Panel::left("list").default_size(360.0).size_range(280.0..=680.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
+        egui::Panel::left("list")
+            .default_size(360.0)
+            .size_range(280.0..=fit.middle_max)
+            .frame(chrome::card(&t, 0))
+            .show(ui, |ui| self.message_list(ui));
         egui::CentralPanel::no_frame().frame(chrome::card(&t, 24)).show(ui, |ui| {
+            self.main_width = ui.available_width() + 48.0;
             if self.draft.is_some() {
                 self.compose(ui);
             } else {
@@ -2392,10 +2553,11 @@ impl App {
 
     fn calendar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        if !self.session.store.hide_folder_pane {
+        let fit = self.fit_panes(ui, CALENDAR_MAIN_MIN, ("calendar-pane", 260.0, 210.0, 400.0), None, Some(("agenda", 300.0, 240.0, 440.0)), false);
+        if fit.left {
             egui::Panel::left("calendar-pane")
                 .default_size(260.0)
-                .size_range(210.0..=400.0)
+                .size_range(210.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::Calendar, "New Appointment") {
@@ -2407,12 +2569,13 @@ impl App {
                 });
         }
         egui::Panel::top("calendar-tools").frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
-        if !self.session.store.hide_my_day {
-            egui::Panel::right("agenda").default_size(300.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| {
+        if fit.right {
+            egui::Panel::right("agenda").default_size(300.0).size_range(240.0..=fit.right_max).frame(chrome::card(&t, 14)).show(ui, |ui| {
                 egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
             });
         }
         egui::CentralPanel::no_frame().frame(chrome::card(&t, 12)).show(ui, |ui| {
+            self.main_width = ui.available_width() + 24.0;
             if self.session.calendar_mode == CalendarMode::Month {
                 self.month(ui);
             } else {
@@ -2877,10 +3040,11 @@ impl App {
         if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
             self.contact_book = None;
         }
-        if !self.session.store.hide_folder_pane {
+        let fit = self.fit_panes(ui, PEOPLE_MAIN_MIN, ("books", 260.0, 190.0, 400.0), None, Some(("contact-card", 300.0, 240.0, 420.0)), true);
+        if fit.left {
             egui::Panel::left("books")
                 .default_size(260.0)
-                .size_range(190.0..=400.0)
+                .size_range(190.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
                 .show(ui, |ui| {
                     if self.pane_head(ui, Icon::PersonAdd, "New Contact") {
@@ -2902,10 +3066,15 @@ impl App {
                 });
         }
         egui::Panel::top("people-tools").frame(Frame::NONE).show(ui, |ui| self.people_tools(ui));
-        egui::Panel::right("contact-card").default_size(300.0).size_range(240.0..=420.0).frame(chrome::card(&t, 14)).show(ui, |ui| {
+        // The contact card is where a contact is read and edited: always there, at most as wide
+        // as leaves the table its room.
+        egui::Panel::right("contact-card").default_size(300.0).size_range(240.0..=fit.right_max).frame(chrome::card(&t, 14)).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
         });
-        egui::CentralPanel::no_frame().frame(chrome::card(&t, 0)).show(ui, |ui| self.contact_table(ui));
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 0)).show(ui, |ui| {
+            self.main_width = ui.available_width();
+            self.contact_table(ui);
+        });
     }
 
     /// A row of a left pane: an icon, a name, a count; shaded when chosen. True when clicked.
@@ -4587,6 +4756,104 @@ mod tests {
         assert!(shown.iter().any(|t| t == "Clients"), "{shown:?}");
         assert!(!shown.iter().any(|t| t == "Acme"), "hidden under its folded parent: {shown:?}");
         assert!(shown.iter().any(|t| t == "3"), "Acme's unread counted on Clients: {shown:?}");
+    }
+
+    /// The side panes give way, in Outlook's order, before the main pane gets narrower than it needs.
+    #[test]
+    fn side_panes_give_way_to_the_main_pane() {
+        let side = |wanted, min, max| Some(Side { wanted, min, max });
+        // Room for everything.
+        let f = fit(1800.0, 440.0, side(260.0, 190.0, 400.0), side(360.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(f.left && f.right);
+        assert!((f.middle_max - 680.0).abs() < 0.01, "as wide as the list may be: {f:?}");
+        // A 1360 px window at 130 %: My Day goes, the list is capped.
+        let f = fit(986.0, 440.0, side(260.0, 190.0, 400.0), side(450.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(f.left && !f.right, "{f:?}");
+        assert!(260.0 + f.middle_max + 440.0 <= 986.0 + 0.01, "{f:?}");
+        assert!(f.room_for_right > 986.0);
+        // Narrower still: the folder pane folds away too.
+        let f = fit(800.0, 440.0, side(260.0, 190.0, 400.0), side(360.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(!f.left && !f.right, "{f:?}");
+        assert!((f.middle_max - 360.0).abs() < 0.01);
+        // Asked for: My Day shows, and the folder pane makes room for it.
+        let f = fit(986.0, 440.0, side(260.0, 190.0, 400.0), side(300.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, true));
+        assert!(f.right && !f.left, "{f:?}");
+    }
+
+    /// At 1100 points, and in a 1360 px window at 130 %, every view's main pane keeps its room
+    /// and a long subject wraps by words, not by letters.
+    #[test]
+    fn the_main_pane_is_never_squeezed() {
+        for (width, zoom) in [(1100.0, None), (1360.0 / 1.3, Some(130))] {
+            let mut store = ibercorreo_store::Store::new();
+            store.zoom = zoom;
+            let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+            let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+            m.set_subject("Ha Sid Meier's Civilization V and one more product in your library");
+            let id = store.add_message(m).unwrap();
+            let mut s = Session::new(store, Date::EPOCH);
+            s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+            let mut app = App::new(s);
+            app.session.message = Some(id);
+            let ctx = egui::Context::default();
+            let input =
+                || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 800.0))), ..Default::default() };
+            for (view, min) in [("view.mail", MAIL_MAIN_MIN), ("view.calendar", CALENDAR_MAIN_MIN), ("view.contacts", PEOPLE_MAIN_MIN)] {
+                app.session.run(view, &json!({})).unwrap();
+                let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+                for _ in 0..3 {
+                    out.textures_delta.clear();
+                    out = ctx.run_ui(input(), |ui| app.ui(ui));
+                }
+                out.textures_delta.clear();
+                assert!(app.main_width >= min - 30.0, "{view} at {width}: the main pane is {} wide", app.main_width);
+                if view == "view.mail" {
+                    let subject = out
+                        .shapes
+                        .iter()
+                        .find_map(|c| match &c.shape {
+                            egui::Shape::Text(t)
+                                if t.galley.job.text.starts_with("Ha Sid Meier")
+                                    && t.galley.job.sections.iter().any(|s| s.format.font_id.size > 20.0) =>
+                            {
+                                Some(t.galley.clone())
+                            }
+                            _ => None,
+                        })
+                        .expect("the subject in the reading pane");
+                    assert!(subject.rows.len() <= 3, "wrapped into {} rows at {width}", subject.rows.len());
+                }
+            }
+        }
+    }
+
+    /// Asked for a pane with no room, the window grows by what is missing within the screen,
+    /// moving left if it must; maximized, it does not.
+    #[test]
+    fn the_window_grows_for_a_pane_asked_for() {
+        let app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let ctx = egui::Context::default();
+        let run = |maximized: bool, extra: f32| {
+            let mut raw = egui::RawInput::default();
+            let info = raw.viewports.entry(egui::ViewportId::ROOT).or_default();
+            info.inner_rect = Some(egui::Rect::from_min_size(egui::pos2(308.0, 40.0), vec2(1000.0, 700.0)));
+            info.outer_rect = Some(egui::Rect::from_min_size(egui::pos2(300.0, 10.0), vec2(1016.0, 738.0)));
+            info.monitor_size = Some(vec2(1600.0, 900.0));
+            info.maximized = Some(maximized);
+            let mut grown = false;
+            let mut out = ctx.run_ui(raw, |ui| grown = app.grow_window(ui.ctx(), extra));
+            out.textures_delta.clear();
+            let commands = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+            (grown, commands)
+        };
+        let (grown, commands) = run(false, 300.0);
+        assert!(grown);
+        assert!(commands.contains(&egui::ViewportCommand::InnerSize(vec2(1300.0, 700.0))), "{commands:?}");
+        assert!(commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(284.0, 10.0))), "moved left to stay on screen: {commands:?}");
+        let (grown, commands) = run(false, 5000.0);
+        assert!(grown && commands.contains(&egui::ViewportCommand::InnerSize(vec2(1584.0, 700.0))), "never wider than the screen: {commands:?}");
+        let (grown, commands) = run(true, 250.0);
+        assert!(!grown && commands.is_empty(), "maximized: the panes make room instead: {commands:?}");
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.
