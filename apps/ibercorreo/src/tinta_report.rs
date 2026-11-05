@@ -30,7 +30,7 @@ const KEY: &str = match option_env!("TINTA_REPORT_KEY") {
     None => "",
 };
 /// The app's name on the server.
-const APP: &str = "correo";
+pub(crate) const APP: &str = "correo";
 /// A window busy this long in one frame counts as not responding.
 pub const FREEZE_SECS: u64 = 15;
 /// Reports kept waiting to be sent, and sent ones kept to read; older ones are deleted.
@@ -191,7 +191,7 @@ fn digits(s: &str) -> String {
 }
 
 /// The last [`LOG_LINES`] lines of the log, scrubbed.
-fn log_tail() -> Vec<String> {
+pub(crate) fn log_tail() -> Vec<String> {
     use std::io::{Read, Seek, SeekFrom};
     let Some(path) = LOG_FILE.get() else { return Vec::new() };
     let Ok(mut f) = std::fs::File::open(path) else { return Vec::new() };
@@ -447,6 +447,32 @@ fn post(agent: &Agent, endpoint: &str, path: &str, body: &Value) -> Option<u16> 
     let mut client = ibercorreo_net::dav_anonymous(&url, &agent.tls);
     let headers = [("Content-Type", "application/json"), ("x-tinta-report", KEY)];
     client.send("POST", &url.path, &headers, body.to_string().as_bytes()).ok().map(|r| r.status)
+}
+
+/// POST JSON; the status and the reply (`null` when it isn't JSON), or `None` when the server
+/// could not be reached.
+pub(crate) fn post_json(endpoint: &str, path: &str, body: &Value) -> Option<(u16, Value)> {
+    let tls = crate::tls().ok()?;
+    let url = ibercorreo_net::dav::Url::parse(&format!("{}{path}", endpoint.trim_end_matches('/'))).ok()?;
+    let mut client = ibercorreo_net::dav_anonymous(&url, &tls);
+    let headers = [("Content-Type", "application/json"), ("x-tinta-report", KEY)];
+    let reply = client.send("POST", &url.path, &headers, body.to_string().as_bytes()).ok()?;
+    Some((reply.status, serde_json::from_slice(&reply.body).unwrap_or(Value::Null)))
+}
+
+/// The technical details a feedback carries when the person ticks them: system, build and the
+/// scrubbed last lines of the log.
+pub(crate) fn diagnostics() -> Value {
+    json!({
+        "os": format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+        "commit": COMMIT.get().copied().unwrap_or("dev"),
+        "log": log_tail(),
+    })
+}
+
+/// Where feedback waits for a connection, once [`install`] ran.
+pub(crate) fn feedback_dir() -> Option<PathBuf> {
+    DIR.get().map(|d| d.join("feedback"))
 }
 
 /// Send the pending reports oldest first; stop at the first one the server can't take now.

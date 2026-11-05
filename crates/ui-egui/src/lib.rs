@@ -9,6 +9,7 @@
 pub mod i18n;
 pub mod icons;
 pub mod theme;
+pub mod tinta_feedback;
 mod tinta_reports_ui;
 
 use crate::i18n::{Language, tf, tl};
@@ -481,6 +482,9 @@ pub struct App {
     /// Tinta Office: where the shell keeps error reports, set only by builds that send them
     /// (`tinta_reports_ui`).
     pub error_reports_dir: Option<std::path::PathBuf>,
+    /// Tinta Office: the Send feedback dialog ([`tinta_feedback`]), opened from the status bar's
+    /// smiling face; the desktop app sends.
+    pub tinta_feedback: tinta_feedback::Feedback,
     account_form: AccountForm,
     rule_form: RuleForm,
     password: Option<(AccountId, String)>,
@@ -541,6 +545,7 @@ impl App {
             oauth_running: None,
             gnome_accounts: None,
             error_reports_dir: None,
+            tinta_feedback: tinta_feedback::Feedback::default(),
             account_form: AccountForm::default(),
             rule_form: RuleForm::default(),
             password: None,
@@ -1046,6 +1051,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
+        self.tinta_feedback.show(ui.ctx(), i18n::current().code());
     }
 
     /// Rules: the list in the order they run (on/off, up/down, edit, delete), New rule and Run
@@ -1598,6 +1604,7 @@ impl App {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 self.language_menu(ui);
                 tinta_reports_ui::menu(self, ui);
+                let _ = tinta_feedback::button(ui, &mut self.tinta_feedback, i18n::current().code());
             });
         });
     }

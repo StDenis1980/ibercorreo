@@ -6,6 +6,8 @@ license.workspace = true
 description = "Tinta Correo L6: the Outlook-style egui front end (swappable: nothing below depends on it)"
 
 [dependencies]
+# Tinta Office: the feedback dialog encodes its window screenshot as PNG.
+png = "0.18"
 ibercorreo-core.workspace = true
 ibercorreo-engine.workspace = true
 egui.workspace = true
