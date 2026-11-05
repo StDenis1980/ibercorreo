@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: packaging/macos/package.sh substitutes @VERSION@ (full, e.g. 0.2.0-rc.1),
+     @SHORT_VERSION@ (numeric X.Y.Z) and @BUILD_SHA@.
+
+     No CFBundleDocumentTypes and no mailto: URL scheme yet: Finder and other apps hand files and
+     links to a macOS app as Apple events, not as command-line arguments, and Tinta Correo does
+     not receive Apple events yet. Declaring them now would put Tinta Correo under "Open With"
+     and then open an empty window. They come with the Apple-event handler. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>Tinta Correo</string>
+  <key>CFBundleName</key>
+  <string>Tinta Correo</string>
+  <key>CFBundleExecutable</key>
+  <string>Tinta Correo</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.stdenis1980.ibercorreo</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@SHORT_VERSION@</string>
+  <key>CFBundleVersion</key>
+  <string>@SHORT_VERSION@</string>
+  <key>IberCorreoVersion</key>
+  <string>@VERSION@</string>
+  <key>IberCorreoBuildCommit</key>
+  <string>@BUILD_SHA@</string>
+  <key>CFBundleIconFile</key>
+  <string>Tinta Correo</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+  <!-- Must match MACOSX_DEPLOYMENT_TARGET in package.sh (the same floor as the other Tinta apps). -->
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>NSSupportsAutomaticGraphicsSwitching</key>
+  <true/>
+  <key>NSRequiresAquaSystemAppearance</key>
+  <false/>
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © the Tinta Office authors. MIT OR Apache-2.0.</string>
+</dict>
+</plist>
