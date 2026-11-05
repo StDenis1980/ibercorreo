@@ -57,6 +57,12 @@ const STANDARD_FOLDERS: [(&str, FolderRole); 7] = [
 /// interface's). The first is the default.
 pub const THEMES: &[&str] = &["teal", "terracotta", "sea", "lavender", "olive", "azulejo"];
 
+/// The interface's size in percent unless the person chose otherwise (View › Size): a little
+/// larger than egui's own, which reads small on desktop screens.
+pub const DEFAULT_ZOOM: u16 = 110;
+/// The smallest and largest interface sizes, in percent.
+pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 80..=200;
+
 /// Minutes between automatic Send/Receives unless the person chose otherwise.
 pub const DEFAULT_SYNC_MINUTES: u32 = 5;
 /// The longest period that can be chosen: a day.
@@ -106,6 +112,9 @@ pub struct Store {
     /// The My Day pane (the coming days' events, beside mail and the calendar) is hidden.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_my_day: bool,
+    /// The interface's size in percent (View › Size); `None` is [`DEFAULT_ZOOM`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<u16>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,
@@ -410,6 +419,11 @@ impl Store {
     /// default; never more than [`MAX_SYNC_MINUTES`].
     pub fn sync_minutes(&self) -> u32 {
         self.sync_minutes.unwrap_or(DEFAULT_SYNC_MINUTES).min(MAX_SYNC_MINUTES)
+    }
+
+    /// The interface's size in percent, within [`ZOOM_RANGE`].
+    pub fn zoom(&self) -> u16 {
+        self.zoom.unwrap_or(DEFAULT_ZOOM).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
     }
 
     pub fn first_account(&self) -> AccountId {

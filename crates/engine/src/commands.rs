@@ -377,6 +377,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: |s, p| toggle_pane(s, p, Pane::MyDay),
     },
     CommandSpec {
+        id: "view.zoom",
+        label: "Size",
+        group: "View/Appearance",
+        shortcut: Some("Ctrl+= / Ctrl+- / Ctrl+0"),
+        params: "percent?: 80–200; step?: 1 (larger) or -1 (smaller), by 10; reset?: true (back to the default) — default: just say the size",
+        edits: false,
+        run: zoom,
+    },
+    CommandSpec {
         id: "file.errorReports",
         label: "Error reports",
         group: "File/Options",
@@ -1753,6 +1762,36 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
         "mode": s.store.appearance.as_deref().unwrap_or("system"),
         "themes": THEMES,
     }))
+}
+
+/// The interface's size (`percent`, a `step` of 10, or `reset`); saved, not undone.
+fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::{DEFAULT_ZOOM, ZOOM_RANGE};
+    let (lo, hi) = (*ZOOM_RANGE.start(), *ZOOM_RANGE.end());
+    let before = s.store.zoom;
+    let mut size = s.store.zoom();
+    if bool_param(p, "reset")?.unwrap_or(false) {
+        size = DEFAULT_ZOOM;
+    }
+    if let Some(v) = p.get("percent").filter(|v| !v.is_null()) {
+        let n = v.as_f64().or_else(|| v.as_str().and_then(|t| t.trim().trim_end_matches('%').trim().parse().ok()));
+        match n {
+            Some(n) if n.is_finite() && n >= f64::from(lo) && n <= f64::from(hi) => size = n.round() as u16,
+            _ => return Err(Error::invalid("percent", format!("a number from {lo} to {hi}"))),
+        }
+    }
+    if let Some(v) = p.get("step").filter(|v| !v.is_null()) {
+        let step = v.as_i64().ok_or_else(|| Error::invalid("step", "1 or -1"))?;
+        // Round to the tens first, so a step from 115 lands on 120 or 110.
+        let tens = (i64::from(size) + 5) / 10 * 10;
+        let next = tens.saturating_add(step.signum().saturating_mul(10)).clamp(i64::from(lo), i64::from(hi));
+        size = u16::try_from(next).unwrap_or(DEFAULT_ZOOM);
+    }
+    s.store.zoom = (size != DEFAULT_ZOOM).then_some(size);
+    if s.store.zoom != before {
+        s.dirty = true;
+    }
+    Ok(json!({ "percent": size, "default": DEFAULT_ZOOM, "min": lo, "max": hi }))
 }
 
 /// The panes that can be hidden.

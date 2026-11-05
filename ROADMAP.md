@@ -306,6 +306,9 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   colour themes (teal, terracotta, sea, lavender, olive, azulejo), each light or dark or as the
   computer (`view.theme`), and buttons that hide the folder pane and My Day (`view.folderPane`,
   `view.myDay`); all kept in the mailbox. People is a table of contacts beside the contact card.
+  Sizes after Fluent 2 (14 px text, 12 px captions, controls 28 px and up, a 4 px grid), dialogs
+  and menus in the theme's colours, and the interface's size (`view.zoom`, 80–200 %, 110 % by
+  default; Ctrl+= / Ctrl+- / Ctrl+0, or Size in the theme menu).
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.

@@ -1053,6 +1053,7 @@ impl App {
             self.styled = Some(self.session.store.theme.clone());
         }
         self.tokens = Tokens::themed(self.session.store.theme.as_deref(), ui.visuals().dark_mode);
+        self.zoom(ui);
         self.shortcuts(ui);
         self.sync_draft();
         self.unread = self.session.store.unread_counts();
@@ -1330,6 +1331,34 @@ impl App {
             });
         if let Some((id, params)) = action {
             self.run(id, params);
+        }
+    }
+
+    /// The interface's size: Ctrl+= (or Ctrl++) and Ctrl+- step it, Ctrl+0 resets it, also while
+    /// typing; the size kept in the mailbox is the one shown.
+    fn zoom(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        if ctx.options(|o| o.zoom_with_keyboard) {
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        }
+        let step = ctx.input_mut(|i| {
+            let cmd = egui::Modifiers::COMMAND;
+            if i.consume_key(cmd, Key::Equals) || i.consume_key(cmd, Key::Plus) || i.consume_key(cmd | egui::Modifiers::SHIFT, Key::Equals) {
+                Some(json!({ "step": 1 }))
+            } else if i.consume_key(cmd, Key::Minus) {
+                Some(json!({ "step": -1 }))
+            } else if i.consume_key(cmd, Key::Num0) {
+                Some(json!({ "reset": true }))
+            } else {
+                None
+            }
+        });
+        if let Some(p) = step {
+            self.run("view.zoom", p);
+        }
+        let factor = f32::from(self.session.store.zoom()) / 100.0;
+        if (ctx.zoom_factor() - factor).abs() > f32::EPSILON {
+            ctx.set_zoom_factor(factor);
         }
     }
 
@@ -1699,9 +1728,9 @@ impl App {
         }
         egui::Panel::top("mail-tools").frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
         if !self.session.store.hide_my_day {
-            egui::Panel::right("my-day").default_size(300.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| self.my_day(ui));
+            egui::Panel::right("my-day").default_size(280.0).size_range(240.0..=440.0).frame(chrome::card(&t, 14)).show(ui, |ui| self.my_day(ui));
         }
-        egui::Panel::left("list").default_size(380.0).size_range(280.0..=680.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
+        egui::Panel::left("list").default_size(360.0).size_range(280.0..=680.0).frame(chrome::card(&t, 0)).show(ui, |ui| self.message_list(ui));
         egui::CentralPanel::no_frame().frame(chrome::card(&t, 24)).show(ui, |ui| {
             if self.draft.is_some() {
                 self.compose(ui);
@@ -1996,7 +2025,12 @@ impl App {
         let content = self.content.as_ref().map(|(_, c)| c.clone());
         // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
         let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
-            ui.centered_and_justified(|ui| ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak)));
+            // Centred, not justified: a justified label spreads its letters apart.
+            let room = ui.available_height();
+            ui.vertical_centered(|ui| {
+                ui.add_space((room * 0.45).max(0.0));
+                ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak));
+            });
             return;
         };
         ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(24.0).strong().color(t.text));
@@ -4272,12 +4306,33 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The interface takes the size kept in the mailbox, and Ctrl+= makes it larger even while
+    /// typing.
+    #[test]
+    fn the_interface_takes_the_size_kept_and_ctrl_plus_steps_it() {
+        let mut store = ibercorreo_store::Store::new();
+        store.zoom = Some(150);
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        // A new zoom takes effect at the next frame.
+        for _ in 0..2 {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui)).textures_delta.clear();
+        }
+        assert!((ctx.zoom_factor() - 1.5).abs() < 1e-6, "{}", ctx.zoom_factor());
+        let press = egui::Event::Key { key: Key::Equals, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        ctx.run_ui(egui::RawInput { events: vec![press], ..Default::default() }, |ui| app.ui(ui)).textures_delta.clear();
+        ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui)).textures_delta.clear();
+        assert_eq!(app.session.store.zoom, Some(160));
+        assert!((ctx.zoom_factor() - 1.6).abs() < 1e-6, "{}", ctx.zoom_factor());
+        assert!(!ctx.options(|o| o.zoom_with_keyboard), "egui's own zoom keys would fight the kept size");
+    }
+
     /// The toolbar never draws one label over another, nor past the window's edge: Ukrainian
     /// labels are long, so on a narrow window the buttons give up their labels instead.
     #[test]
     fn the_toolbar_labels_never_overlap_nor_run_off_the_window() {
         for hide_folders in [false, true] {
-            for width in [1600.0, 1360.0, 1100.0, 900.0] {
+            for width in [1920.0, 1600.0, 1360.0, 1100.0, 900.0] {
                 let mut store = ibercorreo_store::Store::new();
                 store.language = Some("uk".into());
                 store.hide_folder_pane = hide_folders;
@@ -4289,6 +4344,8 @@ mod tests {
                 let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
                 out.textures_delta.clear();
                 i18n::set_current(Language::En);
+                // Shapes are in points, and the interface is zoomed (110 % by default).
+                let limit = width / ctx.zoom_factor();
                 let band = chrome::BAR_H..chrome::BAR_H * 2.0;
                 let labels: Vec<(String, egui::Rect)> = out
                     .shapes
@@ -4299,11 +4356,11 @@ mod tests {
                     })
                     .filter(|(_, r)| band.contains(&r.center().y))
                     .collect();
-                if width >= 1360.0 {
+                if width >= 1920.0 {
                     assert!(labels.iter().any(|(l, _)| l == "Відповісти"), "Reply keeps its label at {width} px: {labels:?}");
                 }
                 for (i, (a, ra)) in labels.iter().enumerate() {
-                    assert!(ra.max.x <= width, "{a} runs off a {width} px window at {ra:?}");
+                    assert!(ra.max.x <= limit, "{a} runs off a {width} px window at {ra:?}");
                     for (b, rb) in labels.iter().skip(i + 1) {
                         assert!(!ra.intersects(*rb), "{a} {ra:?} overlaps {b} {rb:?} at {width} px");
                     }

@@ -207,6 +207,7 @@ impl App {
         let chosen = self.session.store.theme.clone();
         let mode = self.session.store.appearance.clone();
         let mut pick: Option<(Option<&str>, Option<&str>)> = None;
+        let mut zoom: Option<serde_json::Value> = None;
         let (rect, resp) = ui.allocate_exact_size(vec2(TOOL_H, TOOL_H), Sense::click());
         let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&resp));
         if open || resp.hovered() {
@@ -255,7 +256,23 @@ impl App {
                     }
                 }
             });
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl("Size")).color(t.text_weak));
+                if ui.button("−").on_hover_text(tl("Smaller (Ctrl+-)")).clicked() {
+                    zoom = Some(json!({ "step": -1 }));
+                }
+                ui.label(RichText::new(format!("{} %", self.session.store.zoom())).color(t.text));
+                if ui.button("+").on_hover_text(tl("Larger (Ctrl+=)")).clicked() {
+                    zoom = Some(json!({ "step": 1 }));
+                }
+                if self.session.store.zoom.is_some() && ui.button(tl("Reset")).on_hover_text("Ctrl+0").clicked() {
+                    zoom = Some(json!({ "reset": true }));
+                }
+            });
         });
+        if let Some(p) = zoom {
+            self.run("view.zoom", p);
+        }
         if let Some((theme, mode)) = pick {
             let mut p = serde_json::Map::new();
             if let Some(th) = theme {
