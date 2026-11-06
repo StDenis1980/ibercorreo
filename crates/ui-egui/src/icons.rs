@@ -175,11 +175,27 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             }
         }
         Icon::Palette => {
-            p.circle_stroke(c, s * 0.34, w);
-            for (x, y) in [(-0.14, -0.12), (0.04, -0.2), (0.18, -0.04)] {
-                p.circle_filled(at(x, y), s * 0.045, color);
+            // A painter's palette: an oval with a notch for the thumb at the lower right, and
+            // four dabs of paint in the themes' colours (their light shades on a light stroke,
+            // which means a dark window).
+            let outline: Vec<Pos2> = (0..=60)
+                .map(|i| {
+                    let a = std::f32::consts::TAU * i as f32 / 60.0;
+                    let d = (a - 0.8).sin().atan2((a - 0.8).cos());
+                    let r = 0.36 * (1.0 - 0.4 * (-(d * d) / 0.05).exp());
+                    at(a.cos() * r, a.sin() * r * 0.88)
+                })
+                .collect();
+            p.add(egui::Shape::line(outline, w));
+            let light = u16::from(color.r()) + u16::from(color.g()) + u16::from(color.b()) > 3 * 128;
+            let dabs: [[u8; 3]; 4] = if light {
+                [[0x4F, 0xB3, 0xC4], [0xE0, 0x8A, 0x5E], [0xB3, 0x91, 0xD3], [0x8D, 0xBA, 0x63]]
+            } else {
+                [[0x1B, 0x72, 0x83], [0xA8, 0x4E, 0x24], [0x7A, 0x4E, 0x9C], [0x4A, 0x73, 0x2B]]
+            };
+            for ((x, y), [r, g, b]) in [(-0.19, -0.03), (-0.08, -0.18), (0.09, -0.18), (-0.12, 0.15)].into_iter().zip(dabs) {
+                p.circle_filled(at(x, y), s * 0.065, Color32::from_rgb(r, g, b));
             }
-            p.circle_stroke(at(-0.02, 0.16), s * 0.07, w);
         }
         Icon::PanelRight => {
             let r = Rect::from_center_size(c, vec2(s * 0.72, s * 0.6));
