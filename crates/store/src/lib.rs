@@ -331,6 +331,62 @@ impl Store {
         Ok(gone.len())
     }
 
+    /// The server no longer has the mailbox folder `id` mirrors: the folder stays, kept on this
+    /// computer, and so does its mail. Messages synced from it (wherever they are now) become
+    /// local ones, and deletions waiting to be sent to it are forgotten. Returns whether it was
+    /// linked.
+    pub fn unlink_folder(&mut self, id: FolderId) -> bool {
+        let Some(f) = self.folders.iter_mut().find(|f| f.id == id) else { return false };
+        if f.remote.take().is_none() {
+            return false;
+        }
+        let synced: Vec<MessageId> = self.messages.iter().filter(|m| m.remote.as_ref().is_some_and(|r| r.folder == id)).map(|m| m.id).collect();
+        for m in synced {
+            if let Ok(m) = self.message_mut(m) {
+                m.remote = None;
+            }
+        }
+        self.tombstones.retain(|t| t.folder != id);
+        true
+    }
+
+    /// Fold folder `from` into `into`, of the same account: its mail moves there, `into` takes
+    /// its role, its place in Favorites and the rules that move mail to it, and `from` goes. A
+    /// folder still linked to a server mailbox cannot be folded away ([`Store::unlink_folder`]
+    /// first).
+    pub fn merge_folder(&mut self, from: FolderId, into: FolderId) -> Result<()> {
+        let (source, target) = (self.folder(from)?, self.folder(into)?);
+        if from == into || source.account != target.account || source.remote.is_some() {
+            return Err(Error::invalid("folder", "only an unlinked folder can be folded into another of its account"));
+        }
+        let role = source.role;
+        let moving: Vec<MessageId> = self.messages.iter().filter(|m| m.folder == from).map(|m| m.id).collect();
+        for m in moving {
+            self.move_message(m, into)?;
+        }
+        if role != FolderRole::Other {
+            self.folder_mut(into)?.role = role;
+        }
+        if self.favorites.contains(&into) {
+            self.favorites.retain(|f| *f != from);
+        } else {
+            for f in &mut self.favorites {
+                if *f == from {
+                    *f = into;
+                }
+            }
+        }
+        for rule in &mut self.rules {
+            for action in &mut rule.actions {
+                if *action == (rules::RuleAction::Move { folder: from }) {
+                    *action = rules::RuleAction::Move { folder: into };
+                }
+            }
+        }
+        self.folders.retain(|f| f.id != from);
+        Ok(())
+    }
+
     /// The favorite folders, in the order they were added.
     pub fn favorites(&self) -> &[FolderId] {
         &self.favorites

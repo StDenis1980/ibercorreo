@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-03 · Pick from the top.
+Status: 2026-11-06 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -20,7 +20,8 @@ Status: 2026-11-03 · Pick from the top.
    except on Gmail, which files them itself (Microsoft 365 may too: unchecked, an account setting
    will cover others); a message is refused as a whole if any recipient is.
    Known sync limits: a message moved between server folders is downloaded again (no COPYUID
-   remapping); folders deleted on the server are kept here; whole messages are
+   remapping); a folder whose mailbox the server no longer lists is unlinked and kept here
+   with its mail (a standard one is re-linked to the server's own); whole messages are
    downloaded (no header-first fetch).
    Microsoft 365 work accounts without IMAP sync mail over Microsoft Graph (M4.4, an account
    setting). Missing there: delta queries (every sync lists each folder's ids), push
@@ -179,3 +180,4 @@ Status: 2026-11-03 · Pick from the top.
 - 2026-11-03 — gap 17: `.pst` mail (M5.2, engine and CLI).
 - 2026-11-03 — gap 17: `.pst` from the window, dropped files.
 - 2026-11-03 — gap 17: `.pst` calendar and contacts.
+- 2026-11-06 — gap 1: folders the server no longer lists are unlinked; standard folders re-link.
