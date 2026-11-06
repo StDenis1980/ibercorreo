@@ -6,6 +6,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod chrome;
 pub mod i18n;
 pub mod icons;
 pub mod theme;
@@ -13,7 +14,8 @@ pub mod tinta_feedback;
 mod tinta_reports_ui;
 
 use crate::i18n::{Language, tf, tl};
-use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
+use chrome::avatar_color;
+use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
@@ -176,8 +178,6 @@ impl ContactForm {
 /// others as the server names them.
 /// The search box's tooltip: what a query can say.
 const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
-/// The search box on the mail ribbon.
-const SEARCH_WIDTH: f32 = 220.0;
 
 /// A rule's condition and actions in one line, for the Rules list.
 fn rule_summary(r: &Value) -> String {
@@ -489,6 +489,8 @@ pub struct App {
     rule_form: RuleForm,
     password: Option<(AccountId, String)>,
     tokens: Tokens,
+    /// The toolbar is too narrow for labels this frame: its buttons show only their icons.
+    compact_tools: bool,
     draft: Option<Draft>,
     event_form: EventForm,
     contact_form: ContactForm,
@@ -513,12 +515,175 @@ pub struct App {
     invite_reply: usize,
     /// Folder pane headings folded shut: an account's id, or [`FOLD_FAVORITES`].
     folded: std::collections::HashSet<u32>,
+    /// The theme egui's own widgets were last styled for ([`theme::apply`]); `None`: not yet.
+    styled: Option<Option<String>>,
+    /// Folders folded shut in the folder pane, by account and path ([`TreeRow::key`]).
+    folded_paths: std::collections::HashSet<(u32, String)>,
+    /// The size the status bar's slider is being dragged to, saved when it is let go.
+    zoom_drag: Option<f32>,
+    /// The interface size's default, smallest and largest, in percent (from `view.zoom`).
+    zoom_limits: Option<(u16, u16, u16)>,
+    /// This frame the folder pane (or My Day) has no room and gives way to the main pane; not
+    /// kept. `peek_…`: shown anyway, because the person asked to see it.
+    folders_squeezed: bool,
+    my_day_squeezed: bool,
+    peek_folders: bool,
+    peek_my_day: bool,
+    /// How much wider the window would have to be for the folder pane (My Day) to fit.
+    room_wanted: (f32, f32),
+    /// The main pane's card width last frame, inside its border.
+    main_width: f32,
+}
+
+/// The narrowest the main pane of each view gets before side panes give way: the reading pane,
+/// the calendar grid, the contact table.
+const MAIL_MAIN_MIN: f32 = 440.0;
+const CALENDAR_MAIN_MIN: f32 = 480.0;
+const PEOPLE_MAIN_MIN: f32 = 420.0;
+
+/// A side pane's width last frame, and how narrow and wide it may be.
+#[derive(Debug, Clone, Copy)]
+struct Side {
+    wanted: f32,
+    min: f32,
+    max: f32,
+}
+
+/// Which side panes are shown this frame and the widest each may be.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Fit {
+    left: bool,
+    left_max: f32,
+    middle_max: f32,
+    right: bool,
+    right_max: f32,
+    /// The width the view would need to show the left (right) pane too, at its narrowest
+    /// beside the others, with the main pane its room.
+    room_for_left: f32,
+    room_for_right: f32,
+}
+
+/// Lays out a view `full` wide whose main pane needs `main`, as Outlook gives way: first the
+/// right pane (My Day) goes, then the middle (the message list) and left panes shrink to their
+/// narrowest, then the left pane (folders) folds away. A pane in `peek` (left, right) is shown
+/// whatever the room. No pane may grow past what leaves the main pane its room.
+fn fit(full: f32, main: f32, left: Option<Side>, middle: Option<Side>, right: Option<Side>, peek: (bool, bool)) -> Fit {
+    let width = |s: Option<Side>| s.map_or(0.0, |s| s.wanted.clamp(s.min, s.max.max(s.min)));
+    let narrowest = |s: Option<Side>| s.map_or(0.0, |s| s.min);
+    let show_right = right.is_some() && (peek.1 || width(left) + narrowest(middle) + width(right) + main <= full);
+    let rw = if show_right { width(right) } else { 0.0 };
+    let show_left = left.is_some() && (peek.0 || narrowest(left) + narrowest(middle) + rw + main <= full);
+    let lw = if show_left { width(left) } else { 0.0 };
+    let cap = |s: Option<Side>, room: f32| s.map_or(0.0, |s| room.clamp(s.min, s.max.max(s.min)));
+    let left_max = cap(left, full - narrowest(middle) - rw - main);
+    let lw = lw.min(left_max);
+    Fit {
+        left: show_left,
+        left_max,
+        middle_max: cap(middle, full - lw - rw - main),
+        right: show_right,
+        right_max: cap(right, full - lw - narrowest(middle) - main),
+        room_for_left: narrowest(left) + narrowest(middle) + rw + main,
+        room_for_right: lw + narrowest(middle) + width(right) + main,
+    }
+}
+
+/// How far in each level of subfolders sits in the folder pane.
+const FOLDER_INDENT: f32 = 16.0;
+
+/// How a row of the folder pane is drawn.
+#[derive(Debug, Clone, Default)]
+struct FolderLine {
+    /// The name shown; `None`: the folder's own label.
+    label: Option<String>,
+    /// How many levels of subfolders in.
+    depth: usize,
+    /// `Some(open)` when it has subfolders to fold.
+    fold: Option<bool>,
+    /// Unread mail in its folded-away subfolders, counted on it.
+    folded_unread: usize,
+    /// Show the account's address under the name (Favorites, with several accounts).
+    with_account: bool,
+}
+
+/// A row of an account's folder tree.
+#[derive(Debug, Clone, PartialEq)]
+struct TreeRow {
+    /// `None`: a path subfolders share that is no folder here (a server's `[Gmail]`, say).
+    folder: Option<FolderId>,
+    /// The path in lower case, segments joined by "/": what folding remembers.
+    key: String,
+    /// The last segment, as the server spells it; a standard folder's own label.
+    label: String,
+    depth: usize,
+    children: bool,
+}
+
+/// An account's folders as a tree, in the store's order, subfolders right under their parent.
+/// A folder's name is its server path with "/" between levels ("Clients/Acme"); Inbox's
+/// subfolders ("INBOX/Work") go under the Inbox. Standard folders are never nested.
+fn folder_tree(folders: &[&ibercorreo_core::Folder]) -> Vec<TreeRow> {
+    struct Node {
+        row: TreeRow,
+        kids: Vec<usize>,
+    }
+    let mut nodes: Vec<Node> = Vec::new();
+    let mut roots: Vec<usize> = Vec::new();
+    let mut by_key: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for f in folders {
+        let segments: Vec<&str> = if f.role == FolderRole::Other { f.name.split('/').filter(|s| !s.is_empty()).collect() } else { Vec::new() };
+        let segments = if segments.is_empty() { vec![f.name.as_str()] } else { segments };
+        let mut parent: Option<usize> = None;
+        let mut key = String::new();
+        for (i, segment) in segments.iter().enumerate() {
+            if i > 0 {
+                key.push('/');
+            }
+            key.push_str(&segment.to_lowercase());
+            let last = i + 1 == segments.len();
+            let label = if last && f.role != FolderRole::Other { folder_label(f) } else { (*segment).to_string() };
+            let found = by_key.get(&key).copied();
+            let reuse = match found.and_then(|n| nodes.get(n).map(|node| (n, node.row.folder.is_none()))) {
+                Some((n, _)) if !last => Some(n),
+                Some((n, true)) => Some(n),
+                _ => None,
+            };
+            let n = if let Some(n) = reuse {
+                if last && let Some(node) = nodes.get_mut(n) {
+                    node.row.folder = Some(f.id);
+                    node.row.label = label;
+                }
+                n
+            } else {
+                let n = nodes.len();
+                nodes.push(Node {
+                    row: TreeRow { folder: last.then_some(f.id), key: key.clone(), label, depth: i, children: false },
+                    kids: Vec::new(),
+                });
+                by_key.entry(key.clone()).or_insert(n);
+                match parent.and_then(|p| nodes.get_mut(p)) {
+                    Some(p) => p.kids.push(n),
+                    None => roots.push(n),
+                }
+                n
+            };
+            parent = Some(n);
+        }
+    }
+    let mut out = Vec::with_capacity(nodes.len());
+    let mut stack: Vec<(usize, usize)> = roots.iter().rev().map(|&n| (n, 0)).collect();
+    while let Some((n, depth)) = stack.pop() {
+        let Some(node) = nodes.get(n) else { continue };
+        out.push(TreeRow { depth, children: !node.kids.is_empty(), ..node.row.clone() });
+        stack.extend(node.kids.iter().rev().map(|&k| (k, depth + 1)));
+    }
+    out
 }
 
 /// The Favorites heading's key among [`App::folded`] (account ids are far below it).
 const FOLD_FAVORITES: u32 = u32::MAX;
 /// The height of a row in the message list.
-const ROW_HEIGHT: f32 = 64.0;
+const ROW_HEIGHT: f32 = 84.0;
 
 impl App {
     pub fn new(session: Session) -> App {
@@ -550,6 +715,7 @@ impl App {
             rule_form: RuleForm::default(),
             password: None,
             tokens: Tokens::light(),
+            compact_tools: false,
             draft: None,
             event_form: EventForm::default(),
             contact_form: ContactForm::default(),
@@ -561,6 +727,16 @@ impl App {
             zone_names: Vec::new(),
             due: Vec::new(),
             due_checked: None,
+            styled: None,
+            folded_paths: std::collections::HashSet::new(),
+            zoom_drag: None,
+            zoom_limits: None,
+            folders_squeezed: false,
+            my_day_squeezed: false,
+            peek_folders: false,
+            peek_my_day: false,
+            room_wanted: (0.0, 0.0),
+            main_width: 0.0,
             last_calendar: None,
             invite: None,
             content: None,
@@ -684,6 +860,7 @@ impl App {
     }
 
     fn account_window(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
         if !self.account_form.open {
             return;
         }
@@ -711,7 +888,7 @@ impl App {
                     for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")]
                     {
                         ui.label(tl(label));
-                        ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
                         ui.end_row();
                     }
                     ui.label("");
@@ -798,7 +975,7 @@ impl App {
                         ui.label(tl("Exchange server (EWS)")).on_hover_text(tl(
                             "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
                         ));
-                        ui.add(egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
                         ui.end_row();
                         ui.label("");
                         let label = tl(if self.exchange_running { "🔍 Looking…" } else { "🔍 Find the Exchange server" });
@@ -817,7 +994,7 @@ impl App {
                     let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && f.goa.is_empty() && !f.ews.trim().is_empty());
                     if f.oauth.is_empty() && f.goa.is_empty() {
                         ui.label(tl("Password"));
-                        ui.add(
+                        theme::field(ui,
                             egui::TextEdit::singleline(&mut f.password)
                                 .password(true)
                                 .hint_text(tl("kept in the system's credential store"))
@@ -835,7 +1012,7 @@ impl App {
                         }
                     }
                     ui.label(tl("Sign-in name"));
-                    ui.add(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
                     ui.end_row();
                     let servers = [
                         ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
@@ -845,11 +1022,11 @@ impl App {
                         ui.label(RichText::new(tl(title)).strong());
                         ui.end_row();
                         ui.label(tl("Server"));
-                        ui.add(egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
                         ui.end_row();
                         ui.label(tl("Port"));
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
+                            theme::field(ui, egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
                             ui.radio_value(starttls, false, tl("TLS"));
                             ui.radio_value(starttls, true, tl("STARTTLS"));
                         });
@@ -859,7 +1036,7 @@ impl App {
                         .on_hover_text(tl("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"));
                     ui.end_row();
                     ui.label(tl("Address"));
-                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
                     ui.end_row();
                     if !f.dav_goa.is_empty() {
                         ui.label("");
@@ -875,7 +1052,7 @@ impl App {
                         .on_hover_text(tl("Added under new messages, replies and forwards from this account"));
                     ui.end_row();
                     ui.label("");
-                    ui.add(
+                    theme::field(ui,
                         egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_width(280.0).desired_rows(3),
                     );
                     ui.end_row();
@@ -887,7 +1064,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label(tl("Waiting for you to sign in in your browser…"));
-                            if ui.button(tl("Cancel")).clicked() {
+                            if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
                                 self.oauth_cancel = true;
                             }
                         });
@@ -903,8 +1080,9 @@ impl App {
                     None => {
                         let label = tl(if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" });
                         ui.horizontal(|ui| {
-                            save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
-                            if f.id.is_some() && !f.confirm_remove && ui.button(tl("Remove account…")).clicked() {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
+                            if f.id.is_some() && !f.confirm_remove && chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Remove account…", true).clicked() {
                                 f.confirm_remove = true;
                             }
                         });
@@ -915,8 +1093,9 @@ impl App {
                                 &[("address", f.email.trim())],
                             ));
                             ui.horizontal(|ui| {
-                                remove = ui.button(tl("Remove")).clicked();
-                                if ui.button(tl("Keep")).clicked() {
+                                ui.spacing_mut().item_spacing.x = 12.0;
+                                remove = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Trash), "Remove", true).clicked();
+                                if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Keep", true).clicked() {
                                     f.confirm_remove = false;
                                 }
                             });
@@ -1034,14 +1213,41 @@ impl App {
 
     pub fn ui(&mut self, ui: &mut Ui) {
         i18n::set_current(i18n::resolve(self.session.store.language.as_deref()));
-        self.tokens = if ui.visuals().dark_mode { Tokens::dark() } else { Tokens::light() };
+        let preference = match self.session.store.appearance.as_deref() {
+            Some("light") => egui::ThemePreference::Light,
+            Some("dark") => egui::ThemePreference::Dark,
+            _ => egui::ThemePreference::System,
+        };
+        if ui.ctx().options(|o| o.theme_preference) != preference {
+            ui.ctx().set_theme(preference);
+        }
+        if self.styled.as_ref() != Some(&self.session.store.theme) {
+            theme::apply(ui.ctx(), self.session.store.theme.as_deref());
+            self.styled = Some(self.session.store.theme.clone());
+        }
+        self.tokens = Tokens::themed(self.session.store.theme.as_deref(), ui.visuals().dark_mode);
+        self.zoom(ui);
         self.shortcuts(ui);
         self.sync_draft();
         self.unread = self.session.store.unread_counts();
         let t = self.tokens;
-        egui::Panel::left("rail").exact_size(56.0).resizable(false).frame(Frame::NONE.fill(t.rail)).show(ui, |ui| self.rail(ui));
-        egui::Panel::top("ribbon").frame(Frame::NONE.fill(t.pane).inner_margin(Margin::symmetric(10, 6))).show(ui, |ui| self.ribbon(ui));
-        egui::Panel::bottom("status").frame(Frame::NONE.fill(t.pane).inner_margin(Margin::symmetric(10, 3))).show(ui, |ui| self.status_bar(ui));
+        chrome::paint_window(ui.ctx(), &t);
+        egui::Panel::top("title")
+            .show_separator_line(false)
+            .exact_size(chrome::BAR_H)
+            .resizable(false)
+            .frame(Frame::NONE)
+            .show(ui, |ui| self.title_bar(ui));
+        egui::Panel::bottom("status")
+            .show_separator_line(false)
+            .frame(Frame::NONE.inner_margin(Margin::symmetric(14, 4)))
+            .show(ui, |ui| self.status_bar(ui));
+        egui::Panel::left("rail")
+            .show_separator_line(false)
+            .exact_size(chrome::RAIL_W)
+            .resizable(false)
+            .frame(Frame::NONE.inner_margin(Margin { left: 0, right: 0, top: 4, bottom: 10 }))
+            .show(ui, |ui| self.rail(ui));
         match self.session.view {
             View::Mail => self.mail(ui),
             View::Calendar => self.calendar(ui),
@@ -1127,7 +1333,8 @@ impl App {
                         }
                     });
                     ui.horizontal(|ui| {
-                        if ui.button(tl("+ New rule")).clicked() {
+                        let new_rule = tl("+ New rule").trim_start_matches('+').trim();
+                        if chrome::button(ui, &t, chrome::Kind::Quiet, Some(Icon::Plus), new_rule, true).clicked() {
                             f.start("");
                         }
                         if ui
@@ -1142,12 +1349,15 @@ impl App {
                 }
                 egui::Grid::new("rule-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
                     ui.label(tl("Name"));
-                    ui.add(egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
                     ui.end_row();
                     ui.label(tl("Condition"));
                     ui.vertical(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0))
-                            .on_hover_text(tl(SEARCH_HELP));
+                        theme::field(
+                            ui,
+                            egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0),
+                        )
+                        .on_hover_text(tl(SEARCH_HELP));
                         ui.horizontal(|ui| {
                             for (label, key) in [("From", "from:"), ("Subject", "subject:"), ("Sent to", "to:"), ("Has attachment", "has:attachment")]
                             {
@@ -1195,10 +1405,11 @@ impl App {
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new(tl("Save")).strong()).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked() {
                         save = true;
                     }
-                    if ui.button(tl("Cancel")).clicked() {
+                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
                         cancel = true;
                     }
                 });
@@ -1249,33 +1460,52 @@ impl App {
         let t = self.tokens;
         let mut action: Option<(&'static str, Value)> = None;
         let title = if self.due.len() == 1 {
-            tl("🔔 1 Reminder").to_string()
+            tl("🔔 1 Reminder").trim_start_matches('🔔').trim().to_string()
         } else {
-            format!("🔔 {}", tf("{n} Reminders", &[("n", &self.due.len().to_string())]))
+            tf("{n} Reminders", &[("n", &self.due.len().to_string())])
         };
-        egui::Window::new(title)
+        // A compact header of our own, as a mail app's reminder: a bell and the count, on the left.
+        let frame = Frame::window(&ui.ctx().global_style()).inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 12 });
+        egui::Window::new(&title)
             .id(egui::Id::new("reminders"))
+            .title_bar(false)
             .collapsible(false)
             .resizable(false)
+            .frame(frame)
+            // Above the status bar, never over it.
             .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
             .show(ui.ctx(), |ui| {
-                ui.set_width(340.0);
-                egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                ui.set_width(380.0);
+                ui.horizontal(|ui| {
+                    let (bell, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                    icons::paint(ui.painter(), bell, Icon::Bell, t.accent);
+                    ui.label(RichText::new(&title).size(15.0).strong().color(t.text));
+                });
+                ui.add_space(4.0);
+                egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
                     for r in &self.due {
                         let id = r["id"].clone();
                         let start = r["start"].clone();
-                        Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(
-                            ui,
-                            |ui| {
+                        Frame::NONE
+                            .fill(theme::mix(t.card, t.window, 0.55))
+                            .corner_radius(CornerRadius::same(8))
+                            .stroke(Stroke::new(1.0, t.border))
+                            .inner_margin(Margin { left: 12, right: 10, top: 8, bottom: 8 })
+                            .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
+                                ui.spacing_mut().item_spacing.y = 4.0;
                                 ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
                                 let when = r["start"].as_str().unwrap_or("").replace('T', " ");
                                 let place = r["location"].as_str().filter(|l| !l.is_empty()).map(|l| format!(" · 📍 {l}")).unwrap_or_default();
-                                ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                // When and where, how soon, and the buttons, on one line.
                                 ui.horizontal(|ui| {
-                                    ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                    ui.vertical(|ui| {
+                                        ui.spacing_mut().item_spacing.y = 0.0;
+                                        ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                        ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                    });
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui.small_button(tl("Dismiss")).clicked() {
+                                        if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss", true).clicked() {
                                             action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
                                         }
                                         ui.menu_button(tl("Snooze…"), |ui| {
@@ -1288,23 +1518,51 @@ impl App {
                                         });
                                     });
                                 });
-                            },
-                        );
-                        ui.add_space(4.0);
+                            });
+                        ui.add_space(6.0);
                     }
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tl("Dismiss All")).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss All", true).clicked() {
                         action = Some(("reminder.dismiss", json!({})));
                     }
-                    if ui.button(tl("Snooze all 5 minutes")).clicked() {
+                    if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Snooze all 5 minutes", true).clicked() {
                         action = Some(("reminder.snooze", json!({ "minutes": 5 })));
                     }
                 });
             });
         if let Some((id, params)) = action {
             self.run(id, params);
+        }
+    }
+
+    /// The interface's size: Ctrl+= (or Ctrl++) and Ctrl+- step it, Ctrl+0 resets it, also while
+    /// typing; the size kept in the mailbox is the one shown.
+    fn zoom(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        if ctx.options(|o| o.zoom_with_keyboard) {
+            ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        }
+        let step = ctx.input_mut(|i| {
+            let cmd = egui::Modifiers::COMMAND;
+            if i.consume_key(cmd, Key::Equals) || i.consume_key(cmd, Key::Plus) || i.consume_key(cmd | egui::Modifiers::SHIFT, Key::Equals) {
+                Some(json!({ "step": 1 }))
+            } else if i.consume_key(cmd, Key::Minus) {
+                Some(json!({ "step": -1 }))
+            } else if i.consume_key(cmd, Key::Num0) {
+                Some(json!({ "reset": true }))
+            } else {
+                None
+            }
+        });
+        if let Some(p) = step {
+            self.run("view.zoom", p);
+        }
+        let factor = f32::from(self.session.store.zoom()) / 100.0;
+        if (ctx.zoom_factor() - factor).abs() > f32::EPSILON {
+            ctx.set_zoom_factor(factor);
         }
     }
 
@@ -1379,142 +1637,167 @@ impl App {
         }
     }
 
-    fn rail(&mut self, ui: &mut Ui) {
-        let t = self.tokens;
-        ui.add_space(10.0);
-        ui.vertical_centered(|ui| {
-            for (icon, view, id, tip) in [
-                (Icon::Mail, View::Mail, "view.mail", "Mail (Ctrl+1)"),
-                (Icon::Calendar, View::Calendar, "view.calendar", "Calendar (Ctrl+2)"),
-                (Icon::People, View::Contacts, "view.contacts", "People (Ctrl+3)"),
-            ] {
-                let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
-                let active = self.session.view == view;
-                if active || resp.hovered() {
-                    ui.painter().rect_filled(rect, 8.0, if active { t.accent } else { t.accent.gamma_multiply(0.35) });
-                }
-                icons::paint(ui.painter(), rect.shrink(9.0), icon, t.rail_icon);
-                if resp.on_hover_text(tl(tip)).clicked() {
-                    self.run(id, json!({}));
-                }
-                ui.add_space(6.0);
+    /// A thin upright line between groups of toolbar buttons.
+    fn tool_gap(&self, ui: &mut Ui) {
+        let (r, _) = ui.allocate_exact_size(vec2(13.0, 24.0), Sense::hover());
+        ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, self.tokens.border));
+    }
+
+    /// Mail's toolbar: delete, archive, move, flag, read or unread; reply, reply all, forward;
+    /// Send/Receive and how often; rules.
+    fn mail_tools(&mut self, ui: &mut Ui) {
+        let has_message = self.session.message.is_some();
+        let seen = self.session.message.and_then(|id| self.session.store.message(id).ok()).is_some_and(|m| m.seen);
+        let read_label = if seen { "Mark as unread" } else { "Mark as read" };
+        let sync_label = if self.syncing { "Sending and receiving…" } else { "Send/Receive" };
+        // When the labels do not fit, the message's own buttons give theirs up first, then
+        // replying, Send/Receive and Rules too.
+        let own = ["Delete", "Archive", "Move", "Flag", read_label];
+        let rest = ["Reply", "Reply All", "Forward", sync_label, "Rules…"];
+        let head = if self.folder_pane_collapsed() { 96.0 } else { 0.0 };
+        let fixed = head + 2.0 * 15.0 + 115.0 + 4.0 * (own.len() + rest.len()) as f32;
+        let (own_w, rest_w) = (self.tools_width(ui, &own), self.tools_width(ui, &rest));
+        let icons_w = chrome::TOOL_ICON_W * own.len() as f32;
+        let avail = ui.available_width();
+        let (own_compact, rest_compact) = if fixed + own_w + rest_w <= avail { (false, false) } else { (true, fixed + icons_w + rest_w > avail) };
+        self.compact_tools = own_compact;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if self.hidden_pane_head(ui, Icon::Pencil, "New Email") {
+                self.run("message.compose", json!({}));
             }
+            if self.tool(ui, Icon::Trash, "Delete", has_message).clicked() {
+                self.run("message.delete", json!({}));
+            }
+            if self.tool(ui, Icon::Archive, "Archive", has_message).clicked() {
+                self.run("message.archive", json!({}));
+            }
+            let mv = self.tool(ui, Icon::Move, "Move", has_message);
+            if has_message {
+                let folders: Vec<(FolderId, String)> =
+                    self.session.store.folders_of(self.session.current_account()).iter().map(|f| (f.id, folder_label(f))).collect();
+                let current = self.session.folder;
+                egui::Popup::menu(&mv).show(|ui| {
+                    for (id, name) in folders {
+                        if id != current && ui.button(name).clicked() {
+                            self.run("message.move", json!({ "folder": id.0 }));
+                        }
+                    }
+                });
+            }
+            if self.tool(ui, Icon::Flag, "Flag", has_message).clicked() {
+                self.run("message.flag", json!({}));
+            }
+            if self.tool(ui, Icon::Unread, read_label, has_message).clicked() {
+                self.run("message.markRead", json!({ "read": !seen }));
+            }
+            self.compact_tools = rest_compact;
+            self.tool_gap(ui);
+            if self.tool(ui, Icon::Reply, "Reply", has_message).clicked() {
+                self.run("message.reply", json!({}));
+            }
+            if self.tool(ui, Icon::ReplyAll, "Reply All", has_message).clicked() {
+                self.run("message.replyAll", json!({}));
+            }
+            if self.tool(ui, Icon::Forward, "Forward", has_message).clicked() {
+                self.run("message.forward", json!({}));
+            }
+            self.tool_gap(ui);
+            if self.tool(ui, Icon::Sync, sync_label, !self.syncing).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
+                self.sync_or_set_up("Set up your mail server to send and receive.");
+            }
+            self.sync_interval(ui);
+            if self.tool(ui, Icon::Rules, "Rules…", true).on_hover_text(tl("Sort, mark or delete mail as it arrives")).clicked() {
+                self.rule_form = RuleForm { open: true, ..RuleForm::default() };
+            }
+            self.compact_tools = false;
         });
     }
 
-    fn button(&mut self, ui: &mut Ui, label: &str, id: &str, enabled: bool) {
-        if ui.add_enabled(enabled, egui::Button::new(tl(label))).clicked() {
-            self.run(id, json!({}));
-        }
-    }
-
-    fn ribbon(&mut self, ui: &mut Ui) {
-        let has_message = self.session.message.is_some();
-        // Wrapped, so a narrow window (or long translated labels) moves buttons to a second row
-        // instead of drawing them over Undo, Redo and the search box.
-        ui.horizontal_wrapped(|ui| {
-            match self.session.view {
-                View::Mail => {
-                    if ui.add(egui::Button::new(RichText::new(tl("✉ New Email")).strong()).fill(self.tokens.accent_soft)).clicked() {
-                        self.run("message.compose", json!({}));
-                    }
-                    ui.separator();
-                    self.button(ui, "Reply", "message.reply", has_message);
-                    self.button(ui, "Reply All", "message.replyAll", has_message);
-                    self.button(ui, "Forward", "message.forward", has_message);
-                    ui.separator();
-                    self.button(ui, "Delete", "message.delete", has_message);
-                    self.button(ui, "Archive", "message.archive", has_message);
-                    self.button(ui, "Flag", "message.flag", has_message);
-                    self.button(ui, "Unread", "message.markRead", has_message);
-                    if has_message && ui.small_button("↺").on_hover_text(tl("Mark as unread")).clicked() {
-                        self.run("message.markRead", json!({ "read": false }));
-                    }
-                    ui.separator();
-                    let label = tl(if self.syncing { "⟳ Sending and receiving…" } else { "⟳ Send/Receive" });
-                    if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Send the Outbox and get new mail (F9)")).clicked() {
-                        self.sync_or_set_up("Set up your mail server to send and receive.");
-                    }
-                    self.sync_interval(ui);
-                    if ui.button(tl("Account…")).on_hover_text(tl("The settings of the account whose folder is open")).clicked() {
-                        let current = (!self.session.store.accounts.is_empty()).then(|| self.session.current_account());
-                        self.open_account_settings(current, "");
-                    }
-                    if ui.button(tl("Rules…")).on_hover_text(tl("Sort, mark or delete mail as it arrives")).clicked() {
-                        self.rule_form = RuleForm { open: true, ..RuleForm::default() };
-                    }
-                }
-                View::Calendar => {
-                    if ui.add(egui::Button::new(RichText::new(tl("+ New Appointment")).strong()).fill(self.tokens.accent_soft)).clicked() {
-                        self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.day), ..EventForm::default() };
-                    }
-                    ui.separator();
-                    if ui.button(tl("Today")).clicked() {
-                        self.run("calendar.goto", json!({ "date": "today" }));
-                    }
-                    self.button(ui, "◀", "calendar.prev", true);
-                    self.button(ui, "▶", "calendar.next", true);
-                    ui.label(RichText::new(range_title(&self.session)).heading());
-                    ui.separator();
-                    for (mode, label, id, tip) in [
-                        (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
-                        (CalendarMode::WorkWeek, "Work Week", "calendar.viewWorkWeek", "Ctrl+Alt+2"),
-                        (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
-                        (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
-                    ] {
-                        if ui.selectable_label(self.session.calendar_mode == mode, tl(label)).on_hover_text(tip).clicked() {
-                            self.run(id, json!({}));
-                            self.scroll_to_morning = true;
-                        }
-                    }
-                    ui.separator();
-                    self.zone_picker(ui);
-                    ui.separator();
-                    self.sync_button(ui, "Set up your account to sync calendars.");
-                }
-                View::Contacts => {
-                    ui.label(RichText::new(tl("People")).heading());
-                    ui.separator();
-                    self.sync_button(ui, "Set up your account to sync contacts.");
-                }
+    /// The calendar's toolbar: Today, back and forward, what is shown, the view, the time zone,
+    /// Send/Receive.
+    fn calendar_tools(&mut self, ui: &mut Ui) {
+        self.compact_tools = false;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if self.hidden_pane_head(ui, Icon::Calendar, "New Appointment") {
+                self.new_appointment();
             }
-            if ui.available_size_before_wrap().x < self.ribbon_right_width(ui) {
-                ui.end_row();
+            if chrome::button(ui, &self.tokens, chrome::Kind::Secondary, None, "Today", true).clicked() {
+                self.run("calendar.goto", json!({ "date": "today" }));
             }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                self.button(ui, "Redo", "edit.redo", self.session.can_redo());
-                self.button(ui, "Undo", "edit.undo", self.session.can_undo());
-                if self.session.view == View::Mail {
-                    let r = ui
-                        .add(egui::TextEdit::singleline(&mut self.search).hint_text(tl("Search mail")).desired_width(SEARCH_WIDTH))
-                        .on_hover_text(tl(SEARCH_HELP));
-                    if r.changed() {
-                        let q = self.search.clone();
-                        self.run("search.messages", json!({ "query": q }));
+            if self.icon_button(ui, Icon::ChevronLeft, "Back", false).clicked() {
+                self.run("calendar.prev", json!({}));
+            }
+            if self.icon_button(ui, Icon::ChevronRight, "Forward", false).clicked() {
+                self.run("calendar.next", json!({}));
+            }
+            ui.label(RichText::new(range_title(&self.session)).size(17.0).strong().color(self.tokens.text));
+            self.tool_gap(ui);
+            let modes = [
+                (CalendarMode::Day, "Day", "calendar.viewDay", "Ctrl+Alt+1"),
+                (CalendarMode::WorkWeek, "Work Week", "calendar.viewWorkWeek", "Ctrl+Alt+2"),
+                (CalendarMode::Week, "Week", "calendar.viewWeek", "Ctrl+Alt+3"),
+                (CalendarMode::Month, "Month", "calendar.viewMonth", "Ctrl+Alt+4"),
+            ];
+            let current = modes.iter().find(|m| m.0 == self.session.calendar_mode).map_or("Week", |m| m.1);
+            let mut pick: Option<&str> = None;
+            ui.menu_button(format!("{} ⏷", tl(current)), |ui| {
+                for (mode, label, id, keys) in modes {
+                    if ui.selectable_label(self.session.calendar_mode == mode, tl(label)).on_hover_text(keys).clicked() {
+                        pick = Some(id);
+                        ui.close();
                     }
                 }
             });
+            if let Some(id) = pick {
+                self.run(id, json!({}));
+                self.scroll_to_morning = true;
+            }
+            self.zone_picker(ui);
+            let label = if self.syncing { "Syncing…" } else { "Send/Receive" };
+            if self.tool(ui, Icon::Sync, label, !self.syncing).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
+                self.sync_or_set_up("Set up your account to sync calendars.");
+            }
         });
     }
 
-    /// The width the ribbon's right-hand group (search box, Undo, Redo) needs.
-    fn ribbon_right_width(&self, ui: &Ui) -> f32 {
-        let style = ui.style();
-        let font = egui::TextStyle::Button.resolve(style);
-        let text = |s: &str| ui.fonts_mut(|f| f.layout_no_wrap(tl(s).to_string(), font.clone(), egui::Color32::WHITE).size().x);
-        let button = |s: &str| text(s) + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x;
-        let search =
-            if self.session.view == View::Mail { SEARCH_WIDTH + 2.0 * style.spacing.button_padding.x + style.spacing.item_spacing.x } else { 0.0 };
-        button("Undo") + button("Redo") + search
+    /// People's toolbar: write to the chosen contact, edit, delete; Send/Receive.
+    fn people_tools(&mut self, ui: &mut Ui) {
+        let chosen = self.contact_form.id;
+        let email = chosen.and_then(|id| self.session.store.contact(id).ok()).and_then(|c| c.emails.first().map(|a| a.to_string()));
+        self.compact_tools = false;
+        ui.set_min_height(chrome::BAR_H);
+        ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if self.hidden_pane_head(ui, Icon::PersonAdd, "New Contact") {
+                self.contact_form = ContactForm::new_in(self.default_book());
+            }
+            if self.tool(ui, Icon::Mail, "Email", email.is_some()).clicked()
+                && let Some(to) = &email
+            {
+                self.run("message.compose", json!({ "to": to }));
+                self.run("view.mail", json!({}));
+            }
+            if self.tool(ui, Icon::Trash, "Delete", chosen.is_some()).clicked()
+                && let Some(id) = chosen
+            {
+                self.run("contact.delete", json!({ "id": id }));
+                self.contact_form = ContactForm::default();
+            }
+            self.tool_gap(ui);
+            let label = if self.syncing { "Syncing…" } else { "Send/Receive" };
+            if self.tool(ui, Icon::Sync, label, !self.syncing).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
+                self.sync_or_set_up("Set up your account to sync contacts.");
+            }
+        });
     }
 
-    /// Send/Receive, which also syncs the calendars and address books; without an account it
-    /// opens the account settings with `setup` as the reason.
-    fn sync_button(&mut self, ui: &mut Ui, setup: &str) {
-        let label = tl(if self.syncing { "⟳ Syncing…" } else { "⟳ Send/Receive" });
-        if ui.add_enabled(!self.syncing, egui::Button::new(label)).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
-            self.sync_or_set_up(setup);
-        }
+    /// Opens the form for a new appointment on the day shown, at nine.
+    fn new_appointment(&mut self) {
+        self.event_form = EventForm { open: true, start: format!("{}T09:00", self.session.day), ..EventForm::default() };
     }
 
     /// How often Send/Receive runs on its own, as Outlook's "Schedule an automatic send/receive
@@ -1568,7 +1851,7 @@ impl App {
                 chosen = Some("system".into());
             }
             ui.separator();
-            ui.add(egui::TextEdit::singleline(&mut self.zone_filter).hint_text(tl("Search: Lisbon, Kyiv, New York…")).desired_width(240.0));
+            theme::field(ui, egui::TextEdit::singleline(&mut self.zone_filter).hint_text(tl("Search: Lisbon, Kyiv, New York…")).desired_width(240.0));
             let needle = self.zone_filter.to_lowercase().replace(' ', "_");
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for name in self.zone_names.iter().filter(|n| needle.is_empty() || n.to_lowercase().contains(&needle)).take(400) {
@@ -1595,26 +1878,106 @@ impl App {
             if self.syncing
                 && let Some((what, done)) = &self.sync_progress
             {
-                let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(140.0).desired_height(10.0).fill(self.tokens.accent);
+                let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(160.0).desired_height(10.0).fill(self.tokens.accent);
                 ui.add(bar);
                 ui.label(RichText::new(what).small().color(self.tokens.text_weak));
                 ui.separator();
             }
             ui.label(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                self.language_menu(ui);
-                tinta_reports_ui::menu(self, ui);
-                let _ = tinta_feedback::button(ui, &mut self.tinta_feedback, i18n::current().code());
-            });
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.zoom_slider(ui));
         });
     }
 
-    /// The status bar's interface language menu: Automatic (the computer's) or one by hand.
+    /// The interface's size at the right of the status bar, as in an office suite: −, a slider in
+    /// steps of 10, +, and the percent (a click on it goes back to the default). A drag is saved
+    /// once, when let go.
+    fn zoom_slider(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        // The default and the range, as view.zoom says them (asked once; asking changes nothing).
+        let (default, lo, hi) = *self.zoom_limits.get_or_insert_with(|| {
+            let v = self.session.run("view.zoom", &Value::Null).unwrap_or_default();
+            let n = |k: &str, d: u16| v.get(k).and_then(Value::as_u64).and_then(|n| u16::try_from(n).ok()).unwrap_or(d);
+            (n("default", 110), n("min", 80), n("max", 200))
+        });
+        let (lo, hi) = (f32::from(lo), f32::from(hi.max(lo.saturating_add(10))));
+        let kept = f32::from(self.session.store.zoom());
+        let mut value = self.zoom_drag.unwrap_or(kept);
+        let mut set: Option<Value> = None;
+        ui.spacing_mut().item_spacing.x = 2.0;
+        // Right to left: the percent, +, the track, −.
+        let (pct, resp) = ui.allocate_exact_size(vec2(44.0, 20.0), Sense::click());
+        if resp.hovered() {
+            ui.painter().rect_filled(pct, 4.0, t.accent_soft);
+        }
+        ui.painter().text(
+            pct.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("{} %", value.round()),
+            egui::FontId::proportional(theme::CAPTION),
+            t.text_weak,
+        );
+        if resp.on_hover_text(tf("Back to {percent} % (Ctrl+0)", &[("percent", &default.to_string())])).clicked() {
+            set = Some(json!({ "reset": true }));
+        }
+        if self.tiny_button(ui, true, "Larger (Ctrl+=)") {
+            set = Some(json!({ "step": 1 }));
+        }
+        let (track, resp) = ui.allocate_exact_size(vec2(120.0, 20.0), Sense::click_and_drag());
+        let span = (track.width() - 14.0).max(1.0);
+        let x_of = |v: f32| track.left() + 7.0 + span * ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+        if let Some(p) = resp.interact_pointer_pos()
+            && (resp.dragged() || resp.clicked())
+        {
+            let share = ((p.x - track.left() - 7.0) / span).clamp(0.0, 1.0);
+            value = ((lo + share * (hi - lo)) / 10.0).round() * 10.0;
+        }
+        let y = track.center().y;
+        let p = ui.painter();
+        let line = |a: f32, b: f32| egui::Rect::from_min_max(egui::pos2(a, y - 2.0), egui::pos2(b, y + 2.0));
+        p.rect_filled(line(track.left() + 7.0, track.right() - 7.0), 2.0, t.border);
+        p.rect_filled(line(track.left() + 7.0, x_of(value)), 2.0, t.accent);
+        let tick = x_of(f32::from(default));
+        p.line_segment([egui::pos2(tick, y - 6.0), egui::pos2(tick, y - 3.5)], Stroke::new(1.0, t.text_weak));
+        let big = resp.hovered() || resp.dragged();
+        p.circle(egui::pos2(x_of(value), y), if big { 7.5 } else { 6.5 }, t.card, Stroke::new(1.5, t.accent));
+        let resp = resp.on_hover_text(tl("Size"));
+        if resp.dragged() {
+            self.zoom_drag = Some(value);
+        } else if resp.drag_stopped() || resp.clicked() {
+            set = Some(json!({ "percent": value }));
+        }
+        if self.tiny_button(ui, false, "Smaller (Ctrl+-)") {
+            set = Some(json!({ "step": -1 }));
+        }
+        if let Some(p) = set {
+            self.zoom_drag = None;
+            self.run("view.zoom", p);
+        }
+    }
+
+    /// A frameless 20 × 20 point + (`plus`) or − button, drawn in thin strokes; true when clicked.
+    fn tiny_button(&self, ui: &mut Ui, plus: bool, tip: &str) -> bool {
+        let t = self.tokens;
+        let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+        let color = if resp.hovered() { t.accent } else { t.text_weak };
+        if resp.hovered() {
+            ui.painter().rect_filled(r, 4.0, t.accent_soft);
+        }
+        let (c, stroke) = (r.center(), Stroke::new(1.4, color));
+        ui.painter().line_segment([c - vec2(4.5, 0.0), c + vec2(4.5, 0.0)], stroke);
+        if plus {
+            ui.painter().line_segment([c - vec2(0.0, 4.5), c + vec2(0.0, 4.5)], stroke);
+        }
+        resp.on_hover_text(tl(tip)).clicked()
+    }
+
+    /// The title bar's interface language menu: Automatic (the computer's) or one by hand.
     fn language_menu(&mut self, ui: &mut Ui) {
         let chosen = self.session.store.language.clone();
         let current = i18n::current();
         let mut pick: Option<&str> = None;
-        ui.menu_button(RichText::new(format!("🌐 {}", current.name())).small(), |ui| {
+        let tip = format!("{}: {}", tl("Interface language"), current.name());
+        self.icon_menu(ui, Icon::Globe, &tip, |ui| {
             if ui.selectable_label(chosen.is_none(), tl("Automatic (system language)")).clicked() {
                 pick = Some(i18n::AUTO);
             }
@@ -1623,9 +1986,7 @@ impl App {
                     pick = Some(l.code());
                 }
             }
-        })
-        .response
-        .on_hover_text(tl("Interface language"));
+        });
         if let Some(code) = pick {
             self.run("app.language", json!({ "language": code }));
         }
@@ -1633,15 +1994,79 @@ impl App {
 
     // ---- mail ----
 
+    /// Which side panes fit beside a view's main pane this frame, from their widths last frame;
+    /// panes the person hid stay hidden, and a pane they asked to see with no room is shown anyway.
+    fn fit_panes(
+        &mut self,
+        ui: &Ui,
+        main: f32,
+        left: (&str, f32, f32, f32),
+        middle: Option<(&str, f32, f32, f32)>,
+        right: Option<(&str, f32, f32, f32)>,
+        force_right: bool,
+    ) -> Fit {
+        let ctx = ui.ctx();
+        let side = |(id, default, min, max): (&str, f32, f32, f32)| Side {
+            wanted: egui::PanelState::load(ctx, egui::Id::new(id)).map_or(default, |s| s.size().x),
+            min,
+            max,
+        };
+        let store = &self.session.store;
+        let fit = fit(
+            ui.available_width(),
+            main,
+            (!store.hide_folder_pane).then(|| side(left)),
+            middle.map(side),
+            right.filter(|_| force_right || !store.hide_my_day).map(side),
+            (self.peek_folders, self.peek_my_day || force_right),
+        );
+        let missing = |need: f32| (need - ui.available_width()).max(0.0);
+        self.room_wanted = (missing(fit.room_for_left), missing(fit.room_for_right));
+        self.folders_squeezed = !store.hide_folder_pane && !fit.left;
+        self.my_day_squeezed = !force_right && right.is_some() && !store.hide_my_day && !fit.right;
+        fit
+    }
+
     fn mail(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::left("folders")
-            .default_size(190.0)
-            .size_range(140.0..=320.0)
-            .frame(Frame::NONE.fill(t.pane).inner_margin(8))
-            .show(ui, |ui| self.folders(ui));
-        egui::Panel::left("list").default_size(360.0).size_range(240.0..=640.0).frame(Frame::NONE.fill(t.list)).show(ui, |ui| self.message_list(ui));
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
+        let fit = self.fit_panes(
+            ui,
+            MAIL_MAIN_MIN,
+            ("folders", 260.0, 190.0, 400.0),
+            Some(("list", 360.0, 280.0, 680.0)),
+            Some(("my-day", 280.0, 240.0, 440.0)),
+            false,
+        );
+        if fit.left {
+            egui::Panel::left("folders")
+                .show_separator_line(false)
+                .default_size(260.0)
+                .size_range(190.0..=fit.left_max)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::Pencil, "New Email") {
+                        self.run("message.compose", json!({}));
+                    }
+                    self.folders(ui);
+                });
+        }
+        egui::Panel::top("mail-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
+        if fit.right {
+            egui::Panel::right("my-day")
+                .show_separator_line(false)
+                .default_size(280.0)
+                .size_range(240.0..=fit.right_max)
+                .frame(chrome::card(&t, 14))
+                .show(ui, |ui| self.my_day(ui));
+        }
+        egui::Panel::left("list")
+            .show_separator_line(false)
+            .default_size(360.0)
+            .size_range(280.0..=fit.middle_max)
+            .frame(chrome::card(&t, 0))
+            .show(ui, |ui| self.message_list(ui));
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 24)).show(ui, |ui| {
+            self.main_width = ui.available_width() + 48.0;
             if self.draft.is_some() {
                 self.compose(ui);
             } else {
@@ -1666,20 +2091,23 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if self.folder_heading(ui, FOLD_FAVORITES, tl("Favorites"), None).0 {
+                let line = FolderLine { with_account: several, ..FolderLine::default() };
                 for id in &favorites {
-                    self.folder_row(ui, *id, several);
+                    self.folder_row(ui, Some(*id), &line);
                 }
                 if favorites.is_empty() {
-                    ui.add_space(2.0);
-                    ui.horizontal(|ui| {
-                        ui.add_space(30.0);
-                        ui.label(RichText::new(tl("Right-click a folder: Add to Favorites")).small().color(self.tokens.text_weak));
+                    ui.add_space(4.0);
+                    // Wrapped, so a long translation never widens the pane.
+                    Frame::NONE.inner_margin(Margin { left: 36, right: 6, top: 0, bottom: 0 }).show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(tl("Right-click a folder: Add to Favorites")).small().color(self.tokens.text_weak)).wrap(),
+                        );
                     });
                     ui.add_space(4.0);
                 }
             }
             for (account, email) in groups {
-                ui.add_space(6.0);
+                ui.add_space(10.0);
                 let key = account.map_or(u32::MAX - 1, |a| a.0);
                 let (open, gear) = self.folder_heading(ui, key, &email, account);
                 if gear {
@@ -1687,14 +2115,16 @@ impl App {
                 }
                 if open {
                     let account = account.unwrap_or_else(|| self.session.store.first_account());
-                    let ids: Vec<FolderId> = self.session.store.folders_of(account).iter().map(|f| f.id).collect();
-                    for id in ids {
-                        self.folder_row(ui, id, false);
-                    }
+                    let rows = folder_tree(&self.session.store.folders_of(account));
+                    self.folder_tree_rows(ui, account, &rows);
                 }
             }
             ui.add_space(10.0);
-            if ui.small_button(tl("+ Add account")).on_hover_text(tl("Another mailbox, with folders of its own")).clicked() {
+            let add = tl("+ Add account").trim_start_matches('+').trim();
+            if chrome::button(ui, &self.tokens, chrome::Kind::Quiet, Some(Icon::Plus), add, true)
+                .on_hover_text(tl("Another mailbox, with folders of its own"))
+                .clicked()
+            {
                 settings = Some(None);
             }
         });
@@ -1708,25 +2138,25 @@ impl App {
     fn folder_heading(&mut self, ui: &mut Ui, key: u32, title: &str, account: Option<AccountId>) -> (bool, bool) {
         let t = self.tokens;
         let open = !self.folded.contains(&key);
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
         let painter = ui.painter_at(rect);
         if resp.hovered() {
-            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+            painter.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.5));
         }
         let chevron = if open { "⏷" } else { "⏵" };
         painter.text(
             egui::pos2(rect.left() + 4.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
             chevron,
-            egui::FontId::proportional(10.0),
+            egui::FontId::proportional(11.0),
             t.text_weak,
         );
-        let mut x = rect.left() + 18.0;
+        let mut x = rect.left() + 20.0;
         if key == FOLD_FAVORITES {
-            icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(x + 7.0, rect.center().y), vec2(15.0, 15.0)), Icon::Star, t.text);
-            x += 20.0;
+            icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(x + 8.0, rect.center().y), vec2(17.0, 17.0)), Icon::Star, t.text);
+            x += 24.0;
         }
-        let font = egui::FontId::proportional(13.0);
+        let font = egui::FontId::proportional(theme::BODY);
         painter.text(egui::pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, title, font, t.text);
         let mut gear = false;
         if account.is_some() {
@@ -1737,7 +2167,7 @@ impl App {
                     g.center(),
                     egui::Align2::CENTER_CENTER,
                     "⚙",
-                    egui::FontId::proportional(13.0),
+                    egui::FontId::proportional(15.0),
                     if r.hovered() { t.accent } else { t.text_weak },
                 );
             }
@@ -1753,25 +2183,34 @@ impl App {
         (open, gear)
     }
 
-    /// One folder in the pane: its icon, name and unread count. `with_account` adds the
-    /// account's address (in Favorites, when there are several).
-    fn folder_row(&mut self, ui: &mut Ui, id: FolderId, with_account: bool) {
+    /// One row of the folder pane: a folder's icon, name and unread count, or a path its
+    /// subfolders share that is no folder here (`id` `None`). `line` says how far in it sits,
+    /// whether it folds and what it shows; true when its chevron was clicked.
+    fn folder_row(&mut self, ui: &mut Ui, id: Option<FolderId>, line: &FolderLine) -> bool {
         let t = self.tokens;
         let store = &self.session.store;
-        let Ok(folder) = store.folder(id) else { return };
-        let (name, role) = (folder_label(folder), folder.role);
-        let email = if with_account { store.account(folder.account).map(|a| a.address.email.clone()).ok() } else { None };
-        let unread = self.unread.get(&id).copied().unwrap_or(0);
-        let favorite = store.is_favorite(id);
-        let selected = self.session.folder == id && self.search.is_empty();
-        let height = if email.is_some() { 38.0 } else { 28.0 };
+        let folder = id.and_then(|id| store.folder(id).ok());
+        if id.is_some() && folder.is_none() {
+            return false;
+        }
+        let name = match (&line.label, folder) {
+            (Some(l), _) => l.clone(),
+            (None, Some(f)) => folder_label(f),
+            (None, None) => String::new(),
+        };
+        let role = folder.map_or(FolderRole::Other, |f| f.role);
+        let email = if line.with_account { folder.and_then(|f| store.account(f.account).ok()).map(|a| a.address.email.clone()) } else { None };
+        let unread = id.and_then(|id| self.unread.get(&id).copied()).unwrap_or(0).saturating_add(line.folded_unread);
+        let favorite = id.is_some_and(|id| store.is_favorite(id));
+        let selected = id.is_some_and(|id| self.session.folder == id) && self.search.is_empty();
+        let height = if email.is_some() { 46.0 } else { 34.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let painter = ui.painter_at(rect);
         if selected {
-            painter.rect_filled(rect, 4.0, t.accent_soft);
-            painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 6.0), vec2(3.0, height - 12.0)), 1.5, t.accent);
+            painter.rect_filled(rect, 6.0, t.accent_soft);
+            painter.rect_filled(egui::Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(3.0, height - 16.0)), 1.5, t.accent);
         } else if resp.hovered() {
-            painter.rect_filled(rect, 4.0, t.accent_soft.gamma_multiply(0.5));
+            painter.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.5));
         }
         let icon = match role {
             FolderRole::Inbox => Icon::Inbox,
@@ -1784,36 +2223,59 @@ impl App {
             FolderRole::Other => Icon::Folder,
         };
         let strong = unread > 0;
-        let color = if strong { t.unread } else { t.text };
-        let line = if email.is_some() { rect.top() + 14.0 } else { rect.center().y };
-        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + 30.0, line), vec2(16.0, 16.0)), icon, color);
+        let color = if strong {
+            t.unread
+        } else if id.is_none() {
+            t.text_weak
+        } else {
+            t.text
+        };
+        let line_y = if email.is_some() { rect.top() + 16.0 } else { rect.center().y };
+        let indent = FOLDER_INDENT * line.depth as f32;
+        let mut toggled = false;
+        if let Some(open) = line.fold {
+            let chevron = egui::Rect::from_center_size(egui::pos2(rect.left() + indent + 11.0, line_y), vec2(20.0, 24.0));
+            let r = ui.interact(chevron, resp.id.with("fold"), Sense::click());
+            if r.hovered() {
+                painter.rect_filled(chevron, 4.0, t.accent_soft);
+            }
+            let glyph = if open { "⏷" } else { "⏵" };
+            painter.text(chevron.center(), egui::Align2::CENTER_CENTER, glyph, egui::FontId::proportional(11.0), t.text_weak);
+            toggled = r.on_hover_text(tl(if open { "Hide subfolders" } else { "Show subfolders" })).clicked();
+        }
+        icons::paint(&painter, egui::Rect::from_center_size(egui::pos2(rect.left() + indent + 32.0, line_y), vec2(18.0, 18.0)), icon, color);
         let count = if unread > 0 { unread.to_string() } else { String::new() };
         let count_w = if count.is_empty() {
             0.0
         } else {
-            let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(12.0), t.unread);
+            let g = painter.layout_no_wrap(count.clone(), egui::FontId::proportional(13.0), t.unread);
             let w = g.size().x;
-            painter.galley(egui::pos2(rect.right() - 8.0 - w, line - g.size().y / 2.0), g, t.unread);
+            painter.galley(egui::pos2(rect.right() - 10.0 - w, line_y - g.size().y / 2.0), g, t.unread);
             w + 12.0
         };
-        let text_left = rect.left() + 46.0;
-        let room = (rect.right() - count_w - 8.0 - text_left).max(0.0);
-        let font = egui::FontId::proportional(14.0);
+        let text_left = rect.left() + indent + 52.0;
+        let room = (rect.right() - count_w - 10.0 - text_left).max(0.0);
+        let font = egui::FontId::proportional(15.0);
         let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), font, color);
         job.wrap = egui::text::TextWrapping::truncate_at_width(room);
         let g = painter.layout_job(job);
-        painter.galley(egui::pos2(text_left, line - g.size().y / 2.0), g, color);
+        painter.galley(egui::pos2(text_left, line_y - g.size().y / 2.0), g, color);
         if let Some(email) = &email {
-            let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(11.0), t.text_weak);
+            let mut job = egui::text::LayoutJob::simple_singleline(email.clone(), egui::FontId::proportional(theme::CAPTION), t.text_weak);
             job.wrap = egui::text::TextWrapping::truncate_at_width(room);
             let g = painter.layout_job(job);
-            painter.galley(egui::pos2(text_left, rect.top() + 25.0 - g.size().y / 2.0), g, t.text_weak);
+            painter.galley(egui::pos2(text_left, rect.top() + 32.0 - g.size().y / 2.0), g, t.text_weak);
         }
-        let resp = match &email {
-            Some(e) => resp.on_hover_text(format!("{name} — {e}")),
-            None => resp,
+        let resp = match (&email, folder) {
+            (Some(e), _) => resp.on_hover_text(format!("{name} — {e}")),
+            (None, Some(f)) if line.label.is_some() => resp.on_hover_text(folder_label(f)),
+            _ => resp,
         };
-        if resp.clicked() {
+        let Some(id) = id else {
+            // A shared path is no folder to open: a click folds it.
+            return toggled || resp.clicked();
+        };
+        if resp.clicked() && !toggled {
             self.search.clear();
             self.run("folder.select", json!({ "folder": id.0 }));
         }
@@ -1828,6 +2290,47 @@ impl App {
                 ui.close();
             }
         });
+        toggled
+    }
+
+    /// An account's folders as a tree: subfolders under their parent, a folded parent's hidden
+    /// and its unread mail counted on it.
+    fn folder_tree_rows(&mut self, ui: &mut Ui, account: AccountId, rows: &[TreeRow]) {
+        let mut hidden_below: Option<usize> = None;
+        for (i, row) in rows.iter().enumerate() {
+            if let Some(depth) = hidden_below {
+                if row.depth > depth {
+                    continue;
+                }
+                hidden_below = None;
+            }
+            let key = (account.0, row.key.clone());
+            let open = !self.folded_paths.contains(&key);
+            let folded_unread = if row.children && !open {
+                hidden_below = Some(row.depth);
+                rows.iter()
+                    .skip(i + 1)
+                    .take_while(|r| r.depth > row.depth)
+                    .filter_map(|r| r.folder.and_then(|id| self.unread.get(&id).copied()))
+                    .fold(0usize, usize::saturating_add)
+            } else {
+                0
+            };
+            let line = FolderLine {
+                label: Some(row.label.clone()),
+                depth: row.depth,
+                fold: row.children.then_some(open),
+                folded_unread,
+                with_account: false,
+            };
+            if self.folder_row(ui, row.folder, &line) && row.children {
+                if open {
+                    self.folded_paths.insert(key);
+                } else {
+                    self.folded_paths.remove(&key);
+                }
+            }
+        }
     }
 
     fn message_list(&mut self, ui: &mut Ui) {
@@ -1842,7 +2345,7 @@ impl App {
         } else {
             tf("Results for “{query}”", &[("query", &self.search)])
         };
-        Frame::NONE.inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+        Frame::NONE.inner_margin(Margin { left: 18, right: 16, top: 14, bottom: 10 }).show(ui, |ui| {
             ui.label(RichText::new(title).heading().color(t.text));
             if !self.search.is_empty() {
                 // Where to look, as Outlook's scope list; shown while searching.
@@ -1889,19 +2392,19 @@ impl App {
                 if !seen {
                     painter.rect_filled(egui::Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, t.unread);
                 }
-                let x = rect.left() + 14.0;
+                let x = rect.left() + 18.0;
                 let font = |size: f32| egui::FontId::proportional(size);
                 let strong = if seen { t.text } else { t.unread };
-                painter.text(egui::pos2(x, rect.top() + 8.0), egui::Align2::LEFT_TOP, &who, font(14.0), strong);
-                painter.text(egui::pos2(rect.right() - 10.0, rect.top() + 8.0), egui::Align2::RIGHT_TOP, &when, font(11.5), t.text_weak);
+                painter.text(egui::pos2(x, rect.top() + 12.0), egui::Align2::LEFT_TOP, &who, font(15.0), strong);
+                painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 13.0), egui::Align2::RIGHT_TOP, &when, font(theme::CAPTION), t.text_weak);
                 let mut subj = subject;
                 if attachment {
                     subj = format!("📎 {subj}");
                 }
-                painter.text(egui::pos2(x, rect.top() + 27.0), egui::Align2::LEFT_TOP, &subj, font(12.5), if seen { t.text } else { strong });
-                painter.text(egui::pos2(x, rect.top() + 44.0), egui::Align2::LEFT_TOP, &preview, font(11.5), t.text_weak);
+                painter.text(egui::pos2(x, rect.top() + 35.0), egui::Align2::LEFT_TOP, &subj, font(theme::BODY), if seen { t.text } else { strong });
+                painter.text(egui::pos2(x, rect.top() + 57.0), egui::Align2::LEFT_TOP, &preview, font(13.0), t.text_weak);
                 if flagged {
-                    painter.text(egui::pos2(rect.right() - 10.0, rect.top() + 27.0), egui::Align2::RIGHT_TOP, "⚑", font(13.0), t.flag);
+                    painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 35.0), egui::Align2::RIGHT_TOP, "⚑", font(14.0), t.flag);
                 }
                 painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.6)));
                 if resp.clicked() {
@@ -1933,14 +2436,19 @@ impl App {
         let content = self.content.as_ref().map(|(_, c)| c.clone());
         // Borrowed, not cloned: an HTML body can be megabytes, and this runs every frame.
         let Some(m) = self.session.message.and_then(|id| self.session.store.message(id).ok()) else {
-            ui.centered_and_justified(|ui| ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak)));
+            // Centred, not justified: a justified label spreads its letters apart.
+            let room = ui.available_height();
+            ui.vertical_centered(|ui| {
+                ui.add_space((room * 0.45).max(0.0));
+                ui.label(RichText::new(tl("Select a message to read it")).color(t.text_weak));
+            });
             return;
         };
-        ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(20.0).strong().color(t.text));
-        ui.add_space(8.0);
+        ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(24.0).strong().color(t.text));
+        ui.add_space(12.0);
         ui.horizontal(|ui| {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
-            ui.label(RichText::new(who).strong().color(t.text));
+            ui.label(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new(m.date.map(|d| self.session.zone().from_utc(d).to_string().replace('T', " ")).unwrap_or_default())
@@ -2004,12 +2512,13 @@ impl App {
                 });
             });
         }
-        ui.add_space(10.0);
+        ui.add_space(14.0);
         ui.separator();
+        ui.add_space(8.0);
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match (&content, rich) {
             (_, Some(rich)) if !self.session.plain_text => rich_body(ui, &t, rich),
             (Some(Ok(c)), _) => {
-                ui.add(egui::Label::new(RichText::new(&c.body).size(14.0).color(t.text)).wrap());
+                ui.add(egui::Label::new(RichText::new(&c.body).size(15.0).color(t.text)).wrap());
             }
             (Some(Err(e)), _) => {
                 ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
@@ -2025,34 +2534,70 @@ impl App {
         }
     }
 
+    /// The light hint in an empty message: a letter's shape in the interface's language, with
+    /// the first recipient's first name and the sender's name. Only a hint: nothing is sent.
+    fn letter_hint(&self) -> String {
+        let to = self.draft.as_ref().map(|d| d.to.clone()).unwrap_or_default();
+        let first = ibercorreo_core::Address::parse_list(&to)
+            .ok()
+            .and_then(|list| list.into_iter().next())
+            .and_then(|a| a.name)
+            .and_then(|n| n.split_whitespace().next().map(str::to_string));
+        let greeting = match first {
+            Some(name) => tf("Hello {name},", &[("name", &name)]),
+            None => tl("Hello,").to_string(),
+        };
+        let account = self.session.store.account(self.session.current_account()).ok();
+        let sender = account.map(|a| a.address.name.clone().unwrap_or_else(|| a.name.clone())).unwrap_or_default();
+        format!("{greeting}\n\n{}\n\n{}\n{sender}", tl("Write your message here…"), tl("Kind regards,"))
+    }
+
     fn compose(&mut self, ui: &mut Ui) {
         let t = self.tokens;
+        let hint = self.letter_hint();
         let Some(d) = self.draft.as_mut() else { return };
         let mut send = false;
         let mut discard = false;
         ui.horizontal(|ui| {
-            send = ui.add(egui::Button::new(RichText::new(tl("Send")).strong().color(Color32::WHITE)).fill(t.accent)).clicked();
-            discard = ui.button(tl("Discard")).clicked();
-            if !d.show_bcc && ui.button(tl("Bcc")).on_hover_text(tl("Blind copies: they get the message, the others don't see them")).clicked() {
-                d.show_bcc = true;
-            }
+            ui.spacing_mut().item_spacing.x = 12.0;
+            send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
+            discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
         let mut changed = false;
-        egui::Grid::new("compose").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-            let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
-            if d.show_bcc {
-                rows.push(("Bcc", &mut d.bcc));
-            }
-            rows.push(("Subject", &mut d.subject));
-            for (label, field) in rows {
-                ui.label(RichText::new(tl(label)).color(t.text_weak));
-                changed |= ui.add(egui::TextEdit::singleline(field).desired_width(f32::INFINITY)).lost_focus();
-                ui.end_row();
-            }
-        });
-        ui.add_space(6.0);
-        changed |= ui.add_sized(ui.available_size(), egui::TextEdit::multiline(&mut d.body)).lost_focus();
+        // Outlook's header: a label and a borderless field per row, a hairline under each.
+        let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
+        if d.show_bcc {
+            rows.push(("Bcc", &mut d.bcc));
+        }
+        rows.push(("Subject", &mut d.subject));
+        for (label, field) in rows {
+            let row = ui
+                .allocate_ui_with_layout(vec2(ui.available_width(), 40.0), Layout::left_to_right(Align::Center), |ui| {
+                    ui.add_sized(vec2(72.0, 20.0), egui::Label::new(RichText::new(tl(label)).color(t.text_weak)).truncate());
+                    let bcc_toggle = label == "Cc" && !d.show_bcc;
+                    let room = (ui.available_width() - if bcc_toggle { 64.0 } else { 0.0 }).max(80.0);
+                    let size = if label == "Subject" { theme::SUBTITLE } else { theme::BODY };
+                    let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(egui::FontId::proportional(size)).desired_width(room);
+                    changed |= ui.add(edit).lost_focus();
+                    if bcc_toggle {
+                        let tip = tl("Blind copies: they get the message, the others don't see them");
+                        if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Bcc", true).on_hover_text(tip).clicked() {
+                            d.show_bcc = true;
+                        }
+                    }
+                })
+                .response
+                .rect;
+            ui.painter().hline(row.x_range(), row.bottom(), Stroke::new(1.0, t.border.gamma_multiply(0.5)));
+        }
+        ui.add_space(4.0);
+        // The text: just the card below the header, with a letter's shape as a hint while empty.
+        let body = egui::TextEdit::multiline(&mut d.body)
+            .frame(Frame::NONE.inner_margin(Margin::same(16)))
+            .font(egui::FontId::proportional(15.0))
+            .hint_text(RichText::new(&hint).color(t.text_weak.gamma_multiply(0.6)).size(15.0));
+        changed |= ui.add_sized(ui.available_size(), body).lost_focus();
         let params = json!({ "id": d.id, "to": d.to, "cc": d.cc, "bcc": d.bcc, "subject": d.subject, "body": d.body });
         let id = d.id;
         if changed || send {
@@ -2069,8 +2614,35 @@ impl App {
 
     fn calendar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::right("agenda").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| self.agenda(ui));
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(10)).show(ui, |ui| {
+        let fit = self.fit_panes(ui, CALENDAR_MAIN_MIN, ("calendar-pane", 260.0, 210.0, 400.0), None, Some(("agenda", 300.0, 240.0, 440.0)), false);
+        if fit.left {
+            egui::Panel::left("calendar-pane")
+                .show_separator_line(false)
+                .default_size(260.0)
+                .size_range(210.0..=fit.left_max)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::Calendar, "New Appointment") {
+                        self.new_appointment();
+                    }
+                    ui.add_space(4.0);
+                    self.mini_month(ui, false);
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.calendar_list(ui));
+                });
+        }
+        egui::Panel::top("calendar-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
+        if fit.right {
+            egui::Panel::right("agenda")
+                .show_separator_line(false)
+                .default_size(300.0)
+                .size_range(240.0..=fit.right_max)
+                .frame(chrome::card(&t, 14))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
+                });
+        }
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 12)).show(ui, |ui| {
+            self.main_width = ui.available_width() + 24.0;
             if self.session.calendar_mode == CalendarMode::Month {
                 self.month(ui);
             } else {
@@ -2088,11 +2660,11 @@ impl App {
         let names = WEEKDAYS.map(tl);
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
-        let cell_h = ((avail.y - 24.0) / 6.0).max(40.0);
+        let cell_h = ((avail.y - 28.0) / 6.0).max(48.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             for n in names {
-                ui.add_sized([cell_w, 20.0], egui::Label::new(RichText::new(n).small().color(t.text_weak)));
+                ui.add_sized([cell_w, 24.0], egui::Label::new(RichText::new(n).small().color(t.text_weak)));
             }
         });
         for week in 0..6i64 {
@@ -2110,20 +2682,20 @@ impl App {
                         if selected {
                             t.accent_soft
                         } else if in_month {
-                            t.reading
+                            t.card
                         } else {
-                            t.list
+                            theme::mix(t.card, t.window, 0.6)
                         },
                     );
                     p.rect_stroke(rect, 0.0, Stroke::new(0.5, t.border), StrokeKind::Inside);
-                    let num_pos = rect.left_top() + vec2(6.0, 4.0);
+                    let num_pos = rect.left_top() + vec2(8.0, 6.0);
                     if day == today {
-                        p.circle_filled(num_pos + vec2(8.0, 9.0), 11.0, t.today);
+                        p.circle_filled(num_pos + vec2(9.0, 10.0), 13.0, t.today);
                         p.text(
-                            num_pos + vec2(8.0, 9.0),
+                            num_pos + vec2(9.0, 10.0),
                             egui::Align2::CENTER_CENTER,
                             day.day().to_string(),
-                            egui::FontId::proportional(12.0),
+                            egui::FontId::proportional(13.0),
                             Color32::WHITE,
                         );
                     } else {
@@ -2131,18 +2703,18 @@ impl App {
                             num_pos,
                             egui::Align2::LEFT_TOP,
                             day.day().to_string(),
-                            egui::FontId::proportional(12.0),
+                            egui::FontId::proportional(13.0),
                             if in_month { t.text } else { t.text_weak },
                         );
                     }
-                    let mut y = rect.top() + 26.0;
+                    let mut y = rect.top() + 32.0;
                     for o in self.session.store.events_on(day, self.session.zone()) {
                         let e = o.event;
-                        if y + 16.0 > rect.bottom() {
-                            p.text(egui::pos2(rect.left() + 6.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(11.0), t.text_weak);
+                        if y + 20.0 > rect.bottom() {
+                            p.text(egui::pos2(rect.left() + 8.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(12.0), t.text_weak);
                             break;
                         }
-                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 3.0, y), vec2(rect.width() - 6.0, 16.0));
+                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 4.0, y), vec2(rect.width() - 8.0, 20.0));
                         let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
                         let label = match o.when {
                             When::Timed { start, .. } if start.date == day => {
@@ -2152,13 +2724,13 @@ impl App {
                         };
                         p.rect_filled(chip, 3.0, self.calendar_color(e.calendar).gamma_multiply(0.85));
                         p.with_clip_rect(chip).text(
-                            chip.left_center() + vec2(4.0, 0.0),
+                            chip.left_center() + vec2(6.0, 0.0),
                             egui::Align2::LEFT_CENTER,
                             label,
-                            egui::FontId::proportional(11.0),
+                            egui::FontId::proportional(12.0),
                             Color32::WHITE,
                         );
-                        y += 18.0;
+                        y += 22.0;
                     }
                     if resp.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
@@ -2174,9 +2746,9 @@ impl App {
     /// Day, work week and week: a column per day, an all-day strip on top and the hours below,
     /// with overlapping appointments side by side.
     fn time_grid(&mut self, ui: &mut Ui) {
-        const GUTTER: f32 = 48.0;
-        const HOUR: f32 = 44.0;
-        const ALL_DAY_ROW: f32 = 20.0;
+        const GUTTER: f32 = 56.0;
+        const HOUR: f32 = 52.0;
+        const ALL_DAY_ROW: f32 = 24.0;
         let t = self.tokens;
         let (from, to) = self.session.calendar_range();
         let count = usize::try_from(to.day_number().saturating_sub(from.day_number()).saturating_add(1)).unwrap_or(1).clamp(1, 7);
@@ -2186,14 +2758,20 @@ impl App {
         let x_of = |left: f32, n: usize| left + GUTTER + col_w * n as f32;
 
         // Day headings.
-        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 50.0), Sense::hover());
         let p = ui.painter_at(head);
         for (n, day) in days.iter().enumerate() {
             let x = x_of(head.left(), n);
             let is_today = *day == now.date;
             let colour = if is_today { t.today } else { t.text };
-            p.text(egui::pos2(x + 6.0, head.top() + 2.0), egui::Align2::LEFT_TOP, weekday_abbr(*day), egui::FontId::proportional(11.0), t.text_weak);
-            p.text(egui::pos2(x + 6.0, head.top() + 16.0), egui::Align2::LEFT_TOP, day.day().to_string(), egui::FontId::proportional(18.0), colour);
+            p.text(
+                egui::pos2(x + 8.0, head.top() + 4.0),
+                egui::Align2::LEFT_TOP,
+                weekday_abbr(*day),
+                egui::FontId::proportional(theme::CAPTION),
+                t.text_weak,
+            );
+            p.text(egui::pos2(x + 8.0, head.top() + 20.0), egui::Align2::LEFT_TOP, day.day().to_string(), egui::FontId::proportional(22.0), colour);
             if *day == self.session.day {
                 p.rect_filled(egui::Rect::from_min_size(egui::pos2(x + 2.0, head.bottom() - 3.0), vec2(col_w - 4.0, 3.0)), 1.0, t.accent);
             }
@@ -2216,7 +2794,7 @@ impl App {
         if rows > 0 {
             let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW * rows as f32 + 4.0), Sense::hover());
             let p = ui.painter_at(strip);
-            p.rect_filled(strip, 0.0, t.list);
+            p.rect_filled(strip, 0.0, theme::mix(t.card, t.window, 0.6));
             for (n, list) in all_day.iter().enumerate() {
                 for (row, (summary, day, calendar)) in list.iter().take(rows).enumerate() {
                     let chip = egui::Rect::from_min_size(
@@ -2227,12 +2805,12 @@ impl App {
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
-                    p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.reading));
+                    p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.card));
                     p.with_clip_rect(chip).text(
                         chip.left_center() + vec2(4.0, 0.0),
                         egui::Align2::LEFT_CENTER,
                         summary,
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(12.5),
                         t.text,
                     );
                 }
@@ -2256,9 +2834,9 @@ impl App {
                     if *day == self.session.day {
                         t.accent_soft.gamma_multiply(0.4)
                     } else if weekend {
-                        t.list
+                        theme::mix(t.card, t.window, 0.6)
                     } else {
-                        t.reading
+                        t.card
                     },
                 );
                 p.line_segment([egui::pos2(x, grid.top()), egui::pos2(x, grid.bottom())], Stroke::new(0.5, t.border));
@@ -2275,7 +2853,7 @@ impl App {
                         egui::pos2(grid.left() + GUTTER - 6.0, y),
                         egui::Align2::RIGHT_CENTER,
                         format!("{hour:02}:00"),
-                        egui::FontId::proportional(11.0),
+                        egui::FontId::proportional(theme::CAPTION),
                         t.text_weak,
                     );
                 }
@@ -2312,7 +2890,7 @@ impl App {
                 for ((e, when, (start, end)), (column, columns)) in occurrences.iter().zip(ibercorreo_core::calendar::columns(&spans)) {
                     let w = (col_w - 6.0) / columns.max(1) as f32;
                     let top = y_of(*start);
-                    let bottom = y_of(*end).max(top + 20.0);
+                    let bottom = y_of(*end).max(top + 24.0);
                     let rect = egui::Rect::from_min_max(
                         egui::pos2(x + 2.0 + w * column as f32, top + 1.0),
                         egui::pos2(x + 2.0 + w * (column + 1) as f32 - 2.0, bottom - 1.0),
@@ -2333,19 +2911,25 @@ impl App {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
                     let color = self.calendar_color(e.calendar);
-                    p.rect_filled(rect, 3.0, soft(color, t.reading));
+                    p.rect_filled(rect, 3.0, soft(color, t.card));
                     p.rect_filled(egui::Rect::from_min_size(rect.left_top(), vec2(3.0, rect.height())), 1.0, color);
                     let clip = p.with_clip_rect(rect.shrink(1.0));
                     let repeat = if e.rrule.is_some() { "⟳ " } else { "" };
                     let title = format!("{repeat}{}", e.summary);
-                    if rect.height() < 30.0 {
-                        clip.text(rect.left_center() + vec2(6.0, 0.0), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(11.5), t.text);
+                    if rect.height() < 36.0 {
+                        clip.text(rect.left_center() + vec2(8.0, 0.0), egui::Align2::LEFT_CENTER, title, egui::FontId::proportional(13.0), t.text);
                     } else {
-                        clip.text(rect.left_top() + vec2(6.0, 2.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(11.5), t.text);
+                        clip.text(rect.left_top() + vec2(8.0, 4.0), egui::Align2::LEFT_TOP, title, egui::FontId::proportional(13.0), t.text);
                     }
-                    if rect.height() > 32.0 {
+                    if rect.height() > 40.0 {
                         let detail = if e.location.is_empty() { times } else { e.location.clone() };
-                        clip.text(rect.left_top() + vec2(6.0, 17.0), egui::Align2::LEFT_TOP, detail, egui::FontId::proportional(10.5), t.text_weak);
+                        clip.text(
+                            rect.left_top() + vec2(8.0, 22.0),
+                            egui::Align2::LEFT_TOP,
+                            detail,
+                            egui::FontId::proportional(theme::CAPTION),
+                            t.text_weak,
+                        );
                     }
                 }
                 // The current time, on today's column.
@@ -2372,7 +2956,7 @@ impl App {
                 When::AllDay { .. } => tl("All day").to_string(),
                 When::Timed { start, end, .. } => format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute()),
             };
-            Frame::NONE.fill(t.reading).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
+            Frame::NONE.fill(t.card).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(when).small().color(t.accent));
@@ -2411,7 +2995,6 @@ impl App {
             });
             ui.add_space(6.0);
         }
-        self.calendar_list(ui);
     }
 
     /// The calendars, with their colours; the ones synced from a server are marked.
@@ -2438,6 +3021,7 @@ impl App {
     }
 
     fn event_window(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
         if !self.event_form.open {
             return;
         }
@@ -2455,7 +3039,7 @@ impl App {
                     ("Location", &mut f.location, ""),
                 ] {
                     ui.label(tl(label));
-                    ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
+                    theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
                     ui.end_row();
                 }
                 ui.label(tl("Reminder"));
@@ -2489,7 +3073,8 @@ impl App {
                 });
                 ui.end_row();
             });
-            save = ui.button(tl("Save")).clicked();
+            ui.add_space(8.0);
+            save = chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked();
         });
         if save {
             let f = &self.event_form;
@@ -2520,42 +3105,100 @@ impl App {
 
     fn people(&mut self, ui: &mut Ui) {
         let t = self.tokens;
-        egui::Panel::right("contact-card").default_size(300.0).frame(Frame::NONE.fill(t.pane).inner_margin(12)).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
-        });
-        egui::CentralPanel::no_frame().frame(Frame::NONE.fill(t.reading).inner_margin(16)).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(320.0));
-                if ui.button(tl("➕ New Contact")).clicked() {
-                    self.contact_form = ContactForm::new_in(self.default_book());
-                }
-            });
-            // The address books, when there is more than one: all, or one of them.
-            let books: Vec<(u32, String, bool)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone(), b.remote.is_some())).collect();
-            if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
-                self.contact_book = None;
-            }
-            if books.len() > 1 {
-                ui.add_space(4.0);
-                ui.horizontal_wrapped(|ui| {
-                    if ui.selectable_label(self.contact_book.is_none(), tl("All")).clicked() {
+        let books: Vec<(u32, String, bool)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone(), b.remote.is_some())).collect();
+        if self.contact_book.is_some_and(|id| !books.iter().any(|b| b.0 == id)) {
+            self.contact_book = None;
+        }
+        let fit = self.fit_panes(ui, PEOPLE_MAIN_MIN, ("books", 260.0, 190.0, 400.0), None, Some(("contact-card", 300.0, 240.0, 420.0)), true);
+        if fit.left {
+            egui::Panel::left("books")
+                .show_separator_line(false)
+                .default_size(260.0)
+                .size_range(190.0..=fit.left_max)
+                .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
+                .show(ui, |ui| {
+                    if self.pane_head(ui, Icon::PersonAdd, "New Contact") {
+                        self.contact_form = ContactForm::new_in(self.default_book());
+                    }
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(tl("Address books")).small().strong().color(t.text_weak));
+                    let total = self.session.store.contacts("").len();
+                    if self.pane_row(ui, Icon::People, tl("All contacts"), total, self.contact_book.is_none()) {
                         self.contact_book = None;
                     }
                     for (id, name, synced) in &books {
-                        let label = if *synced { format!("⟳ {name}") } else { name.clone() };
-                        let r = ui.selectable_label(self.contact_book == Some(*id), label);
-                        let r = if *synced { r.on_hover_text(tl("Synced with the CardDAV server at Send/Receive")) } else { r };
-                        if r.clicked() {
+                        let n = self.session.store.contacts("").iter().filter(|c| c.book == *id).count();
+                        let label = if *synced { format!("{name} ⟳") } else { name.clone() };
+                        if self.pane_row(ui, Icon::Folder, &label, n, self.contact_book == Some(*id)) {
                             self.contact_book = Some(*id);
                         }
                     }
                 });
-            }
-            ui.add_space(8.0);
-            let q = self.contact_query.to_lowercase();
-            let book = self.contact_book;
-            let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
-            if contacts.is_empty() {
+        }
+        egui::Panel::top("people-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.people_tools(ui));
+        // The contact card is where a contact is read and edited: always there, at most as wide
+        // as leaves the table its room.
+        egui::Panel::right("contact-card")
+            .show_separator_line(false)
+            .default_size(300.0)
+            .size_range(240.0..=fit.right_max)
+            .frame(chrome::card(&t, 14))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
+            });
+        egui::CentralPanel::no_frame().frame(chrome::card(&t, 0)).show(ui, |ui| {
+            self.main_width = ui.available_width();
+            self.contact_table(ui);
+        });
+    }
+
+    /// A row of a left pane: an icon, a name, a count; shaded when chosen. True when clicked.
+    fn pane_row(&self, ui: &mut Ui, icon: Icon, label: &str, count: usize, chosen: bool) -> bool {
+        let t = self.tokens;
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+        if chosen || resp.hovered() {
+            ui.painter().rect_filled(rect, 6.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
+        }
+        let color = if chosen { t.accent } else { t.text };
+        icons::paint(
+            ui.painter(),
+            Rect::from_center_size(egui::pos2(rect.left() + 18.0, rect.center().y), vec2(18.0, 18.0)),
+            icon,
+            if chosen { t.accent } else { t.text_weak },
+        );
+        let font = egui::FontId::proportional(theme::BODY);
+        ui.painter().text(egui::pos2(rect.left() + 38.0, rect.center().y), egui::Align2::LEFT_CENTER, label, font.clone(), color);
+        if count > 0 {
+            ui.painter().text(
+                egui::pos2(rect.right() - 10.0, rect.center().y),
+                egui::Align2::RIGHT_CENTER,
+                count.to_string(),
+                egui::FontId::proportional(13.0),
+                t.text_weak,
+            );
+        }
+        resp.clicked()
+    }
+
+    /// The contacts as a table: name, e-mail, phone, address book, title and company. A click
+    /// shows the contact's card.
+    fn contact_table(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
+        Frame::NONE.inner_margin(Margin { left: 18, right: 16, top: 14, bottom: 10 }).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl("Contacts")).size(theme::TITLE).strong().color(t.text));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    theme::field(ui, egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(260.0));
+                });
+            });
+        });
+        let q = self.contact_query.to_lowercase();
+        let book = self.contact_book;
+        let contacts: Vec<_> = self.session.store.contacts(&q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).cloned().collect();
+        let books: std::collections::HashMap<u32, String> = self.session.store.books().iter().map(|b| (b.id, b.name.clone())).collect();
+        if contacts.is_empty() {
+            ui.add_space(24.0);
+            ui.vertical_centered(|ui| {
                 ui.label(
                     RichText::new(tl(if q.is_empty() {
                         "No contacts yet. Add one, or open a .vcf file with Tinta Correo."
@@ -2564,43 +3207,73 @@ impl App {
                     }))
                     .color(t.text_weak),
                 );
-            }
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                for c in contacts {
-                    let selected = self.contact_form.id == Some(c.id);
-                    let row = Frame::NONE
-                        .fill(if selected { t.accent_soft } else { Color32::TRANSPARENT })
-                        .inner_margin(Margin::symmetric(6, 4))
-                        .show(ui, |ui| {
-                            ui.set_width(ui.available_width());
-                            ui.horizontal(|ui| {
-                                let (rect, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
-                                ui.painter().circle_filled(rect.center(), 18.0, t.accent_soft);
-                                let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
-                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.0), t.accent);
-                                ui.vertical(|ui| {
-                                    ui.label(RichText::new(&c.name).strong().color(t.text));
-                                    let mut line: Vec<String> = c.emails.first().map(|a| a.email.clone()).into_iter().collect();
-                                    line.extend(c.phones.first().map(|p| p.number.clone()));
-                                    line.extend(c.organization.clone());
-                                    ui.label(RichText::new(line.join("  ·  ")).small().color(t.text_weak));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if let Some(a) = c.emails.first()
-                                        && ui.button(tl("Email")).clicked()
-                                    {
-                                        self.run("message.compose", json!({ "to": a.to_string() }));
-                                        self.run("view.mail", json!({}));
-                                    }
-                                });
-                            });
-                        });
-                    if row.response.interact(Sense::click()).clicked() {
-                        self.contact_form = ContactForm::of(&c);
-                    }
-                    ui.separator();
-                }
             });
+            return;
+        }
+        const SHARES: [f32; 5] = [0.26, 0.27, 0.16, 0.13, 0.18];
+        let headings = ["Name", "Email", "Phone", "Address book", "Title and company"];
+        let font = egui::FontId::proportional(theme::BODY);
+        let small = egui::FontId::proportional(theme::CAPTION);
+        let columns = |rect: Rect| -> Vec<Rect> {
+            let mut x = rect.left() + 18.0;
+            let w = (rect.width() - 34.0).max(200.0);
+            SHARES
+                .iter()
+                .map(|s| {
+                    let r = Rect::from_min_max(egui::pos2(x, rect.top()), egui::pos2(x + w * s - 8.0, rect.bottom()));
+                    x += w * s;
+                    r
+                })
+                .collect()
+        };
+        let (head, _) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::hover());
+        for (r, h) in columns(head).into_iter().zip(headings) {
+            ui.painter().with_clip_rect(r).text(egui::pos2(r.left(), r.center().y), egui::Align2::LEFT_CENTER, tl(h), small.clone(), t.text_weak);
+        }
+        ui.painter().line_segment([head.left_bottom(), head.right_bottom()], Stroke::new(1.0, t.border));
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, 48.0, contacts.len(), |ui, rows| {
+            for c in contacts.get(rows).unwrap_or_default() {
+                let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 48.0), Sense::click());
+                let chosen = self.contact_form.id == Some(c.id);
+                if chosen || resp.hovered() {
+                    ui.painter().rect_filled(rect, 0.0, if chosen { t.accent_soft } else { t.accent_soft.gamma_multiply(0.5) });
+                }
+                let cols = columns(rect);
+                let initials: String = c.name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
+                let company = match (&c.title, &c.organization) {
+                    (Some(a), Some(b)) => format!("{a}, {b}"),
+                    (Some(a), None) | (None, Some(a)) => a.clone(),
+                    (None, None) => String::new(),
+                };
+                let cells = [
+                    c.name.clone(),
+                    c.emails.first().map(|a| a.email.clone()).unwrap_or_default(),
+                    c.phones.first().map(|p| p.number.clone()).unwrap_or_default(),
+                    books.get(&c.book).cloned().unwrap_or_default(),
+                    company,
+                ];
+                for (i, (r, text)) in cols.iter().zip(cells).enumerate() {
+                    let p = ui.painter().with_clip_rect(*r);
+                    if i == 0 {
+                        let dot = egui::pos2(r.left() + 15.0, r.center().y);
+                        p.circle_filled(dot, 15.0, avatar_color(&c.name));
+                        p.text(dot, egui::Align2::CENTER_CENTER, &initials, small.clone(), Color32::WHITE);
+                        p.text(egui::pos2(r.left() + 40.0, r.center().y), egui::Align2::LEFT_CENTER, text, font.clone(), t.text);
+                    } else {
+                        p.text(
+                            egui::pos2(r.left(), r.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            text,
+                            font.clone(),
+                            if i == 1 { t.accent } else { t.text },
+                        );
+                    }
+                }
+                ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.6)));
+                if resp.clicked() {
+                    self.contact_form = ContactForm::of(c);
+                }
+            }
         });
     }
 
@@ -2617,7 +3290,7 @@ impl App {
         ui.add_space(6.0);
         let field = |ui: &mut Ui, label: &str, value: &mut String, hint: &str| {
             ui.label(RichText::new(label).small().color(t.text_weak));
-            ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
+            theme::field(ui, egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
         };
         field(ui, "Name", &mut f.name, "");
         field(ui, "Email", &mut f.email, "one or more, comma-separated");
@@ -2630,7 +3303,7 @@ impl App {
                         ui.selectable_value(kind, (*k).to_string(), phone_kind_label(k));
                     }
                 });
-                ui.add(egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
+                theme::field(ui, egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
                 if ui.small_button("✖").on_hover_text(tl("Remove this phone")).clicked() {
                     remove = Some(i);
                 }
@@ -2646,7 +3319,7 @@ impl App {
         field(ui, "Job title", &mut f.title, "");
         field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
         ui.label(RichText::new(tl("Notes")).small().color(t.text_weak));
-        ui.add(egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
+        theme::field(ui, egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
         if books.len() > 1 {
             ui.label(RichText::new(tl("Address book")).small().color(t.text_weak));
             let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
@@ -2659,9 +3332,11 @@ impl App {
         ui.add_space(8.0);
         let (mut save, mut delete) = (false, false);
         ui.horizontal(|ui| {
-            save = ui.button(tl(if f.id.is_some() { "Save" } else { "Add" })).clicked();
+            ui.spacing_mut().item_spacing.x = 12.0;
+            let label = if f.id.is_some() { "Save" } else { "Add" };
+            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
             if f.id.is_some() {
-                delete = ui.button(tl("🗑 Delete")).clicked();
+                delete = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Delete", true).clicked();
             }
         });
         if save {
@@ -2688,7 +3363,7 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
     use ibercorreo_core::calendar::When;
     let cancelled = info.method == "CANCEL";
     let mut out = None;
-    let fill = if cancelled { soft(t.flag, t.reading) } else { t.accent_soft };
+    let fill = if cancelled { soft(t.flag, t.card) } else { t.accent_soft };
     Frame::NONE.fill(fill).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let answered = |s: &str| {
@@ -3075,7 +3750,7 @@ fn long_date(d: Date) -> String {
 /// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
 /// Links show their real address on hover; a link whose text names another site is marked ⚠.
 fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
-    ui.spacing_mut().item_spacing.y = 6.0;
+    ui.spacing_mut().item_spacing.y = 8.0;
     for block in &rich.blocks {
         let quote = f32::from(block.quote) * 14.0;
         if block.kind == BlockKind::Rule {
@@ -3089,9 +3764,9 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
             BlockKind::Heading(1) => (22.0, None, 0.0),
             BlockKind::Heading(2) => (19.0, None, 0.0),
             BlockKind::Heading(_) => (16.5, None, 0.0),
-            BlockKind::Bullet { depth } => (14.0, Some("•".to_string()), f32::from(depth) * 18.0),
-            BlockKind::Numbered { depth, number } => (14.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
-            _ => (14.0, None, 0.0),
+            BlockKind::Bullet { depth } => (15.0, Some("•".to_string()), f32::from(depth) * 18.0),
+            BlockKind::Numbered { depth, number } => (15.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
+            _ => (15.0, None, 0.0),
         };
         let pre = block.kind == BlockKind::Pre;
         if matches!(block.kind, BlockKind::Heading(_)) {
@@ -4102,35 +4777,307 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The toolbar never draws one button over another: Ukrainian labels are long, and on a
-    /// narrow window the left buttons ran under Undo, Redo and the search box.
+    /// Subfolders sit under their parent ("INBOX/Work" under the Inbox), a path no folder
+    /// holds still gets a row, and standard folders are never nested.
     #[test]
-    fn the_toolbar_buttons_never_overlap() {
-        for width in [1360.0, 1100.0, 900.0] {
-            let mut store = ibercorreo_store::Store::new();
-            store.language = Some("uk".into());
-            let mut app = App::new(Session::new(store, Date::EPOCH));
-            let ctx = egui::Context::default();
-            let input =
-                || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 860.0))), ..Default::default() };
+    fn the_folder_pane_is_a_tree() {
+        let mut store = ibercorreo_store::Store::new();
+        let a = store.first_account();
+        for name in ["Clients/Acme", "Clients", "INBOX/Work", "[Gmail]/Important", "Clients/Acme/2026", "Notes"] {
+            store.add_folder(a, name, FolderRole::Other);
+        }
+        let rows = folder_tree(&store.folders_of(a));
+        let shown: Vec<(usize, &str, bool, bool)> = rows.iter().map(|r| (r.depth, r.label.as_str(), r.folder.is_some(), r.children)).collect();
+        let at = |label: &str| shown.iter().position(|(_, l, _, _)| *l == label).unwrap();
+        assert_eq!(shown.iter().filter(|(_, l, _, _)| *l == "Clients").count(), 1, "the folder fills the path's row: {shown:?}");
+        assert_eq!(shown[at("Clients")], (0, "Clients", true, true));
+        assert_eq!(shown[at("Acme")], (1, "Acme", true, true));
+        assert_eq!(shown[at("2026")], (2, "2026", true, false));
+        assert_eq!(at("Acme"), at("Clients") + 1);
+        assert_eq!(at("2026"), at("Acme") + 1);
+        assert_eq!(shown[at("Work")].0, 1);
+        assert_eq!(at("Work"), at("Inbox") + 1, "under the Inbox: {shown:?}");
+        assert_eq!(shown[at("Inbox")], (0, "Inbox", true, true));
+        assert_eq!(shown[at("[Gmail]")], (0, "[Gmail]", false, true), "a path no folder holds");
+        assert_eq!(shown[at("Important")].0, 1);
+        assert_eq!(shown[at("Notes")], (0, "Notes", true, false));
+        assert!(shown.iter().filter(|r| r.0 == 0).count() >= 8, "standard folders stay at the top level");
+    }
+
+    /// Folding a parent hides its subfolders, and their unread mail is counted on it.
+    #[test]
+    fn a_folded_folder_hides_its_subfolders() {
+        let mut store = ibercorreo_store::Store::new();
+        let a = store.first_account();
+        store.add_folder(a, "Clients", FolderRole::Other);
+        let acme = store.add_folder(a, "Clients/Acme", FolderRole::Other);
+        for _ in 0..3 {
+            store.add_message(ibercorreo_core::Message::new(MessageId(0), acme)).unwrap();
+        }
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1360.0, 860.0))), ..Default::default() };
+        let texts = |app: &mut App| {
             ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
             let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
             out.textures_delta.clear();
-            i18n::set_current(Language::En);
-            let rect = |label: &str| {
-                out.shapes.iter().find_map(|c| match &c.shape {
-                    egui::Shape::Text(t) if t.galley.job.text.contains(label) => Some(t.galley.rect.translate(t.pos.to_vec2())),
-                    _ => None,
-                })
-            };
-            let sync = rect("Надіслати/отримати").unwrap();
-            for other in ["Скасувати", "Повторити", "Правила…"] {
-                let r = rect(other).unwrap_or_else(|| panic!("{other} is drawn at {width} px"));
-                assert!(r == sync || !r.intersects(sync), "{other} {r:?} overlaps Send/Receive {sync:?} at {width} px");
+            out.shapes
+                .iter()
+                .filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None })
+                .collect::<Vec<_>>()
+        };
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t == "Acme"), "{shown:?}");
+        app.folded_paths.insert((a.0, "clients".into()));
+        let shown = texts(&mut app);
+        assert!(shown.iter().any(|t| t == "Clients"), "{shown:?}");
+        assert!(!shown.iter().any(|t| t == "Acme"), "hidden under its folded parent: {shown:?}");
+        assert!(shown.iter().any(|t| t == "3"), "Acme's unread counted on Clients: {shown:?}");
+    }
+
+    /// The side panes give way, in Outlook's order, before the main pane gets narrower than it needs.
+    #[test]
+    fn side_panes_give_way_to_the_main_pane() {
+        let side = |wanted, min, max| Some(Side { wanted, min, max });
+        // Room for everything.
+        let f = fit(1800.0, 440.0, side(260.0, 190.0, 400.0), side(360.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(f.left && f.right);
+        assert!((f.middle_max - 680.0).abs() < 0.01, "as wide as the list may be: {f:?}");
+        // A 1360 px window at 130 %: My Day goes, the list is capped.
+        let f = fit(986.0, 440.0, side(260.0, 190.0, 400.0), side(450.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(f.left && !f.right, "{f:?}");
+        assert!(260.0 + f.middle_max + 440.0 <= 986.0 + 0.01, "{f:?}");
+        assert!(f.room_for_right > 986.0);
+        // Narrower still: the folder pane folds away too.
+        let f = fit(800.0, 440.0, side(260.0, 190.0, 400.0), side(360.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, false));
+        assert!(!f.left && !f.right, "{f:?}");
+        assert!((f.middle_max - 360.0).abs() < 0.01);
+        // Asked for: My Day shows, and the folder pane makes room for it.
+        let f = fit(986.0, 440.0, side(260.0, 190.0, 400.0), side(300.0, 280.0, 680.0), side(280.0, 240.0, 440.0), (false, true));
+        assert!(f.right && !f.left, "{f:?}");
+    }
+
+    /// At 1100 points, and in a 1360 px window at 130 %, every view's main pane keeps its room
+    /// and a long subject wraps by words, not by letters.
+    #[test]
+    fn the_main_pane_is_never_squeezed() {
+        for (width, zoom) in [(1100.0, None), (1360.0 / 1.3, Some(130))] {
+            let mut store = ibercorreo_store::Store::new();
+            store.zoom = zoom;
+            let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+            let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+            m.set_subject("Ha Sid Meier's Civilization V and one more product in your library");
+            let id = store.add_message(m).unwrap();
+            let mut s = Session::new(store, Date::EPOCH);
+            s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+            let mut app = App::new(s);
+            app.session.message = Some(id);
+            let ctx = egui::Context::default();
+            let input =
+                || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 800.0))), ..Default::default() };
+            for (view, min) in [("view.mail", MAIL_MAIN_MIN), ("view.calendar", CALENDAR_MAIN_MIN), ("view.contacts", PEOPLE_MAIN_MIN)] {
+                app.session.run(view, &json!({})).unwrap();
+                let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+                for _ in 0..3 {
+                    out.textures_delta.clear();
+                    out = ctx.run_ui(input(), |ui| app.ui(ui));
+                }
+                out.textures_delta.clear();
+                assert!(app.main_width >= min - 30.0, "{view} at {width}: the main pane is {} wide", app.main_width);
+                if view == "view.mail" {
+                    let subject = out
+                        .shapes
+                        .iter()
+                        .find_map(|c| match &c.shape {
+                            egui::Shape::Text(t)
+                                if t.galley.job.text.starts_with("Ha Sid Meier")
+                                    && t.galley.job.sections.iter().any(|s| s.format.font_id.size > 20.0) =>
+                            {
+                                Some(t.galley.clone())
+                            }
+                            _ => None,
+                        })
+                        .expect("the subject in the reading pane");
+                    assert!(subject.rows.len() <= 3, "wrapped into {} rows at {width}", subject.rows.len());
+                }
             }
-            let undo = rect("Скасувати").unwrap();
-            let rules = rect("Правила…").unwrap();
-            assert!(!undo.intersects(rules), "Undo {undo:?} overlaps Rules {rules:?} at {width} px");
+        }
+    }
+
+    /// Asked for a pane with no room, the window grows by what is missing within the screen,
+    /// moving left if it must; maximized, it does not.
+    #[test]
+    fn the_window_grows_for_a_pane_asked_for() {
+        let app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let ctx = egui::Context::default();
+        let run = |maximized: bool, extra: f32| {
+            let mut raw = egui::RawInput::default();
+            let info = raw.viewports.entry(egui::ViewportId::ROOT).or_default();
+            info.inner_rect = Some(egui::Rect::from_min_size(egui::pos2(308.0, 40.0), vec2(1000.0, 700.0)));
+            info.outer_rect = Some(egui::Rect::from_min_size(egui::pos2(300.0, 10.0), vec2(1016.0, 738.0)));
+            info.monitor_size = Some(vec2(1600.0, 900.0));
+            info.maximized = Some(maximized);
+            let mut grown = false;
+            let mut out = ctx.run_ui(raw, |ui| grown = app.grow_window(ui.ctx(), extra));
+            out.textures_delta.clear();
+            let commands = out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default();
+            (grown, commands)
+        };
+        let (grown, commands) = run(false, 300.0);
+        assert!(grown);
+        assert!(commands.contains(&egui::ViewportCommand::InnerSize(vec2(1300.0, 700.0))), "{commands:?}");
+        assert!(commands.contains(&egui::ViewportCommand::OuterPosition(egui::pos2(284.0, 10.0))), "moved left to stay on screen: {commands:?}");
+        let (grown, commands) = run(false, 5000.0);
+        assert!(grown && commands.contains(&egui::ViewportCommand::InnerSize(vec2(1584.0, 700.0))), "never wider than the screen: {commands:?}");
+        let (grown, commands) = run(true, 250.0);
+        assert!(!grown && commands.is_empty(), "maximized: the panes make room instead: {commands:?}");
+    }
+
+    /// Between the blocks there is only the window's wash: no full-height (or full-width)
+    /// hairline in the border colour, as egui's panels draw by default.
+    #[test]
+    fn no_lines_between_the_panes() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let ctx = egui::Context::default();
+        let size = vec2(1600.0, 900.0);
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() };
+        for view in ["view.mail", "view.calendar", "view.contacts"] {
+            app.session.run(view, &json!({})).unwrap();
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            let border = app.tokens.border;
+            for c in &out.shapes {
+                if let egui::Shape::LineSegment { points: [a, b], stroke } = &c.shape {
+                    let long =
+                        (a.x - b.x).abs() < 0.5 && (a.y - b.y).abs() > size.y * 0.5 || (a.y - b.y).abs() < 0.5 && (a.x - b.x).abs() > size.x * 0.5;
+                    assert!(!(long && stroke.color == border), "{view}: a line between panes from {a:?} to {b:?}");
+                }
+            }
+        }
+    }
+
+    /// An empty message shows a letter's shape as a light hint (the first recipient's first
+    /// name in the greeting), gone once there is text; the header fields have no boxes.
+    #[test]
+    fn an_empty_message_hints_at_a_letter() {
+        let mut s = Session::new(ibercorreo_store::Store::new(), Date::EPOCH);
+        s.run("message.compose", &json!({ "to": "Marta Pérez <marta@example.org>" })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 900.0))), ..Default::default() };
+        let frame = |app: &mut App| {
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+        };
+        let shapes = frame(&mut app);
+        let texts: Vec<String> =
+            shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        assert!(app.draft.as_ref().is_some_and(|d| d.body.is_empty()), "a new message from an account with no signature is empty");
+        assert!(texts.iter().any(|t| t.starts_with("Hello Marta,") && t.contains("Write your message here…")), "{texts:?}");
+        let border = app.tokens.border;
+        for c in &shapes {
+            if let egui::Shape::Rect(r) = &c.shape {
+                let field = (30.0..=44.0).contains(&r.rect.height()) && r.rect.width() > 300.0;
+                assert!(!(field && r.stroke.width > 0.0 && r.stroke.color == border), "a box round a header field: {:?}", r.rect);
+            }
+        }
+        if let Some(d) = app.draft.as_mut() {
+            d.body = "Hola".into();
+        }
+        let shapes = frame(&mut app);
+        assert!(
+            !shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.job.text.starts_with("Hello Marta,"))),
+            "the hint goes once there is text"
+        );
+    }
+
+    /// The status bar's size slider shows the size kept, and its + saves a step.
+    #[test]
+    fn the_size_slider_follows_the_size_kept() {
+        let mut store = ibercorreo_store::Store::new();
+        store.zoom = Some(150);
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        let mut shown = Vec::new();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            shown =
+                out.shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        }
+        assert!(shown.iter().any(|t| t == "150 %"), "{shown:?}");
+        app.session.store.zoom = Some(90);
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let shown: Vec<String> =
+            out.shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        assert!(shown.iter().any(|t| t == "90 %"), "{shown:?}");
+        assert_eq!(app.zoom_drag, None, "nothing dragged, nothing pending");
+    }
+
+    /// The interface takes the size kept in the mailbox, and Ctrl+= makes it larger even while
+    /// typing.
+    #[test]
+    fn the_interface_takes_the_size_kept_and_ctrl_plus_steps_it() {
+        let mut store = ibercorreo_store::Store::new();
+        store.zoom = Some(150);
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        let ctx = egui::Context::default();
+        // A new zoom takes effect at the next frame.
+        for _ in 0..2 {
+            ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui)).textures_delta.clear();
+        }
+        assert!((ctx.zoom_factor() - 1.5).abs() < 1e-6, "{}", ctx.zoom_factor());
+        let press = egui::Event::Key { key: Key::Equals, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        ctx.run_ui(egui::RawInput { events: vec![press], ..Default::default() }, |ui| app.ui(ui)).textures_delta.clear();
+        ctx.run_ui(egui::RawInput::default(), |ui| app.ui(ui)).textures_delta.clear();
+        assert_eq!(app.session.store.zoom, Some(160));
+        assert!((ctx.zoom_factor() - 1.6).abs() < 1e-6, "{}", ctx.zoom_factor());
+        assert!(!ctx.options(|o| o.zoom_with_keyboard), "egui's own zoom keys would fight the kept size");
+    }
+
+    /// The toolbar never draws one label over another, nor past the window's edge: Ukrainian
+    /// labels are long, so on a narrow window the buttons give up their labels instead.
+    #[test]
+    fn the_toolbar_labels_never_overlap_nor_run_off_the_window() {
+        for hide_folders in [false, true] {
+            for width in [1920.0, 1600.0, 1360.0, 1100.0, 900.0] {
+                let mut store = ibercorreo_store::Store::new();
+                store.language = Some("uk".into());
+                store.hide_folder_pane = hide_folders;
+                let mut app = App::new(Session::new(store, Date::EPOCH));
+                let ctx = egui::Context::default();
+                let input =
+                    || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 860.0))), ..Default::default() };
+                ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+                let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+                out.textures_delta.clear();
+                i18n::set_current(Language::En);
+                // Shapes are in points, and the interface is zoomed (110 % by default).
+                let limit = width / ctx.zoom_factor();
+                let band = chrome::BAR_H..chrome::BAR_H * 2.0;
+                let labels: Vec<(String, egui::Rect)> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|c| match &c.shape {
+                        egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.galley.rect.translate(t.pos.to_vec2()))),
+                        _ => None,
+                    })
+                    .filter(|(_, r)| band.contains(&r.center().y))
+                    .collect();
+                if width >= 1920.0 {
+                    assert!(labels.iter().any(|(l, _)| l == "Відповісти"), "Reply keeps its label at {width} px: {labels:?}");
+                }
+                for (i, (a, ra)) in labels.iter().enumerate() {
+                    assert!(ra.max.x <= limit, "{a} runs off a {width} px window at {ra:?}");
+                    for (b, rb) in labels.iter().skip(i + 1) {
+                        assert!(!ra.intersects(*rb), "{a} {ra:?} overlaps {b} {rb:?} at {width} px");
+                    }
+                }
+            }
         }
     }
 }

@@ -250,7 +250,8 @@ impl Feedback {
                 Kind::Idea => ASK_IDEA,
             };
             ui.label(tr(lang, ask));
-            ui.add(
+            crate::theme::field(
+                ui,
                 egui::TextEdit::multiline(&mut self.text)
                     .char_limit(MAX_TEXT)
                     .desired_rows(6)
@@ -275,7 +276,8 @@ impl Feedback {
             ui.checkbox(&mut self.with_diagnostics, tr(lang, DIAGNOSTICS));
             ui.add_space(6.0);
             ui.label(tr(lang, EMAIL));
-            ui.add(
+            crate::theme::field(
+                ui,
                 egui::TextEdit::singleline(&mut self.email).char_limit(254).desired_width(f32::INFINITY).id(egui::Id::new("tinta.feedback.email")),
             );
         });
