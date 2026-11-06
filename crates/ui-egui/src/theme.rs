@@ -187,8 +187,8 @@ pub fn apply(ctx: &egui::Context, id: Option<&str>) {
         .into();
         let sp = &mut s.spacing;
         sp.item_spacing = vec2(8.0, 6.0);
-        sp.button_padding = vec2(10.0, 5.0);
-        sp.interact_size = vec2(40.0, 28.0);
+        sp.button_padding = vec2(12.0, 6.0);
+        sp.interact_size = vec2(40.0, 32.0);
         sp.menu_margin = Margin::same(8);
         sp.window_margin = Margin::same(16);
         sp.icon_width = 16.0;
@@ -211,28 +211,63 @@ pub fn apply(ctx: &egui::Context, id: Option<&str>) {
         v.text_edit_bg_color = Some(t.card);
         v.selection.bg_fill = mix(t.card, t.accent, if v.dark_mode { 0.45 } else { 0.28 });
         v.selection.stroke = Stroke::new(1.0, t.accent);
-        let control = mix(t.card, t.window, 0.6);
+        // Buttons, menus and lists have no frame, only a soft tint that deepens under the
+        // pointer, like the toolbar's; text fields draw their own border ([`field`]), and a
+        // checkbox's box is the stronger `bg_fill`.
         let w = &mut v.widgets;
         w.noninteractive.bg_fill = t.card;
         w.noninteractive.weak_bg_fill = t.card;
         w.noninteractive.bg_stroke = Stroke::new(1.0, t.border);
         w.noninteractive.fg_stroke = Stroke::new(1.0, t.text);
-        for (st, fill, stroke) in [
-            (&mut w.inactive, control, t.border),
-            (&mut w.hovered, t.accent_soft, mix(t.border, t.accent, 0.5)),
-            (&mut w.active, mix(t.card, t.accent, 0.22), t.accent),
-            (&mut w.open, t.accent_soft, mix(t.border, t.accent, 0.5)),
+        for (st, weak, strong) in [
+            (&mut w.inactive, mix(t.card, t.accent, 0.06), mix(t.card, t.text_weak, 0.24)),
+            (&mut w.hovered, t.accent_soft, mix(t.card, t.accent, 0.32)),
+            (&mut w.active, mix(t.card, t.accent, 0.22), mix(t.card, t.accent, 0.42)),
+            (&mut w.open, t.accent_soft, mix(t.card, t.accent, 0.32)),
         ] {
-            st.bg_fill = fill;
-            st.weak_bg_fill = fill;
-            st.bg_stroke = Stroke::new(1.0, stroke);
+            st.bg_fill = strong;
+            st.weak_bg_fill = weak;
+            st.bg_stroke = Stroke::NONE;
             st.fg_stroke = Stroke::new(1.0, t.text);
-            st.corner_radius = CornerRadius::same(6);
+            st.corner_radius = CornerRadius::same(8);
             st.expansion = 0.0;
         }
-        w.noninteractive.corner_radius = CornerRadius::same(6);
+        w.noninteractive.corner_radius = CornerRadius::same(8);
     });
 }
+
+/// A text field with its border: egui's own widgets have none (see [`apply`]), so a field
+/// draws a thin one, the accent's while it has the keyboard.
+pub fn field(ui: &mut egui::Ui, edit: egui::TextEdit<'_>) -> egui::Response {
+    let r = ui.add(edit);
+    field_border(ui, &r);
+    r
+}
+
+/// [`field`], `size` large.
+pub fn field_sized(ui: &mut egui::Ui, size: egui::Vec2, edit: egui::TextEdit<'_>) -> egui::Response {
+    let r = ui.add_sized(size, edit);
+    field_border(ui, &r);
+    r
+}
+
+fn field_border(ui: &egui::Ui, r: &egui::Response) {
+    let v = ui.visuals();
+    if r.has_focus() {
+        return; // egui draws the focus ring itself, in the selection's stroke
+    }
+    let border = v.widgets.noninteractive.bg_stroke.color;
+    let color = if r.hovered() { mix(border, v.selection.stroke.color, 0.45) } else { border };
+    ui.painter().rect_stroke(r.rect, 8.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Inside);
+}
+
+/// The two ends of a filled button's gentle vertical gradient: the top a little lighter.
+pub fn gradient(base: Color32) -> (Color32, Color32) {
+    (mix(base, Color32::WHITE, GRADIENT_LIFT), base)
+}
+
+/// How much lighter a filled button's top is than its bottom.
+pub const GRADIENT_LIFT: f32 = 0.08;
 
 /// Theme ids the interface knows, in the store's order.
 pub fn ids() -> impl Iterator<Item = &'static str> {
@@ -277,6 +312,8 @@ mod tests {
                     ("accent on card", t.accent, t.card, 4.5),
                     ("accent on window", t.accent, t.window, 4.5),
                     ("on-accent on accent", t.on_accent, t.accent, 4.5),
+                    ("on-accent on a primary button's lighter top", t.on_accent, gradient(t.accent).0, 4.5),
+                    ("text on a secondary button", t.text, gradient(mix(t.card, t.accent, 0.1)).0, 7.0),
                 ] {
                     let c = contrast(fg, bg);
                     assert!(c >= min, "{id} dark={dark}: {what} is {c:.2}:1");

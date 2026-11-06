@@ -535,6 +535,11 @@ pub struct App {
     main_width: f32,
 }
 
+/// A one-line field of the message form: 36 points high, as wide as there is room.
+fn compose_line(field: &mut String) -> egui::TextEdit<'_> {
+    egui::TextEdit::singleline(field).margin(Margin::symmetric(10, 8)).desired_width(f32::INFINITY)
+}
+
 /// The narrowest the main pane of each view gets before side panes give way: the reading pane,
 /// the calendar grid, the contact table.
 const MAIL_MAIN_MIN: f32 = 440.0;
@@ -860,6 +865,7 @@ impl App {
     }
 
     fn account_window(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
         if !self.account_form.open {
             return;
         }
@@ -887,7 +893,7 @@ impl App {
                     for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")]
                     {
                         ui.label(tl(label));
-                        ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
                         ui.end_row();
                     }
                     ui.label("");
@@ -974,7 +980,7 @@ impl App {
                         ui.label(tl("Exchange server (EWS)")).on_hover_text(tl(
                             "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
                         ));
-                        ui.add(egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
                         ui.end_row();
                         ui.label("");
                         let label = tl(if self.exchange_running { "🔍 Looking…" } else { "🔍 Find the Exchange server" });
@@ -993,7 +999,7 @@ impl App {
                     let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && f.goa.is_empty() && !f.ews.trim().is_empty());
                     if f.oauth.is_empty() && f.goa.is_empty() {
                         ui.label(tl("Password"));
-                        ui.add(
+                        theme::field(ui,
                             egui::TextEdit::singleline(&mut f.password)
                                 .password(true)
                                 .hint_text(tl("kept in the system's credential store"))
@@ -1011,7 +1017,7 @@ impl App {
                         }
                     }
                     ui.label(tl("Sign-in name"));
-                    ui.add(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
                     ui.end_row();
                     let servers = [
                         ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
@@ -1021,11 +1027,11 @@ impl App {
                         ui.label(RichText::new(tl(title)).strong());
                         ui.end_row();
                         ui.label(tl("Server"));
-                        ui.add(egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
+                        theme::field(ui, egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
                         ui.end_row();
                         ui.label(tl("Port"));
                         ui.horizontal(|ui| {
-                            ui.add(egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
+                            theme::field(ui, egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
                             ui.radio_value(starttls, false, tl("TLS"));
                             ui.radio_value(starttls, true, tl("STARTTLS"));
                         });
@@ -1035,7 +1041,7 @@ impl App {
                         .on_hover_text(tl("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"));
                     ui.end_row();
                     ui.label(tl("Address"));
-                    ui.add(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
                     ui.end_row();
                     if !f.dav_goa.is_empty() {
                         ui.label("");
@@ -1051,7 +1057,7 @@ impl App {
                         .on_hover_text(tl("Added under new messages, replies and forwards from this account"));
                     ui.end_row();
                     ui.label("");
-                    ui.add(
+                    theme::field(ui,
                         egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_width(280.0).desired_rows(3),
                     );
                     ui.end_row();
@@ -1063,7 +1069,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label(tl("Waiting for you to sign in in your browser…"));
-                            if ui.button(tl("Cancel")).clicked() {
+                            if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
                                 self.oauth_cancel = true;
                             }
                         });
@@ -1079,8 +1085,9 @@ impl App {
                     None => {
                         let label = tl(if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" });
                         ui.horizontal(|ui| {
-                            save = ui.add(egui::Button::new(RichText::new(label).strong())).clicked();
-                            if f.id.is_some() && !f.confirm_remove && ui.button(tl("Remove account…")).clicked() {
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
+                            if f.id.is_some() && !f.confirm_remove && chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Remove account…", true).clicked() {
                                 f.confirm_remove = true;
                             }
                         });
@@ -1091,8 +1098,9 @@ impl App {
                                 &[("address", f.email.trim())],
                             ));
                             ui.horizontal(|ui| {
-                                remove = ui.button(tl("Remove")).clicked();
-                                if ui.button(tl("Keep")).clicked() {
+                                ui.spacing_mut().item_spacing.x = 12.0;
+                                remove = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Trash), "Remove", true).clicked();
+                                if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Keep", true).clicked() {
                                     f.confirm_remove = false;
                                 }
                             });
@@ -1229,9 +1237,18 @@ impl App {
         self.unread = self.session.store.unread_counts();
         let t = self.tokens;
         chrome::paint_window(ui.ctx(), &t);
-        egui::Panel::top("title").exact_size(chrome::BAR_H).resizable(false).frame(Frame::NONE).show(ui, |ui| self.title_bar(ui));
-        egui::Panel::bottom("status").frame(Frame::NONE.inner_margin(Margin::symmetric(14, 4))).show(ui, |ui| self.status_bar(ui));
+        egui::Panel::top("title")
+            .show_separator_line(false)
+            .exact_size(chrome::BAR_H)
+            .resizable(false)
+            .frame(Frame::NONE)
+            .show(ui, |ui| self.title_bar(ui));
+        egui::Panel::bottom("status")
+            .show_separator_line(false)
+            .frame(Frame::NONE.inner_margin(Margin::symmetric(14, 4)))
+            .show(ui, |ui| self.status_bar(ui));
         egui::Panel::left("rail")
+            .show_separator_line(false)
             .exact_size(chrome::RAIL_W)
             .resizable(false)
             .frame(Frame::NONE.inner_margin(Margin { left: 0, right: 0, top: 4, bottom: 10 }))
@@ -1321,7 +1338,8 @@ impl App {
                         }
                     });
                     ui.horizontal(|ui| {
-                        if ui.button(tl("+ New rule")).clicked() {
+                        let new_rule = tl("+ New rule").trim_start_matches('+').trim();
+                        if chrome::button(ui, &t, chrome::Kind::Quiet, Some(Icon::Plus), new_rule, true).clicked() {
                             f.start("");
                         }
                         if ui
@@ -1336,12 +1354,15 @@ impl App {
                 }
                 egui::Grid::new("rule-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
                     ui.label(tl("Name"));
-                    ui.add(egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
                     ui.end_row();
                     ui.label(tl("Condition"));
                     ui.vertical(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0))
-                            .on_hover_text(tl(SEARCH_HELP));
+                        theme::field(
+                            ui,
+                            egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0),
+                        )
+                        .on_hover_text(tl(SEARCH_HELP));
                         ui.horizontal(|ui| {
                             for (label, key) in [("From", "from:"), ("Subject", "subject:"), ("Sent to", "to:"), ("Has attachment", "has:attachment")]
                             {
@@ -1389,10 +1410,11 @@ impl App {
                 });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new(tl("Save")).strong()).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked() {
                         save = true;
                     }
-                    if ui.button(tl("Cancel")).clicked() {
+                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
                         cancel = true;
                     }
                 });
@@ -1488,7 +1510,7 @@ impl App {
                                         ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
                                     });
                                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if ui.button(tl("Dismiss")).clicked() {
+                                        if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss", true).clicked() {
                                             action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
                                         }
                                         ui.menu_button(tl("Snooze…"), |ui| {
@@ -1507,10 +1529,11 @@ impl App {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(tl("Dismiss All")).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss All", true).clicked() {
                         action = Some(("reminder.dismiss", json!({})));
                     }
-                    if ui.button(tl("Snooze all 5 minutes")).clicked() {
+                    if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Snooze all 5 minutes", true).clicked() {
                         action = Some(("reminder.snooze", json!({ "minutes": 5 })));
                     }
                 });
@@ -1707,7 +1730,7 @@ impl App {
             if self.hidden_pane_head(ui, Icon::Calendar, "New Appointment") {
                 self.new_appointment();
             }
-            if ui.add(egui::Button::new(tl("Today")).corner_radius(6.0).fill(self.tokens.card)).clicked() {
+            if chrome::button(ui, &self.tokens, chrome::Kind::Secondary, None, "Today", true).clicked() {
                 self.run("calendar.goto", json!({ "date": "today" }));
             }
             if self.icon_button(ui, Icon::ChevronLeft, "Back", false).clicked() {
@@ -1833,7 +1856,7 @@ impl App {
                 chosen = Some("system".into());
             }
             ui.separator();
-            ui.add(egui::TextEdit::singleline(&mut self.zone_filter).hint_text(tl("Search: Lisbon, Kyiv, New York…")).desired_width(240.0));
+            theme::field(ui, egui::TextEdit::singleline(&mut self.zone_filter).hint_text(tl("Search: Lisbon, Kyiv, New York…")).desired_width(240.0));
             let needle = self.zone_filter.to_lowercase().replace(' ', "_");
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 for name in self.zone_names.iter().filter(|n| needle.is_empty() || n.to_lowercase().contains(&needle)).take(400) {
@@ -2021,6 +2044,7 @@ impl App {
         );
         if fit.left {
             egui::Panel::left("folders")
+                .show_separator_line(false)
                 .default_size(260.0)
                 .size_range(190.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
@@ -2031,15 +2055,17 @@ impl App {
                     self.folders(ui);
                 });
         }
-        egui::Panel::top("mail-tools").frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
+        egui::Panel::top("mail-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.mail_tools(ui));
         if fit.right {
             egui::Panel::right("my-day")
+                .show_separator_line(false)
                 .default_size(280.0)
                 .size_range(240.0..=fit.right_max)
                 .frame(chrome::card(&t, 14))
                 .show(ui, |ui| self.my_day(ui));
         }
         egui::Panel::left("list")
+            .show_separator_line(false)
             .default_size(360.0)
             .size_range(280.0..=fit.middle_max)
             .frame(chrome::card(&t, 0))
@@ -2099,7 +2125,11 @@ impl App {
                 }
             }
             ui.add_space(10.0);
-            if ui.small_button(tl("+ Add account")).on_hover_text(tl("Another mailbox, with folders of its own")).clicked() {
+            let add = tl("+ Add account").trim_start_matches('+').trim();
+            if chrome::button(ui, &self.tokens, chrome::Kind::Quiet, Some(Icon::Plus), add, true)
+                .on_hover_text(tl("Another mailbox, with folders of its own"))
+                .clicked()
+            {
                 settings = Some(None);
             }
         });
@@ -2515,15 +2545,13 @@ impl App {
         let mut send = false;
         let mut discard = false;
         ui.horizontal(|ui| {
-            send = ui.add(egui::Button::new(RichText::new(tl("Send")).strong().color(Color32::WHITE)).fill(t.accent)).clicked();
-            discard = ui.button(tl("Discard")).clicked();
-            if !d.show_bcc && ui.button(tl("Bcc")).on_hover_text(tl("Blind copies: they get the message, the others don't see them")).clicked() {
-                d.show_bcc = true;
-            }
+            ui.spacing_mut().item_spacing.x = 12.0;
+            send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
+            discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
-        ui.add_space(8.0);
+        ui.add_space(14.0);
         let mut changed = false;
-        egui::Grid::new("compose").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+        egui::Grid::new("compose").num_columns(2).spacing([12.0, 8.0]).min_row_height(36.0).show(ui, |ui| {
             let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
             if d.show_bcc {
                 rows.push(("Bcc", &mut d.bcc));
@@ -2531,12 +2559,24 @@ impl App {
             rows.push(("Subject", &mut d.subject));
             for (label, field) in rows {
                 ui.label(RichText::new(tl(label)).color(t.text_weak));
-                changed |= ui.add(egui::TextEdit::singleline(field).desired_width(f32::INFINITY)).lost_focus();
+                if label == "Cc" && !d.show_bcc {
+                    // Bcc waits beside Cc, a quiet toggle, until it is wanted.
+                    ui.horizontal(|ui| {
+                        let room = (ui.available_width() - 72.0).max(120.0);
+                        changed |= theme::field(ui, compose_line(field).desired_width(room)).lost_focus();
+                        let tip = tl("Blind copies: they get the message, the others don't see them");
+                        if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Bcc", true).on_hover_text(tip).clicked() {
+                            d.show_bcc = true;
+                        }
+                    });
+                } else {
+                    changed |= theme::field(ui, compose_line(field)).lost_focus();
+                }
                 ui.end_row();
             }
         });
-        ui.add_space(6.0);
-        changed |= ui.add_sized(ui.available_size(), egui::TextEdit::multiline(&mut d.body)).lost_focus();
+        ui.add_space(12.0);
+        changed |= theme::field_sized(ui, ui.available_size(), egui::TextEdit::multiline(&mut d.body).margin(Margin::same(12))).lost_focus();
         let params = json!({ "id": d.id, "to": d.to, "cc": d.cc, "bcc": d.bcc, "subject": d.subject, "body": d.body });
         let id = d.id;
         if changed || send {
@@ -2556,6 +2596,7 @@ impl App {
         let fit = self.fit_panes(ui, CALENDAR_MAIN_MIN, ("calendar-pane", 260.0, 210.0, 400.0), None, Some(("agenda", 300.0, 240.0, 440.0)), false);
         if fit.left {
             egui::Panel::left("calendar-pane")
+                .show_separator_line(false)
                 .default_size(260.0)
                 .size_range(210.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
@@ -2568,11 +2609,16 @@ impl App {
                     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.calendar_list(ui));
                 });
         }
-        egui::Panel::top("calendar-tools").frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
+        egui::Panel::top("calendar-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.calendar_tools(ui));
         if fit.right {
-            egui::Panel::right("agenda").default_size(300.0).size_range(240.0..=fit.right_max).frame(chrome::card(&t, 14)).show(ui, |ui| {
-                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
-            });
+            egui::Panel::right("agenda")
+                .show_separator_line(false)
+                .default_size(300.0)
+                .size_range(240.0..=fit.right_max)
+                .frame(chrome::card(&t, 14))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.agenda(ui));
+                });
         }
         egui::CentralPanel::no_frame().frame(chrome::card(&t, 12)).show(ui, |ui| {
             self.main_width = ui.available_width() + 24.0;
@@ -2954,6 +3000,7 @@ impl App {
     }
 
     fn event_window(&mut self, ui: &mut Ui) {
+        let t = self.tokens;
         if !self.event_form.open {
             return;
         }
@@ -2971,7 +3018,7 @@ impl App {
                     ("Location", &mut f.location, ""),
                 ] {
                     ui.label(tl(label));
-                    ui.add(egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
+                    theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
                     ui.end_row();
                 }
                 ui.label(tl("Reminder"));
@@ -3005,7 +3052,8 @@ impl App {
                 });
                 ui.end_row();
             });
-            save = ui.button(tl("Save")).clicked();
+            ui.add_space(8.0);
+            save = chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked();
         });
         if save {
             let f = &self.event_form;
@@ -3043,6 +3091,7 @@ impl App {
         let fit = self.fit_panes(ui, PEOPLE_MAIN_MIN, ("books", 260.0, 190.0, 400.0), None, Some(("contact-card", 300.0, 240.0, 420.0)), true);
         if fit.left {
             egui::Panel::left("books")
+                .show_separator_line(false)
                 .default_size(260.0)
                 .size_range(190.0..=fit.left_max)
                 .frame(Frame::NONE.inner_margin(Margin { left: 4, right: 10, top: 0, bottom: 10 }))
@@ -3065,12 +3114,17 @@ impl App {
                     }
                 });
         }
-        egui::Panel::top("people-tools").frame(Frame::NONE).show(ui, |ui| self.people_tools(ui));
+        egui::Panel::top("people-tools").show_separator_line(false).frame(Frame::NONE).show(ui, |ui| self.people_tools(ui));
         // The contact card is where a contact is read and edited: always there, at most as wide
         // as leaves the table its room.
-        egui::Panel::right("contact-card").default_size(300.0).size_range(240.0..=fit.right_max).frame(chrome::card(&t, 14)).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
-        });
+        egui::Panel::right("contact-card")
+            .show_separator_line(false)
+            .default_size(300.0)
+            .size_range(240.0..=fit.right_max)
+            .frame(chrome::card(&t, 14))
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| self.contact_card(ui));
+            });
         egui::CentralPanel::no_frame().frame(chrome::card(&t, 0)).show(ui, |ui| {
             self.main_width = ui.available_width();
             self.contact_table(ui);
@@ -3113,7 +3167,7 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(tl("Contacts")).size(theme::TITLE).strong().color(t.text));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.add(egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(260.0));
+                    theme::field(ui, egui::TextEdit::singleline(&mut self.contact_query).hint_text(tl("Search people")).desired_width(260.0));
                 });
             });
         });
@@ -3215,7 +3269,7 @@ impl App {
         ui.add_space(6.0);
         let field = |ui: &mut Ui, label: &str, value: &mut String, hint: &str| {
             ui.label(RichText::new(label).small().color(t.text_weak));
-            ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
+            theme::field(ui, egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
         };
         field(ui, "Name", &mut f.name, "");
         field(ui, "Email", &mut f.email, "one or more, comma-separated");
@@ -3228,7 +3282,7 @@ impl App {
                         ui.selectable_value(kind, (*k).to_string(), phone_kind_label(k));
                     }
                 });
-                ui.add(egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
+                theme::field(ui, egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
                 if ui.small_button("✖").on_hover_text(tl("Remove this phone")).clicked() {
                     remove = Some(i);
                 }
@@ -3244,7 +3298,7 @@ impl App {
         field(ui, "Job title", &mut f.title, "");
         field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
         ui.label(RichText::new(tl("Notes")).small().color(t.text_weak));
-        ui.add(egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
+        theme::field(ui, egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
         if books.len() > 1 {
             ui.label(RichText::new(tl("Address book")).small().color(t.text_weak));
             let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
@@ -3257,9 +3311,11 @@ impl App {
         ui.add_space(8.0);
         let (mut save, mut delete) = (false, false);
         ui.horizontal(|ui| {
-            save = ui.button(tl(if f.id.is_some() { "Save" } else { "Add" })).clicked();
+            ui.spacing_mut().item_spacing.x = 12.0;
+            let label = if f.id.is_some() { "Save" } else { "Add" };
+            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
             if f.id.is_some() {
-                delete = ui.button(tl("🗑 Delete")).clicked();
+                delete = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Delete", true).clicked();
             }
         });
         if save {
@@ -4854,6 +4910,30 @@ mod tests {
         assert!(grown && commands.contains(&egui::ViewportCommand::InnerSize(vec2(1584.0, 700.0))), "never wider than the screen: {commands:?}");
         let (grown, commands) = run(true, 250.0);
         assert!(!grown && commands.is_empty(), "maximized: the panes make room instead: {commands:?}");
+    }
+
+    /// Between the blocks there is only the window's wash: no full-height (or full-width)
+    /// hairline in the border colour, as egui's panels draw by default.
+    #[test]
+    fn no_lines_between_the_panes() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let ctx = egui::Context::default();
+        let size = vec2(1600.0, 900.0);
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() };
+        for view in ["view.mail", "view.calendar", "view.contacts"] {
+            app.session.run(view, &json!({})).unwrap();
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            let border = app.tokens.border;
+            for c in &out.shapes {
+                if let egui::Shape::LineSegment { points: [a, b], stroke } = &c.shape {
+                    let long =
+                        (a.x - b.x).abs() < 0.5 && (a.y - b.y).abs() > size.y * 0.5 || (a.y - b.y).abs() < 0.5 && (a.x - b.x).abs() > size.x * 0.5;
+                    assert!(!(long && stroke.color == border), "{view}: a line between panes from {a:?} to {b:?}");
+                }
+            }
+        }
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.

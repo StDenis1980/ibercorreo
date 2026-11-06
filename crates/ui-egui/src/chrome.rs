@@ -29,6 +29,96 @@ pub(crate) const GAP: i8 = 10;
 /// Days My Day looks ahead for events.
 const MY_DAY_DAYS: i64 = 7;
 
+/// What a [`button`] is for: the one main action, a second one beside it, or a quiet one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kind {
+    Primary,
+    Secondary,
+    Quiet,
+}
+
+/// A button in Tinta's own style: no border, 32 points high, an optional icon and the label
+/// (translated here). Primary is the accent with a gentle top-lit gradient and a hairline shadow,
+/// Secondary a soft tint of the accent, Quiet only a tint under the pointer, like the toolbar.
+pub(crate) fn button(ui: &mut Ui, t: &Tokens, kind: Kind, icon: Option<Icon>, label: &str, enabled: bool) -> Response {
+    let fg = match kind {
+        Kind::Primary => t.on_accent,
+        Kind::Secondary => t.text,
+        Kind::Quiet => t.accent,
+    };
+    let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
+    let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(theme::BODY), fg);
+    let pad = if kind == Kind::Quiet { 10.0 } else { 14.0 };
+    let icon_w = if icon.is_some() { 24.0 } else { 0.0 };
+    let size = vec2(pad * 2.0 + icon_w + galley.size().x, 32.0);
+    let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
+    let hot = enabled && resp.hovered();
+    let down = enabled && resp.is_pointer_button_down_on();
+    let p = ui.painter();
+    match kind {
+        Kind::Primary | Kind::Secondary => {
+            let base = if kind == Kind::Primary { t.accent } else { theme::mix(t.card, t.accent, 0.1) };
+            let base = if down {
+                theme::mix(base, egui::Color32::BLACK, 0.08)
+            } else if hot {
+                if kind == Kind::Primary { theme::mix(base, egui::Color32::WHITE, 0.05) } else { theme::mix(t.card, t.accent, 0.17) }
+            } else {
+                base
+            };
+            let base = if enabled { base } else { theme::mix(base, t.card, 0.5) };
+            if kind == Kind::Primary && enabled {
+                p.rect_filled(rect.translate(vec2(0.0, 1.0)), 8.0, egui::Color32::from_black_alpha(30));
+            }
+            paint_gradient(p, rect, 8.0, theme::gradient(base));
+        }
+        Kind::Quiet if hot => {
+            p.rect_filled(rect, 8.0, if down { theme::mix(t.card, t.accent, 0.22) } else { t.accent_soft });
+        }
+        Kind::Quiet => {}
+    }
+    let mut x = rect.left() + pad;
+    if let Some(icon) = icon {
+        icons::paint(p, Rect::from_center_size(pos2(x + 8.0, rect.center().y), vec2(16.0, 16.0)), icon, fg);
+        x += icon_w;
+    }
+    p.galley(pos2(x, rect.center().y - galley.size().y / 2.0), galley, fg);
+    resp
+}
+
+/// A rounded rectangle `r` round filled top to bottom from the first colour to the second. It is
+/// convex, so a fan from its centre covers it, each corner point coloured by its height; a
+/// hairline round the edge smooths what the mesh does not anti-alias.
+fn paint_gradient(p: &egui::Painter, rect: Rect, r: f32, (top, bottom): (egui::Color32, egui::Color32)) {
+    let r = r.min(rect.height() / 2.0).min(rect.width() / 2.0);
+    let corners = [
+        (pos2(rect.right() - r, rect.top() + r), -90.0f32),
+        (pos2(rect.right() - r, rect.bottom() - r), 0.0),
+        (pos2(rect.left() + r, rect.bottom() - r), 90.0),
+        (pos2(rect.left() + r, rect.top() + r), 180.0),
+    ];
+    let points: Vec<egui::Pos2> = corners
+        .iter()
+        .flat_map(|(c, from)| {
+            (0..=6).map(move |k| {
+                let a = (from + 15.0 * k as f32).to_radians();
+                pos2(c.x + r * a.cos(), c.y + r * a.sin())
+            })
+        })
+        .collect();
+    let color = |y: f32| theme::mix(top, bottom, (y - rect.top()) / rect.height().max(1.0));
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(rect.center(), color(rect.center().y));
+    for q in &points {
+        mesh.colored_vertex(*q, color(q.y));
+    }
+    let n = u32::try_from(points.len()).unwrap_or(0);
+    for i in 0..n {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % n);
+    }
+    p.add(egui::Shape::mesh(mesh));
+    p.add(egui::Shape::closed_line(points, Stroke::new(0.8, color(rect.center().y))));
+}
+
 /// A card: the white (or dark) rounded panel the list, the message, My Day and the calendar sit on.
 pub(crate) fn card(t: &Tokens, inner: i8) -> Frame {
     Frame::NONE
@@ -349,7 +439,7 @@ impl App {
                 if ui.button("+").on_hover_text(tl("Larger (Ctrl+=)")).clicked() {
                     zoom = Some(json!({ "step": 1 }));
                 }
-                if self.session.store.zoom.is_some() && ui.button(tl("Reset")).on_hover_text("Ctrl+0").clicked() {
+                if self.session.store.zoom.is_some() && button(ui, &t, Kind::Quiet, None, "Reset", true).on_hover_text("Ctrl+0").clicked() {
                     zoom = Some(json!({ "reset": true }));
                 }
             });
