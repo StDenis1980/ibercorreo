@@ -354,3 +354,7 @@
 	Hide subfolders	Skrýt podsložky
 	Show subfolders	Zobrazit podsložky
 	Back to {percent} % (Ctrl+0)	Zpět na {percent} % (Ctrl+0)
+	Hello {name},	Dobrý den, {name},
+	Hello,	Dobrý den,
+	Write your message here…	Sem napište svou zprávu…
+	Kind regards,	S pozdravem,

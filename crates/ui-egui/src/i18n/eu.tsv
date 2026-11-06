@@ -353,3 +353,7 @@
 	Hide subfolders	Ezkutatu azpikarpetak
 	Show subfolders	Erakutsi azpikarpetak
 	Back to {percent} % (Ctrl+0)	Itzuli {percent} %-ra (Ctrl+0)
+	Hello {name},	Kaixo, {name}:
+	Hello,	Kaixo:
+	Write your message here…	Idatzi hemen zure mezua…
+	Kind regards,	Agur bero bat,

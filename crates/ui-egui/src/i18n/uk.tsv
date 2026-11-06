@@ -349,3 +349,7 @@
 	Hide subfolders	Сховати вкладені папки
 	Show subfolders	Показати вкладені папки
 	Back to {percent} % (Ctrl+0)	Повернути {percent} % (Ctrl+0)
+	Hello {name},	Добрий день, {name},
+	Hello,	Добрий день,
+	Write your message here…	Напишіть тут своє повідомлення…
+	Kind regards,	З повагою,

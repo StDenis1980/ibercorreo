@@ -535,11 +535,6 @@ pub struct App {
     main_width: f32,
 }
 
-/// A one-line field of the message form: 36 points high, as wide as there is room.
-fn compose_line(field: &mut String) -> egui::TextEdit<'_> {
-    egui::TextEdit::singleline(field).margin(Margin::symmetric(10, 8)).desired_width(f32::INFINITY)
-}
-
 /// The narrowest the main pane of each view gets before side panes give way: the reading pane,
 /// the calendar grid, the contact table.
 const MAIL_MAIN_MIN: f32 = 440.0;
@@ -2539,8 +2534,27 @@ impl App {
         }
     }
 
+    /// The light hint in an empty message: a letter's shape in the interface's language, with
+    /// the first recipient's first name and the sender's name. Only a hint: nothing is sent.
+    fn letter_hint(&self) -> String {
+        let to = self.draft.as_ref().map(|d| d.to.clone()).unwrap_or_default();
+        let first = ibercorreo_core::Address::parse_list(&to)
+            .ok()
+            .and_then(|list| list.into_iter().next())
+            .and_then(|a| a.name)
+            .and_then(|n| n.split_whitespace().next().map(str::to_string));
+        let greeting = match first {
+            Some(name) => tf("Hello {name},", &[("name", &name)]),
+            None => tl("Hello,").to_string(),
+        };
+        let account = self.session.store.account(self.session.current_account()).ok();
+        let sender = account.map(|a| a.address.name.clone().unwrap_or_else(|| a.name.clone())).unwrap_or_default();
+        format!("{greeting}\n\n{}\n\n{}\n{sender}", tl("Write your message here…"), tl("Kind regards,"))
+    }
+
     fn compose(&mut self, ui: &mut Ui) {
         let t = self.tokens;
+        let hint = self.letter_hint();
         let Some(d) = self.draft.as_mut() else { return };
         let mut send = false;
         let mut discard = false;
@@ -2549,34 +2563,41 @@ impl App {
             send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
             discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
-        ui.add_space(14.0);
+        ui.add_space(10.0);
         let mut changed = false;
-        egui::Grid::new("compose").num_columns(2).spacing([12.0, 8.0]).min_row_height(36.0).show(ui, |ui| {
-            let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
-            if d.show_bcc {
-                rows.push(("Bcc", &mut d.bcc));
-            }
-            rows.push(("Subject", &mut d.subject));
-            for (label, field) in rows {
-                ui.label(RichText::new(tl(label)).color(t.text_weak));
-                if label == "Cc" && !d.show_bcc {
-                    // Bcc waits beside Cc, a quiet toggle, until it is wanted.
-                    ui.horizontal(|ui| {
-                        let room = (ui.available_width() - 72.0).max(120.0);
-                        changed |= theme::field(ui, compose_line(field).desired_width(room)).lost_focus();
+        // Outlook's header: a label and a borderless field per row, a hairline under each.
+        let mut rows = vec![("To", &mut d.to), ("Cc", &mut d.cc)];
+        if d.show_bcc {
+            rows.push(("Bcc", &mut d.bcc));
+        }
+        rows.push(("Subject", &mut d.subject));
+        for (label, field) in rows {
+            let row = ui
+                .allocate_ui_with_layout(vec2(ui.available_width(), 40.0), Layout::left_to_right(Align::Center), |ui| {
+                    ui.add_sized(vec2(72.0, 20.0), egui::Label::new(RichText::new(tl(label)).color(t.text_weak)).truncate());
+                    let bcc_toggle = label == "Cc" && !d.show_bcc;
+                    let room = (ui.available_width() - if bcc_toggle { 64.0 } else { 0.0 }).max(80.0);
+                    let size = if label == "Subject" { theme::SUBTITLE } else { theme::BODY };
+                    let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(egui::FontId::proportional(size)).desired_width(room);
+                    changed |= ui.add(edit).lost_focus();
+                    if bcc_toggle {
                         let tip = tl("Blind copies: they get the message, the others don't see them");
                         if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Bcc", true).on_hover_text(tip).clicked() {
                             d.show_bcc = true;
                         }
-                    });
-                } else {
-                    changed |= theme::field(ui, compose_line(field)).lost_focus();
-                }
-                ui.end_row();
-            }
-        });
-        ui.add_space(12.0);
-        changed |= theme::field_sized(ui, ui.available_size(), egui::TextEdit::multiline(&mut d.body).margin(Margin::same(12))).lost_focus();
+                    }
+                })
+                .response
+                .rect;
+            ui.painter().hline(row.x_range(), row.bottom(), Stroke::new(1.0, t.border.gamma_multiply(0.5)));
+        }
+        ui.add_space(4.0);
+        // The text: just the card below the header, with a letter's shape as a hint while empty.
+        let body = egui::TextEdit::multiline(&mut d.body)
+            .frame(Frame::NONE.inner_margin(Margin::same(16)))
+            .font(egui::FontId::proportional(15.0))
+            .hint_text(RichText::new(&hint).color(t.text_weak.gamma_multiply(0.6)).size(15.0));
+        changed |= ui.add_sized(ui.available_size(), body).lost_focus();
         let params = json!({ "id": d.id, "to": d.to, "cc": d.cc, "bcc": d.bcc, "subject": d.subject, "body": d.body });
         let id = d.id;
         if changed || send {
@@ -4934,6 +4955,43 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// An empty message shows a letter's shape as a light hint (the first recipient's first
+    /// name in the greeting), gone once there is text; the header fields have no boxes.
+    #[test]
+    fn an_empty_message_hints_at_a_letter() {
+        let mut s = Session::new(ibercorreo_store::Store::new(), Date::EPOCH);
+        s.run("message.compose", &json!({ "to": "Marta Pérez <marta@example.org>" })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 900.0))), ..Default::default() };
+        let frame = |app: &mut App| {
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+        };
+        let shapes = frame(&mut app);
+        let texts: Vec<String> =
+            shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect();
+        assert!(app.draft.as_ref().is_some_and(|d| d.body.is_empty()), "a new message from an account with no signature is empty");
+        assert!(texts.iter().any(|t| t.starts_with("Hello Marta,") && t.contains("Write your message here…")), "{texts:?}");
+        let border = app.tokens.border;
+        for c in &shapes {
+            if let egui::Shape::Rect(r) = &c.shape {
+                let field = (30.0..=44.0).contains(&r.rect.height()) && r.rect.width() > 300.0;
+                assert!(!(field && r.stroke.width > 0.0 && r.stroke.color == border), "a box round a header field: {:?}", r.rect);
+            }
+        }
+        if let Some(d) = app.draft.as_mut() {
+            d.body = "Hola".into();
+        }
+        let shapes = frame(&mut app);
+        assert!(
+            !shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.job.text.starts_with("Hello Marta,"))),
+            "the hint goes once there is text"
+        );
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.

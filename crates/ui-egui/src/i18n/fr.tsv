@@ -355,3 +355,7 @@
 	Hide subfolders	Masquer les sous-dossiers
 	Show subfolders	Afficher les sous-dossiers
 	Back to {percent} % (Ctrl+0)	Revenir à {percent} % (Ctrl+0)
+	Hello {name},	Bonjour {name},
+	Hello,	Bonjour,
+	Write your message here…	Écrivez votre message ici…
+	Kind regards,	Cordialement,

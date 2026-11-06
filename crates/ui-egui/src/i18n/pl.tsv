@@ -355,3 +355,7 @@
 	Hide subfolders	Ukryj podfoldery
 	Show subfolders	Pokaż podfoldery
 	Back to {percent} % (Ctrl+0)	Wróć do {percent} % (Ctrl+0)
+	Hello {name},	Dzień dobry, {name},
+	Hello,	Dzień dobry,
+	Write your message here…	Napisz tutaj swoją wiadomość…
+	Kind regards,	Pozdrawiam,

@@ -353,3 +353,7 @@
 	Hide subfolders	Amaga les subcarpetes
 	Show subfolders	Mostra les subcarpetes
 	Back to {percent} % (Ctrl+0)	Torna a {percent} % (Ctrl+0)
+	Hello {name},	Hola, {name}:
+	Hello,	Hola:
+	Write your message here…	Escriu aquí el teu missatge…
+	Kind regards,	Salutacions,

@@ -354,3 +354,7 @@
 	Hide subfolders	Slėpti poaplankius
 	Show subfolders	Rodyti poaplankius
 	Back to {percent} % (Ctrl+0)	Grąžinti {percent} % (Ctrl+0)
+	Hello {name},	Sveiki, {name},
+	Hello,	Sveiki,
+	Write your message here…	Čia rašykite savo žinutę…
+	Kind regards,	Pagarbiai,
