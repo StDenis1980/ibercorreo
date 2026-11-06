@@ -299,6 +299,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   the address book's D-Bus API, checked against EDS 3.52. The automatic Send/Receive period can be
   chosen (list beside Send/Receive: only by hand, 1–60 minutes; command `account.syncInterval`,
   kept in the mailbox; default 5).
+- 2026-11-06 — Fix: standard folders linked to mailboxes the server does not have (an Outlook.com
+  account whose Sent, Drafts and Trash pointed at `[Gmail]/…` paths). A sync with the server's whole
+  list unlinks every folder whose mailbox is gone, keeps its mail here, moves mail synced from it
+  into a folder of its own, and folds a standard folder into the one already mirroring the server's
+  Sent/Trash… (RFC 6154, else by name), with its Favorites place and rules. Sent copies are saved
+  only to a mailbox the server lists.
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.

@@ -67,6 +67,20 @@ pub fn server_saved(results: &mut [Sent]) {
     }
 }
 
+/// The mailbox to save sent copies in, from the server's list `mailboxes`: `linked` (the one the
+/// Sent folder mirrors) while the server lists it, else the one marked `\Sent` (RFC 6154), else
+/// one named as Sent folders are. `None`: no copy is saved rather than one sent to a mailbox the
+/// server does not have.
+pub fn sent_mailbox(mailboxes: &[ibercorreo_imap::Mailbox], linked: Option<&str>) -> Option<String> {
+    let selectable = || mailboxes.iter().filter(|m| m.selectable());
+    if let Some(path) = linked
+        && selectable().any(|m| m.raw == path)
+    {
+        return Some(path.to_string());
+    }
+    selectable().find(|m| m.has("\\Sent")).or_else(|| selectable().find(|m| m.role() == ibercorreo_core::FolderRole::Sent)).map(|m| m.raw.clone())
+}
+
 /// Store a copy of each sent message in the server mailbox `sent_path`, marked read. Servers that
 /// save sent mail themselves would then hold two copies: Gmail is known ([`server_saved`]);
 /// others will need an account setting (`docs/gaps.md`).

@@ -145,6 +145,8 @@ pub fn run_with(s: &mut dyn MailServer, state: &State, limits: &Limits, progress
     push(s, state, &mut batch)?;
     let mailboxes = s.folders(limits.folders)?;
     let count = mailboxes.len();
+    // A list as long as the limit may have been cut short.
+    batch.listed_all = count < limits.folders;
     for (index, mailbox) in mailboxes.iter().enumerate() {
         let mut at = Progress { folder: mailbox.name.clone(), index, folders: count, ..Progress::default() };
         progress(&at);

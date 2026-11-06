@@ -225,6 +225,7 @@ a8 OK fetched
     let limits = Limits { new_per_folder: 2, ..Limits::default() };
     let mut steps = Vec::new();
     let batch = run_with(&mut c, &s, &limits, &mut |p| steps.push((p.folder.clone(), p.index, p.folders, p.fetched, p.to_fetch))).unwrap();
+    assert!(batch.listed_all, "every mailbox fits the limit");
     let inbox = || "INBOX".to_string();
     // The Noselect folder is not counted; the Inbox starts, then its two new messages come.
     assert_eq!(steps, [(inbox(), 0, 1, 0, 0), (inbox(), 0, 1, 0, 2), (inbox(), 0, 1, 2, 2)]);
@@ -403,4 +404,150 @@ fn only_mail_newer_than_an_inbox_already_synced_counts_as_arrived() {
     assert_eq!(report.added, 3);
     let subjects: Vec<String> = report.arrived.iter().map(|id| store.message(*id).unwrap().subject.clone()).collect();
     assert_eq!(subjects, ["uid 3"]);
+}
+
+/// What a Gmail server lists, as wrongly applied to an Outlook.com account: its standard folders
+/// end up linked to `[Gmail]/…` paths.
+fn gmail_sync() -> Batch {
+    Batch {
+        mailboxes: vec![
+            mailbox("INBOX", &[]),
+            mailbox("[Gmail]", &["\\Noselect"]),
+            mailbox("[Gmail]/Enviados", &["\\Sent"]),
+            mailbox("[Gmail]/Borradores", &["\\Drafts"]),
+            mailbox("[Gmail]/Papelera", &["\\Trash"]),
+        ],
+        folders: vec![
+            FolderSync { path: "INBOX".into(), uid_validity: 1, ..FolderSync::default() },
+            FolderSync {
+                path: "[Gmail]/Enviados".into(),
+                uid_validity: 2,
+                new: vec![NewMessage { uid: 4, flags: vec!["\\Seen".into()], raw: raw("from gmail"), id: None, arrived: true }],
+                ..FolderSync::default()
+            },
+            FolderSync { path: "[Gmail]/Borradores".into(), uid_validity: 3, ..FolderSync::default() },
+            FolderSync { path: "[Gmail]/Papelera".into(), uid_validity: 4, ..FolderSync::default() },
+        ],
+        ..Batch::default()
+    }
+}
+
+/// What Outlook.com lists: its Sent folder without a special-use attribute, found by its name.
+fn outlook_sync(listed_all: bool) -> Batch {
+    Batch {
+        mailboxes: vec![mailbox("INBOX", &[]), mailbox("Надіслані", &[]), mailbox("Deleted", &["\\Trash"]), mailbox("Archive", &[])],
+        folders: vec![
+            FolderSync { path: "INBOX".into(), uid_validity: 11, ..FolderSync::default() },
+            FolderSync {
+                path: "Надіслані".into(),
+                uid_validity: 12,
+                new: vec![NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("from outlook"), id: None, arrived: true }],
+                ..FolderSync::default()
+            },
+            FolderSync { path: "Deleted".into(), uid_validity: 13, ..FolderSync::default() },
+            FolderSync { path: "Archive".into(), uid_validity: 14, ..FolderSync::default() },
+        ],
+        listed_all,
+        ..Batch::default()
+    }
+}
+
+fn linked(store: &Store, role: FolderRole) -> Option<String> {
+    let id = store.folder_by_role(A, role).ok()?;
+    store.folder(id).ok()?.remote.as_ref().map(|r| r.path.clone())
+}
+
+#[test]
+fn standard_folders_linked_to_mailboxes_the_server_lacks_are_relinked() {
+    let mut store = Store::new();
+    apply(&mut store, A, gmail_sync());
+    // The store as found on a real PC: the Outlook.com mailboxes came in as ordinary folders,
+    // because the roles were taken by the Gmail paths.
+    apply(&mut store, A, outlook_sync(false));
+    assert_eq!(linked(&store, FolderRole::Sent).as_deref(), Some("[Gmail]/Enviados"), "a partial list unlinks nothing");
+    let sent = store.folder_by_role(A, FolderRole::Sent).unwrap();
+    let outlook_sent = store.folder_by_path(A, "Надіслані").unwrap();
+    assert_eq!(store.folder(outlook_sent).unwrap().role, FolderRole::Other);
+    // Mail written here and never saved on a server (an APPEND to `[Gmail]/Enviados` fails on
+    // Outlook.com), a favorite, a rule, and a deletion waiting for the Gmail path.
+    let local = ibercorreo_mime::parse(&raw("written here"), MessageId(0), sent).unwrap();
+    let local = store.add_message(local).unwrap();
+    store.set_favorite(sent, true).unwrap();
+    let rule = store
+        .add_rule(ibercorreo_store::rules::Rule::new("file", "from:ana", vec![ibercorreo_store::rules::RuleAction::Move { folder: sent }]))
+        .unwrap();
+    let gmail_copy = by_subject(&store, "from gmail").id;
+    store.remove_message(gmail_copy).unwrap();
+    assert_eq!(state(&store, A).pushes.len(), 1);
+    let before = store.messages_in(sent).len() + store.messages_in(outlook_sent).len();
+
+    let report = apply(&mut store, A, outlook_sync(true));
+
+    assert_eq!(report.folders_unlinked, 3, "Sent, Drafts and Trash: {report:?}");
+    assert_eq!(linked(&store, FolderRole::Sent).as_deref(), Some("Надіслані"), "the Outlook.com Sent folder takes the role");
+    assert_eq!(linked(&store, FolderRole::Trash).as_deref(), Some("Deleted"));
+    assert_eq!(linked(&store, FolderRole::Drafts), None, "Outlook.com lists no Drafts here: the folder stays, kept on this computer");
+    let sent = store.folder_by_role(A, FolderRole::Sent).unwrap();
+    assert_eq!(sent, outlook_sent);
+    assert_eq!(store.message(local).unwrap().folder, sent, "mail written here moves to the right Sent folder");
+    assert_eq!(store.messages_in(sent).len(), before, "nothing is lost");
+    assert_eq!(store.favorites(), [sent]);
+    assert_eq!(store.rules().iter().find(|r| r.id == rule).unwrap().actions, vec![ibercorreo_store::rules::RuleAction::Move { folder: sent }]);
+    assert!(state(&store, A).pushes.is_empty(), "nothing is sent to a mailbox the server does not have");
+    assert!(store.tombstones().is_empty());
+    assert!(store.folders_of(A).iter().all(|f| f.remote.as_ref().is_none_or(|r| !r.path.starts_with("[Gmail]"))));
+    assert_eq!(store.folders_of(A).iter().filter(|f| f.role == FolderRole::Sent).count(), 1);
+    // Applying it again changes nothing.
+    let again = apply(&mut store, A, outlook_sync(true));
+    assert_eq!((again.folders_unlinked, again.folders_added), (0, 0));
+}
+
+#[test]
+fn mail_synced_from_a_vanished_mailbox_is_kept_in_a_folder_of_its_own() {
+    let mut store = Store::new();
+    apply(&mut store, A, gmail_sync());
+    let report = apply(&mut store, A, outlook_sync(true));
+    assert_eq!(report.folders_unlinked, 3);
+    // Not mirrored yet: the standard Sent folder itself links to the Outlook.com one.
+    assert_eq!(linked(&store, FolderRole::Sent).as_deref(), Some("Надіслані"));
+    let gmail = by_subject(&store, "from gmail");
+    assert_eq!(gmail.remote, None, "kept as mail on this computer");
+    let kept = store.folder(gmail.folder).unwrap();
+    assert_eq!((kept.name.as_str(), kept.role, kept.remote.is_none()), ("[Gmail]/Enviados", FolderRole::Other, true));
+    assert!(store.can_delete_folder(kept.id), "the person can delete it");
+    assert_eq!(by_subject(&store, "from outlook").folder, store.folder_by_role(A, FolderRole::Sent).unwrap());
+}
+
+#[test]
+fn an_ordinary_folder_gone_from_the_server_stays_with_its_mail() {
+    let mut store = Store::new();
+    apply(&mut store, A, first_sync());
+    let work = store.folder_by_path(A, "Work/2026").unwrap();
+    let mut batch = first_sync();
+    batch.mailboxes.retain(|m| m.raw != "Work/2026");
+    batch.folders.retain(|f| f.path != "Work/2026");
+    batch.listed_all = true;
+    let report = apply(&mut store, A, batch.clone());
+    assert_eq!(report.folders_unlinked, 1);
+    assert!(store.folder(work).unwrap().remote.is_none() && store.can_delete_folder(work));
+    // Cut at the limit, the list says nothing about what is missing.
+    let mut store = Store::new();
+    apply(&mut store, A, first_sync());
+    batch.listed_all = false;
+    assert_eq!(apply(&mut store, A, batch).folders_unlinked, 0);
+    assert!(store.folder_by_path(A, "Work/2026").is_some());
+}
+
+#[test]
+fn sent_copies_go_only_to_a_mailbox_the_server_lists() {
+    use super::outbox::sent_mailbox;
+    let gmail = gmail_sync().mailboxes;
+    let outlook = outlook_sync(true).mailboxes;
+    assert_eq!(sent_mailbox(&gmail, Some("[Gmail]/Enviados")).as_deref(), Some("[Gmail]/Enviados"));
+    assert_eq!(sent_mailbox(&outlook, Some("[Gmail]/Enviados")).as_deref(), Some("Надіслані"), "found by name when unmarked");
+    assert_eq!(sent_mailbox(&gmail, None).as_deref(), Some("[Gmail]/Enviados"));
+    let marked = [mailbox("Sent", &[]), mailbox("Elementos enviados", &["\\Sent"])];
+    assert_eq!(sent_mailbox(&marked, Some("Gone")).as_deref(), Some("Elementos enviados"), "the special-use mark wins over a name");
+    assert_eq!(sent_mailbox(&[mailbox("INBOX", &[])], Some("[Gmail]/Enviados")), None);
+    assert_eq!(sent_mailbox(&[mailbox("Sent", &["\\Noselect"])], Some("Sent")), None);
 }
