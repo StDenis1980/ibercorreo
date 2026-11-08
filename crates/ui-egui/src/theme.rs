@@ -24,6 +24,9 @@ pub struct Tokens {
     pub today: Color32,
     /// Light text on the accent (the chosen day, the New buttons).
     pub on_accent: Color32,
+    /// A text field's soft fill, and the line along its foot that shows where it ends.
+    pub field: Color32,
+    pub field_line: Color32,
 }
 
 /// One theme's colours: the accent and the window, light and dark.
@@ -116,6 +119,8 @@ impl Tokens {
         if dark {
             let accent = rgb(th.accent_dark);
             let card = Color32::from_rgb(0x24, 0x27, 0x30);
+            let text_weak = Color32::from_rgb(0xB2, 0xB5, 0xC0);
+            let field = mix(card, rgb(th.window_dark), 0.7);
             Tokens {
                 accent,
                 accent_soft: mix(card, accent, 0.22),
@@ -123,16 +128,19 @@ impl Tokens {
                 band: rgb(th.band_dark),
                 card,
                 text: Color32::from_rgb(0xEC, 0xE8, 0xDF),
-                text_weak: Color32::from_rgb(0xB2, 0xB5, 0xC0),
+                text_weak,
                 unread: accent,
                 flag: Color32::from_rgb(0xE0, 0x6A, 0x5C),
                 border: Color32::from_rgb(0x3A, 0x3E, 0x4C),
                 today: accent,
                 on_accent: Color32::from_rgb(0x12, 0x14, 0x1A),
+                field,
+                field_line: mix(text_weak, card, FIELD_LINE_FADE),
             }
         } else {
             let accent = rgb(th.accent);
             let card = Color32::WHITE;
+            let text_weak = Color32::from_rgb(0x5C, 0x63, 0x73);
             Tokens {
                 accent,
                 accent_soft: mix(card, accent, 0.13),
@@ -140,12 +148,14 @@ impl Tokens {
                 band: rgb(th.band),
                 card,
                 text: Color32::from_rgb(0x1F, 0x24, 0x30),
-                text_weak: Color32::from_rgb(0x5C, 0x63, 0x73),
+                text_weak,
                 unread: accent,
                 flag: Color32::from_rgb(0xB0, 0x3A, 0x2E),
                 border: Color32::from_rgb(0xE1, 0xE5, 0xEB),
                 today: accent,
                 on_accent: Color32::WHITE,
+                field: rgb(th.window),
+                field_line: mix(text_weak, card, FIELD_LINE_FADE),
             }
         }
     }
@@ -208,11 +218,12 @@ pub fn apply(ctx: &egui::Context, id: Option<&str>) {
         v.hyperlink_color = t.accent;
         v.faint_bg_color = mix(t.card, t.window, 0.5);
         v.extreme_bg_color = t.card;
-        v.text_edit_bg_color = Some(t.card);
+        v.text_edit_bg_color = Some(t.field);
+        v.weak_text_color = Some(t.text_weak);
         v.selection.bg_fill = mix(t.card, t.accent, if v.dark_mode { 0.45 } else { 0.28 });
         v.selection.stroke = Stroke::new(1.0, t.accent);
         // Buttons, menus and lists have no frame, only a soft tint that deepens under the
-        // pointer, like the toolbar's; text fields draw their own border ([`field`]), and a
+        // pointer, like the toolbar's; a text field is a soft fill with a line at its foot ([`field`]), and a
         // checkbox's box is the stronger `bg_fill`.
         let w = &mut v.widgets;
         w.noninteractive.bg_fill = t.card;
@@ -236,30 +247,22 @@ pub fn apply(ctx: &egui::Context, id: Option<&str>) {
     });
 }
 
-/// A text field with its border: egui's own widgets have none (see [`apply`]), so a field
-/// draws a thin one, the accent's while it has the keyboard.
+/// A text field: 15 points on a soft fill with no border, as tall as the other controls, and a
+/// line along its foot that marks where it ends, in the accent under the pointer. The accent's
+/// ring shows while it has the keyboard.
 pub fn field(ui: &mut egui::Ui, edit: egui::TextEdit<'_>) -> egui::Response {
-    let r = ui.add(edit);
-    field_border(ui, &r);
-    r
-}
-
-/// [`field`], `size` large.
-pub fn field_sized(ui: &mut egui::Ui, size: egui::Vec2, edit: egui::TextEdit<'_>) -> egui::Response {
-    let r = ui.add_sized(size, edit);
-    field_border(ui, &r);
-    r
-}
-
-fn field_border(ui: &egui::Ui, r: &egui::Response) {
-    let v = ui.visuals();
-    if r.has_focus() {
-        return; // egui draws the focus ring itself, in the selection's stroke
+    let r = ui.add(edit.font(egui::FontId::proportional(15.0)).margin(egui::Margin::symmetric(10, 8)));
+    if !r.has_focus() {
+        let v = ui.visuals();
+        let color = if r.hovered() { v.selection.stroke.color } else { mix(v.weak_text_color(), v.window_fill, FIELD_LINE_FADE) };
+        let x = egui::Rangef::new(r.rect.left() + 3.0, r.rect.right() - 3.0);
+        ui.painter().hline(x, r.rect.bottom() - 0.5, egui::Stroke::new(1.0, color));
     }
-    let border = v.widgets.noninteractive.bg_stroke.color;
-    let color = if r.hovered() { mix(border, v.selection.stroke.color, 0.45) } else { border };
-    ui.painter().rect_stroke(r.rect, 8.0, egui::Stroke::new(1.0, color), egui::StrokeKind::Inside);
+    r
 }
+
+/// How far a field's line ([`Tokens::field_line`]) fades from the weak text towards the card.
+const FIELD_LINE_FADE: f32 = 0.15;
 
 /// The two ends of a filled button's gentle vertical gradient: the top a little lighter.
 pub fn gradient(base: Color32) -> (Color32, Color32) {
@@ -314,6 +317,11 @@ mod tests {
                     ("on-accent on accent", t.on_accent, t.accent, 4.5),
                     ("on-accent on a primary button's lighter top", t.on_accent, gradient(t.accent).0, 4.5),
                     ("text on a secondary button", t.text, gradient(mix(t.card, t.accent, 0.1)).0, 7.0),
+                    ("text in a field", t.text, t.field, 7.0),
+                    ("hint in a field", t.text_weak, t.field, 4.5),
+                    ("a field's line on a card", t.field_line, t.card, 3.0),
+                    ("a field's line on its fill", t.field_line, t.field, 3.0),
+                    ("a dangerous action on a card", t.flag, t.card, 4.5),
                 ] {
                     let c = contrast(fg, bg);
                     assert!(c >= min, "{id} dark={dark}: {what} is {c:.2}:1");

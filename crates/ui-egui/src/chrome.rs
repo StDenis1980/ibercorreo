@@ -35,6 +35,154 @@ pub(crate) enum Kind {
     Primary,
     Secondary,
     Quiet,
+    /// A quiet button for what cannot be undone: its text in the warning colour.
+    Danger,
+}
+
+/// The part of a [`dialog`] its closure is asked to draw: the scrolling body, or the footer that
+/// stays in sight under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Part {
+    Body,
+    Footer,
+}
+
+/// The frame of every dialog: the card's colour, round corners, generous room, a soft shadow and
+/// no hard edge.
+fn dialog_frame(ctx: &egui::Context) -> Frame {
+    Frame::window(&ctx.global_style()).stroke(Stroke::NONE).corner_radius(CornerRadius::same(12)).inner_margin(Margin::same(DIALOG_MARGIN))
+}
+
+/// The room inside a dialog's frame, each side.
+const DIALOG_MARGIN: i8 = 24;
+
+/// A dialog in the middle of the window, `width` wide or as wide as fits. `add` is called for
+/// each [`Part`]; a long body scrolls and the footer stays in sight, so nothing is ever cut off.
+pub(crate) fn dialog(ctx: &egui::Context, t: &Tokens, id: &str, title: &str, width: f32, open: &mut bool, mut add: impl FnMut(&mut Ui, Part)) {
+    let id = egui::Id::new(id);
+    egui::Window::new(title)
+        .id(id)
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(false)
+        .frame(dialog_frame(ctx))
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| dialog_contents(ui, t, id, title, width, Some(open), &mut add));
+}
+
+/// [`dialog`] over everything, the window behind it dimmed; `close` adds the close button.
+pub(crate) fn modal_dialog(
+    ctx: &egui::Context,
+    t: &Tokens,
+    id: &str,
+    title: &str,
+    width: f32,
+    close: Option<&mut bool>,
+    mut add: impl FnMut(&mut Ui, Part),
+) -> egui::ModalResponse<()> {
+    let id = egui::Id::new(id);
+    egui::Modal::new(id).frame(dialog_frame(ctx)).show(ctx, |ui| dialog_contents(ui, t, id, title, width, close, &mut add))
+}
+
+/// A small window in a corner of the main one, `offset` from it, with a dialog's look: what
+/// comes up by itself, like the reminders.
+pub(crate) fn corner_window(ctx: &egui::Context, id: &str, title: &str, offset: [f32; 2], add: impl FnOnce(&mut Ui)) {
+    let frame = dialog_frame(ctx).inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 12 });
+    egui::Window::new(title)
+        .id(egui::Id::new(id))
+        .title_bar(false)
+        .collapsible(false)
+        .resizable(false)
+        .frame(frame)
+        .anchor(Align2::RIGHT_BOTTOM, offset)
+        .show(ctx, add);
+}
+
+/// A dialog's title row, its body (scrolling when short of room) and its footer. A closed-over
+/// height from the last frame keeps room for the footer.
+fn dialog_contents(ui: &mut Ui, t: &Tokens, id: egui::Id, title: &str, width: f32, close: Option<&mut bool>, add: &mut dyn FnMut(&mut Ui, Part)) {
+    const OUTSIDE: f32 = 16.0;
+    const TITLE_ROW: f32 = 34.0;
+    let screen = ui.ctx().content_rect();
+    let margins = f32::from(DIALOG_MARGIN) * 2.0;
+    ui.set_width(width.min(screen.width() - margins - OUTSIDE * 2.0).max(200.0));
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), TITLE_ROW), Layout::left_to_right(Align::Center), |ui| {
+        ui.add(egui::Label::new(RichText::new(title).size(19.0).strong().color(t.text)).truncate());
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let Some(close) = close else { return };
+            let (rect, resp) = ui.allocate_exact_size(vec2(TOOL_H, TOOL_H), Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(rect, 8.0, t.accent_soft);
+            }
+            icons::paint(ui.painter(), rect.shrink(9.0), Icon::Close, if resp.hovered() { t.accent } else { t.text_weak });
+            if resp.on_hover_text(tl("Close")).clicked() {
+                *close = false;
+            }
+        });
+    });
+    ui.add_space(14.0);
+    let foot_id = id.with("footer-height");
+    let foot = ui.ctx().data(|d| d.get_temp::<f32>(foot_id)).unwrap_or(40.0);
+    let gaps = 14.0 + 16.0;
+    let room = (screen.height() - margins - OUTSIDE * 2.0 - TITLE_ROW - gaps - foot).max(80.0);
+    egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).auto_shrink([false, true]).show(ui, |ui| {
+        // Clear of the scroll bar.
+        Frame::NONE.inner_margin(Margin { left: 0, right: 12, top: 0, bottom: 2 }).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            add(ui, Part::Body);
+        });
+    });
+    ui.add_space(16.0);
+    let footer = ui.scope(|ui| add(ui, Part::Footer)).response.rect.height();
+    if (footer - foot).abs() > 0.5 {
+        ui.ctx().data_mut(|d| d.insert_temp(foot_id, footer));
+        ui.ctx().request_repaint();
+    }
+}
+
+/// How wide the labels of a dialog's form are.
+const FORM_LABEL_W: f32 = 150.0;
+
+/// A headed group of a dialog's form; `first` has no room above it.
+pub(crate) fn section(ui: &mut Ui, t: &Tokens, title: &str, hover: Option<&str>, first: bool) {
+    if !first {
+        ui.add_space(18.0);
+    }
+    let r = ui.label(RichText::new(tl(title)).size(theme::SUBTITLE).strong().color(t.text));
+    if let Some(h) = hover {
+        r.on_hover_text(tl(h));
+    }
+    ui.add_space(6.0);
+}
+
+/// A row of a dialog's form: the label in a fixed column, then the controls `add` draws, centred
+/// on one line. With little room the label goes above them. An empty label keeps the column.
+pub(crate) fn form_row<R>(ui: &mut Ui, t: &Tokens, label: &str, hover: Option<&str>, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let wide = ui.available_width() >= FORM_LABEL_W + 200.0;
+    let layout = if wide { Layout::left_to_right(Align::Center) } else { Layout::top_down(Align::Min) };
+    ui.allocate_ui_with_layout(vec2(ui.available_width(), 38.0), layout, |ui| {
+        if !label.is_empty() || wide {
+            let width = if wide { FORM_LABEL_W } else { ui.available_width() };
+            ui.allocate_ui_with_layout(vec2(width, 20.0), Layout::left_to_right(Align::Center), |ui| {
+                ui.set_width(width);
+                let r = ui.add(egui::Label::new(RichText::new(tl(label)).color(t.text_weak)).wrap());
+                if let Some(h) = hover {
+                    r.on_hover_text(tl(h));
+                }
+            });
+        }
+        ui.allocate_ui_with_layout(vec2(ui.available_width(), 36.0), Layout::left_to_right(Align::Center), add).inner
+    })
+    .inner
+}
+
+/// A row of a dialog's footer, its buttons to the right: `add` draws them from the right edge
+/// leftwards, the main action first.
+pub(crate) fn footer_right(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 12.0;
+        add(ui);
+    });
 }
 
 /// A button in Tinta's own style: no border, 32 points high, an optional icon and the label
@@ -45,10 +193,11 @@ pub(crate) fn button(ui: &mut Ui, t: &Tokens, kind: Kind, icon: Option<Icon>, la
         Kind::Primary => t.on_accent,
         Kind::Secondary => t.text,
         Kind::Quiet => t.accent,
+        Kind::Danger => t.flag,
     };
     let fg = if enabled { fg } else { fg.gamma_multiply(0.45) };
     let galley = ui.painter().layout_no_wrap(tl(label).to_string(), FontId::proportional(theme::BODY), fg);
-    let pad = if kind == Kind::Quiet { 10.0 } else { 14.0 };
+    let pad = if matches!(kind, Kind::Quiet | Kind::Danger) { 10.0 } else { 14.0 };
     let icon_w = if icon.is_some() { 24.0 } else { 0.0 };
     let size = vec2(pad * 2.0 + icon_w + galley.size().x, 32.0);
     let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
@@ -75,6 +224,10 @@ pub(crate) fn button(ui: &mut Ui, t: &Tokens, kind: Kind, icon: Option<Icon>, la
             p.rect_filled(rect, 8.0, if down { theme::mix(t.card, t.accent, 0.22) } else { t.accent_soft });
         }
         Kind::Quiet => {}
+        Kind::Danger if hot => {
+            p.rect_filled(rect, 8.0, theme::mix(t.card, t.flag, if down { 0.2 } else { 0.12 }));
+        }
+        Kind::Danger => {}
     }
     let mut x = rect.left() + pad;
     if let Some(icon) = icon {

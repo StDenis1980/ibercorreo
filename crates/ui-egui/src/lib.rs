@@ -867,48 +867,102 @@ impl App {
         let mut open = true;
         let mut save = false;
         let mut remove = false;
+        let mut cancel = false;
         let title = tl(if self.account_form.id.is_some() { "Account settings" } else { "Add account" });
         // Another account already syncs calendars and contacts: this one can't take GNOME's.
         let editing = self.account_form.id;
         let dav_free = !self.session.store.accounts.iter().any(|a| !a.caldav.is_empty() && Some(a.id) != editing);
-        egui::Window::new(title)
-            .id(egui::Id::new("account-settings"))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ui.ctx(), |ui| {
-                let f = &mut self.account_form;
-                let (oauth_was, email_was) = (f.oauth.clone(), f.email.clone());
-                if !f.note.is_empty() {
-                    ui.label(RichText::new(&f.note).color(self.tokens.unread));
-                    ui.add_space(4.0);
+        chrome::dialog(ui.ctx(), &t, "account-settings", title, 640.0, &mut open, |ui, part| {
+            use chrome::{Kind, Part, form_row, section};
+            let f = &mut self.account_form;
+            if part == Part::Footer {
+                match &self.oauth_running {
+                    Some(url) => {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.add(egui::Label::new(tl("Waiting for you to sign in in your browser…")).wrap());
+                        });
+                        ui.horizontal(|ui| {
+                            if !url.is_empty() {
+                                ui.label(RichText::new(tl("No browser opened?")).small().color(t.text_weak));
+                                if chrome::button(ui, &t, Kind::Quiet, None, "Copy the sign-in address", true).clicked() {
+                                    ui.ctx().copy_text(url.clone());
+                                }
+                            }
+                            chrome::footer_right(ui, |ui| {
+                                if chrome::button(ui, &t, Kind::Secondary, None, "Cancel", true).clicked() {
+                                    self.oauth_cancel = true;
+                                }
+                            });
+                        });
+                    }
+                    None if f.confirm_remove => {
+                        ui.add(
+                            egui::Label::new(tf(
+                                "Remove {address} and the mail kept here? Nothing is deleted on the server.",
+                                &[("address", f.email.trim())],
+                            ))
+                            .wrap(),
+                        );
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            chrome::footer_right(ui, |ui| {
+                                remove = chrome::button(ui, &t, Kind::Danger, Some(Icon::Trash), "Remove", true).clicked();
+                                if chrome::button(ui, &t, Kind::Secondary, None, "Keep", true).clicked() {
+                                    f.confirm_remove = false;
+                                }
+                            });
+                        });
+                    }
+                    None => {
+                        let label = tl(if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" });
+                        ui.horizontal(|ui| {
+                            // What cannot be undone stands apart, on the left.
+                            if f.id.is_some() && chrome::button(ui, &t, Kind::Danger, Some(Icon::Trash), "Remove account…", true).clicked() {
+                                f.confirm_remove = true;
+                            }
+                            chrome::footer_right(ui, |ui| {
+                                save = chrome::button(ui, &t, Kind::Primary, None, label, true).clicked();
+                                cancel = chrome::button(ui, &t, Kind::Secondary, None, "Cancel", true).clicked();
+                            });
+                        });
+                    }
                 }
-                egui::Grid::new("account-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                    for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")]
-                    {
-                        ui.label(tl(label));
-                        theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(280.0));
-                        ui.end_row();
-                    }
-                    ui.label("");
-                    let label = tl(if self.autoconfig_running { "🔍 Looking…" } else { "🔍 Find settings" });
-                    let can = !self.autoconfig_running && f.email.contains('@');
-                    if ui
-                        .add_enabled(can, egui::Button::new(label))
-                        .on_hover_text(tl("Look up the servers for this address (the provider's published settings, then the usual names)"))
-                        .clicked()
-                    {
-                        self.autoconfig_request = Some(f.email.trim().to_string());
-                    }
-                    ui.end_row();
-                    let gnome = self.gnome_accounts.as_deref().unwrap_or_default();
-                    if !gnome.is_empty() {
-                        ui.label(tl("From GNOME Settings")).on_hover_text(tl(
-                            "An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here",
-                        ));
-                        let mut chosen = None;
-                        egui::ComboBox::from_id_salt("gnome-account").width(280.0).selected_text(tl("Choose an account…")).show_ui(ui, |ui| {
+                return;
+            }
+            let (oauth_was, email_was) = (f.oauth.clone(), f.email.clone());
+            if !f.note.is_empty() {
+                ui.add(egui::Label::new(RichText::new(&f.note).color(self.tokens.unread)).wrap());
+                ui.add_space(8.0);
+            }
+            fn wide(edit: egui::TextEdit<'_>) -> egui::TextEdit<'_> {
+                edit.desired_width(f32::INFINITY)
+            }
+
+            section(ui, &t, "Account", None, true);
+            for (label, field, hint) in [("Your name", &mut f.name, "shown to recipients"), ("Email address", &mut f.email, "me@example.org")] {
+                form_row(ui, &t, label, None, |ui| theme::field(ui, wide(egui::TextEdit::singleline(field).hint_text(tl(hint)))));
+            }
+            form_row(ui, &t, "", None, |ui| {
+                let label = tl(if self.autoconfig_running { "🔍 Looking…" } else { "🔍 Find settings" }).trim_start_matches('🔍').trim();
+                let can = !self.autoconfig_running && f.email.contains('@');
+                if chrome::button(ui, &t, Kind::Secondary, Some(Icon::Search), label, can)
+                    .on_hover_text(tl("Look up the servers for this address (the provider's published settings, then the usual names)"))
+                    .clicked()
+                {
+                    self.autoconfig_request = Some(f.email.trim().to_string());
+                }
+            });
+
+            section(ui, &t, "Sign-in", None, false);
+            let gnome = self.gnome_accounts.as_deref().unwrap_or_default();
+            if !gnome.is_empty() {
+                let tip = "An account added under Online Accounts in GNOME Settings: its servers are filled in, and GNOME Settings signs in, so no password is kept here";
+                let chosen = form_row(ui, &t, "From GNOME Settings", Some(tip), |ui| {
+                    let mut chosen = None;
+                    egui::ComboBox::from_id_salt("gnome-account").width(ui.available_width()).selected_text(tl("Choose an account…")).show_ui(
+                        ui,
+                        |ui| {
                             for g in gnome {
                                 let mut label = format!("{} — {}", g.provider, g.identity);
                                 if g.attention {
@@ -918,28 +972,30 @@ impl App {
                                     chosen = Some(g);
                                 }
                             }
-                        });
-                        if let Some(g) = chosen {
-                            f.take_gnome(g, dav_free);
-                        }
-                        ui.end_row();
+                        },
+                    );
+                    chosen
+                });
+                if let Some(g) = chosen {
+                    f.take_gnome(g, dav_free);
+                }
+            }
+            let gnome_name =
+                |id: &str| gnome.iter().find(|g| g.id == id).map(|g| format!("{} — {}", g.provider, g.identity)).unwrap_or_else(|| id.to_string());
+            if !f.goa.is_empty() {
+                form_row(ui, &t, "Sign in with", None, |ui| {
+                    ui.add(egui::Label::new(tf("GNOME Settings ({account})", &[("account", &gnome_name(&f.goa))])).truncate());
+                    if chrome::button(ui, &t, Kind::Quiet, None, "Unlink", true)
+                        .on_hover_text(tl("Sign in with a password or in the browser instead"))
+                        .clicked()
+                    {
+                        f.goa.clear();
                     }
-                    let gnome_name = |id: &str| {
-                        gnome.iter().find(|g| g.id == id).map(|g| format!("{} — {}", g.provider, g.identity)).unwrap_or_else(|| id.to_string())
-                    };
-                    if !f.goa.is_empty() {
-                        ui.label(tl("Sign in with"));
-                        ui.horizontal(|ui| {
-                            ui.label(tf("GNOME Settings ({account})", &[("account", &gnome_name(&f.goa))]));
-                            if ui.small_button(tl("Unlink")).on_hover_text(tl("Sign in with a password or in the browser instead")).clicked() {
-                                f.goa.clear();
-                            }
-                        });
-                        ui.end_row();
-                    }
-                    if f.goa.is_empty() {
-                    ui.label(tl("Sign in with"));
-                    ui.horizontal(|ui| {
+                });
+            }
+            if f.goa.is_empty() {
+                form_row(ui, &t, "Sign in with", None, |ui| {
+                    ui.horizontal_wrapped(|ui| {
                         ui.radio_value(&mut f.oauth, String::new(), tl("Password"));
                         for p in OAUTH_PROVIDERS {
                             let ready = self.oauth_ready.iter().any(|r| r == p.id);
@@ -962,147 +1018,102 @@ impl App {
                                 .on_disabled_hover_text(hover);
                         }
                     });
-                    ui.end_row();
-                    }
-                    if f.oauth == "microsoft" {
-                        ui.label("");
-                        ui.checkbox(&mut f.graph_mail, tl("Mail over Microsoft Graph")).on_hover_text(tl(
-                            "For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used",
-                        ));
-                        ui.end_row();
-                    }
-                    if f.oauth.is_empty() && f.goa.is_empty() {
-                        ui.label(tl("Exchange server (EWS)")).on_hover_text(tl(
-                            "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used",
-                        ));
-                        theme::field(ui, egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)")).desired_width(280.0));
-                        ui.end_row();
-                        ui.label("");
-                        let label = tl(if self.exchange_running { "🔍 Looking…" } else { "🔍 Find the Exchange server" });
-                        let can = !self.exchange_running && f.email.contains('@') && !f.password.is_empty();
-                        if ui
-                            .add_enabled(can, egui::Button::new(label))
-                            .on_hover_text(tl("Ask the organisation's Autodiscover for it, signed in with the name and password below"))
-                            .on_disabled_hover_text(tl("Enter the email address and the password first"))
-                            .clicked()
-                        {
-                            let login = if f.user.trim().is_empty() { f.email.trim() } else { f.user.trim() };
-                            self.exchange_request = Some(ExchangeQuery { email: f.email.trim().to_string(), login: login.to_string(), password: f.password.clone() });
-                        }
-                        ui.end_row();
-                    }
-                    let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && f.goa.is_empty() && !f.ews.trim().is_empty());
-                    if f.oauth.is_empty() && f.goa.is_empty() {
-                        ui.label(tl("Password"));
-                        theme::field(ui,
-                            egui::TextEdit::singleline(&mut f.password)
-                                .password(true)
-                                .hint_text(tl("kept in the system's credential store"))
-                                .desired_width(280.0),
-                        );
-                        ui.end_row();
-                        let provider = OAuthProvider::for_host(&f.imap_host).or_else(|| OAuthProvider::for_address(&f.email));
-                        if let Some((p, url)) = provider.and_then(|p| p.app_password_url.map(|u| (p, u))) {
-                            ui.label("");
-                            ui.hyperlink_to(tf("Make a {provider} app password…", &[("provider", p.name)]), url).on_hover_text(tf(
-                                "{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.",
-                                &[("provider", p.name)],
-                            ));
-                            ui.end_row();
-                        }
-                    }
-                    ui.label(tl("Sign-in name"));
-                    theme::field(ui, egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address")).desired_width(280.0));
-                    ui.end_row();
-                    let servers = [
-                        ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
-                        ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
-                    ];
-                    for (title, host, port, starttls, tls_port, starttls_port) in servers.into_iter().filter(|_| !other_server) {
-                        ui.label(RichText::new(tl(title)).strong());
-                        ui.end_row();
-                        ui.label(tl("Server"));
-                        theme::field(ui, egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")).desired_width(280.0));
-                        ui.end_row();
-                        ui.label(tl("Port"));
-                        ui.horizontal(|ui| {
-                            theme::field(ui, egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(60.0));
-                            ui.radio_value(starttls, false, tl("TLS"));
-                            ui.radio_value(starttls, true, tl("STARTTLS"));
-                        });
-                        ui.end_row();
-                    }
-                    ui.label(RichText::new(tl("Calendars and contacts")).strong())
-                        .on_hover_text(tl("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"));
-                    ui.end_row();
-                    ui.label(tl("Address"));
-                    theme::field(ui, egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)")).desired_width(280.0));
-                    ui.end_row();
-                    if !f.dav_goa.is_empty() {
-                        ui.label("");
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(tf("Signed in through GNOME Settings ({account})", &[("account", &gnome_name(&f.dav_goa))])).small());
-                            if ui.small_button(tl("Unlink")).on_hover_text(tl("Sign in to the calendars as the mail does")).clicked() {
-                                f.dav_goa.clear();
-                            }
-                        });
-                        ui.end_row();
-                    }
-                    ui.label(RichText::new(tl("Signature")).strong())
-                        .on_hover_text(tl("Added under new messages, replies and forwards from this account"));
-                    ui.end_row();
-                    ui.label("");
-                    theme::field(ui,
-                        egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_width(280.0).desired_rows(3),
-                    );
-                    ui.end_row();
                 });
-                f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
-                ui.add_space(6.0);
-                match &self.oauth_running {
-                    Some(url) => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(tl("Waiting for you to sign in in your browser…"));
-                            if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
-                                self.oauth_cancel = true;
-                            }
-                        });
-                        if !url.is_empty() {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(tl("No browser opened?")).small());
-                                if ui.small_button(tl("Copy the sign-in address")).clicked() {
-                                    ui.ctx().copy_text(url.clone());
-                                }
-                            });
-                        }
+            }
+            if f.oauth == "microsoft" {
+                form_row(ui, &t, "", None, |ui| {
+                    ui.checkbox(&mut f.graph_mail, tl("Mail over Microsoft Graph")).on_hover_text(tl(
+                        "For a Microsoft 365 work account whose organisation turned IMAP off: mail, calendar and contacts all go over Microsoft Graph, and the servers below are not used",
+                    ));
+                });
+            }
+            if f.oauth.is_empty() && f.goa.is_empty() {
+                let tip = "For an Exchange Server your organisation runs itself: its name or EWS address. Mail goes over Exchange Web Services with your password, and the servers below are not used";
+                form_row(ui, &t, "Exchange server (EWS)", Some(tip), |ui| {
+                    theme::field(ui, wide(egui::TextEdit::singleline(&mut f.ews).hint_text(tl("mail.example.org (optional)"))));
+                });
+                form_row(ui, &t, "", None, |ui| {
+                    let label = tl(if self.exchange_running { "🔍 Looking…" } else { "🔍 Find the Exchange server" }).trim_start_matches('🔍').trim();
+                    let can = !self.exchange_running && f.email.contains('@') && !f.password.is_empty();
+                    if chrome::button(ui, &t, Kind::Secondary, Some(Icon::Search), label, can)
+                        .on_hover_text(tl("Ask the organisation's Autodiscover for it, signed in with the name and password below"))
+                        .on_disabled_hover_text(tl("Enter the email address and the password first"))
+                        .clicked()
+                    {
+                        let login = if f.user.trim().is_empty() { f.email.trim() } else { f.user.trim() };
+                        self.exchange_request =
+                            Some(ExchangeQuery { email: f.email.trim().to_string(), login: login.to_string(), password: f.password.clone() });
                     }
-                    None => {
-                        let label = tl(if f.oauth.is_empty() { "Save and Send/Receive" } else { "Save and sign in" });
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 12.0;
-                            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
-                            if f.id.is_some() && !f.confirm_remove && chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Remove account…", true).clicked() {
-                                f.confirm_remove = true;
-                            }
-                        });
-                        if f.confirm_remove {
-                            ui.add_space(4.0);
-                            ui.label(tf(
-                                "Remove {address} and the mail kept here? Nothing is deleted on the server.",
-                                &[("address", f.email.trim())],
-                            ));
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 12.0;
-                                remove = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Trash), "Remove", true).clicked();
-                                if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Keep", true).clicked() {
-                                    f.confirm_remove = false;
-                                }
-                            });
-                        }
-                    }
+                });
+            }
+            let other_server = (f.oauth == "microsoft" && f.graph_mail) || (f.oauth.is_empty() && f.goa.is_empty() && !f.ews.trim().is_empty());
+            if f.oauth.is_empty() && f.goa.is_empty() {
+                form_row(ui, &t, "Password", None, |ui| {
+                    theme::field(
+                        ui,
+                        wide(egui::TextEdit::singleline(&mut f.password).password(true).hint_text(tl("kept in the system's credential store"))),
+                    );
+                });
+                let provider = OAuthProvider::for_host(&f.imap_host).or_else(|| OAuthProvider::for_address(&f.email));
+                if let Some((p, url)) = provider.and_then(|p| p.app_password_url.map(|u| (p, u))) {
+                    form_row(ui, &t, "", None, |ui| {
+                        ui.hyperlink_to(tf("Make a {provider} app password…", &[("provider", p.name)]), url).on_hover_text(tf(
+                            "{provider} account → Security → App passwords (needs 2-Step Verification). Paste the 16 letters here.",
+                            &[("provider", p.name)],
+                        ));
+                    });
                 }
+            }
+            form_row(ui, &t, "Sign-in name", None, |ui| {
+                theme::field(ui, wide(egui::TextEdit::singleline(&mut f.user).hint_text(tl("if not the email address"))));
             });
+
+            let servers = [
+                ("Incoming (IMAP)", &mut f.imap_host, &mut f.imap_port, &mut f.imap_starttls, "993", "143"),
+                ("Outgoing (SMTP)", &mut f.smtp_host, &mut f.smtp_port, &mut f.smtp_starttls, "465", "587"),
+            ];
+            for (title, host, port, starttls, tls_port, starttls_port) in servers.into_iter().filter(|_| !other_server) {
+                section(ui, &t, title, None, false);
+                form_row(ui, &t, "Server", None, |ui| theme::field(ui, wide(egui::TextEdit::singleline(host).hint_text(tl("mail.example.org")))));
+                form_row(ui, &t, "Port", None, |ui| {
+                    theme::field(
+                        ui,
+                        egui::TextEdit::singleline(port).hint_text(if *starttls { starttls_port } else { tls_port }).desired_width(64.0),
+                    );
+                    ui.add_space(8.0);
+                    ui.radio_value(starttls, false, tl("TLS"));
+                    ui.radio_value(starttls, true, tl("STARTTLS"));
+                });
+            }
+
+            section(ui, &t, "Calendars and contacts", Some("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"), false);
+            form_row(ui, &t, "Address", None, |ui| {
+                theme::field(ui, wide(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)"))));
+            });
+            if !f.dav_goa.is_empty() {
+                form_row(ui, &t, "", None, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(tf("Signed in through GNOME Settings ({account})", &[("account", &gnome_name(&f.dav_goa))])).small(),
+                        )
+                        .truncate(),
+                    );
+                    if chrome::button(ui, &t, Kind::Quiet, None, "Unlink", true)
+                        .on_hover_text(tl("Sign in to the calendars as the mail does"))
+                        .clicked()
+                    {
+                        f.dav_goa.clear();
+                    }
+                });
+            }
+
+            section(ui, &t, "Signature", Some("Added under new messages, replies and forwards from this account"), false);
+            theme::field(ui, wide(egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_rows(3)));
+            f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
+        });
+        if cancel {
+            open = false;
+        }
         if remove
             && let Some(id) = self.account_form.id
             && self.run("account.remove", json!({ "id": id.0 })).is_some()
@@ -1257,7 +1268,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
-        self.tinta_feedback.show(ui.ctx(), i18n::current().code());
+        self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
     }
 
     /// Rules: the list in the order they run (on/off, up/down, edit, delete), New rule and Run
@@ -1276,144 +1287,140 @@ impl App {
         let account = self.session.current_account();
         let folders: Vec<(u32, String)> = self.session.store.folders_of(account).iter().map(|f| (f.id.0, folder_label(f))).collect();
         let archive = self.session.store.folder_by_role(account, FolderRole::Archive).ok().map(|f| f.0);
-        egui::Window::new(tl("Rules"))
-            .id(egui::Id::new("rules"))
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ui.ctx(), |ui| {
-                ui.set_width(600.0);
-                let f = &mut self.rule_form;
-                if !f.note.is_empty() {
-                    ui.label(RichText::new(&f.note).color(t.unread));
-                }
-                if f.editing.is_none() {
-                    ui.label(RichText::new(tl("Rules run on new mail in the Inbox after Send/Receive, in this order.")).color(t.text_weak));
-                    ui.add_space(4.0);
-                    if rules.is_empty() {
-                        ui.label(RichText::new(tl("No rules yet.")).color(t.text_weak));
-                    }
-                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                        for (i, r) in rules.iter().enumerate() {
-                            let id = r["id"].clone();
-                            ui.horizontal(|ui| {
-                                let mut on = r["enabled"].as_bool().unwrap_or(false);
-                                if ui.checkbox(&mut on, "").on_hover_text(tl("On")).changed() {
-                                    action = Some(("rule.set", json!({ "id": id, "enabled": on })));
-                                }
-                                ui.vertical(|ui| {
-                                    ui.label(RichText::new(r["name"].as_str().unwrap_or("")).strong().color(t.text));
-                                    ui.label(RichText::new(rule_summary(r)).small().color(t.text_weak));
-                                });
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.small_button(tl("Delete")).clicked() {
-                                        action = Some(("rule.delete", json!({ "id": id })));
-                                    }
-                                    if ui.small_button(tl("Edit…")).clicked() {
-                                        edit = Some(r.clone());
-                                    }
-                                    if ui
-                                        .add_enabled(i + 1 < rules.len(), egui::Button::new(tl("Later")).small())
-                                        .on_hover_text(tl("Run this rule later"))
-                                        .clicked()
-                                    {
-                                        action = Some(("rule.move", json!({ "id": id, "up": false })));
-                                    }
-                                    if ui
-                                        .add_enabled(i > 0, egui::Button::new(tl("Earlier")).small())
-                                        .on_hover_text(tl("Run this rule earlier"))
-                                        .clicked()
-                                    {
-                                        action = Some(("rule.move", json!({ "id": id, "up": true })));
-                                    }
-                                });
-                            });
-                            ui.separator();
+        chrome::dialog(ui.ctx(), &t, "rules", tl("Rules"), 640.0, &mut open, |ui, part| {
+            use chrome::{Kind, Part, form_row};
+            let f = &mut self.rule_form;
+            if part == Part::Footer {
+                ui.horizontal(|ui| {
+                    chrome::footer_right(ui, |ui| {
+                        if f.editing.is_some() {
+                            if chrome::button(ui, &t, Kind::Primary, None, "Save", true).clicked() {
+                                save = true;
+                            }
+                            if chrome::button(ui, &t, Kind::Secondary, None, "Cancel", true).clicked() {
+                                cancel = true;
+                            }
+                            return;
                         }
-                    });
-                    ui.horizontal(|ui| {
                         let new_rule = tl("+ New rule").trim_start_matches('+').trim();
-                        if chrome::button(ui, &t, chrome::Kind::Quiet, Some(Icon::Plus), new_rule, true).clicked() {
+                        if chrome::button(ui, &t, Kind::Primary, Some(Icon::Plus), new_rule, true).clicked() {
                             f.start("");
                         }
-                        if ui
-                            .add_enabled(!rules.is_empty(), egui::Button::new(tl("Run rules now")))
+                        if chrome::button(ui, &t, Kind::Secondary, None, "Run rules now", !rules.is_empty())
                             .on_hover_text(tl("Run the rules that are on over the open folder"))
                             .clicked()
                         {
                             action = Some(("rule.run", json!({})));
                         }
                     });
-                    return;
-                }
-                egui::Grid::new("rule-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                    ui.label(tl("Name"));
-                    theme::field(ui, egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(340.0));
-                    ui.end_row();
-                    ui.label(tl("Condition"));
-                    ui.vertical(|ui| {
-                        theme::field(
-                            ui,
-                            egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(340.0),
-                        )
-                        .on_hover_text(tl(SEARCH_HELP));
-                        ui.horizontal(|ui| {
-                            for (label, key) in [("From", "from:"), ("Subject", "subject:"), ("Sent to", "to:"), ("Has attachment", "has:attachment")]
-                            {
-                                if ui.small_button(tl(label)).clicked() {
-                                    if !f.query.is_empty() && !f.query.ends_with(' ') {
-                                        f.query.push(' ');
-                                    }
-                                    f.query.push_str(key);
-                                }
-                            }
-                        });
-                        ui.label(RichText::new(tl("Search syntax; empty: every message.")).small().color(t.text_weak));
-                    });
-                    ui.end_row();
-                    ui.label(tl("Do this"));
-                    ui.vertical(|ui| {
-                        ui.checkbox(&mut f.mark_read, tl("Mark as read"));
-                        ui.checkbox(&mut f.flag, tl("Flag"));
-                        ui.horizontal(|ui| {
-                            if ui.checkbox(&mut f.move_on, tl("Move to")).changed() && f.move_on {
-                                f.delete = false;
-                                if f.move_to.is_none() {
-                                    f.move_to = archive;
-                                }
-                            }
-                            let current =
-                                f.move_to.and_then(|id| folders.iter().find(|(fid, _)| *fid == id)).map(|(_, n)| n.clone()).unwrap_or_default();
-                            ui.add_enabled_ui(f.move_on, |ui| {
-                                egui::ComboBox::from_id_salt("rule-folder").selected_text(current).show_ui(ui, |ui| {
-                                    for (id, name) in &folders {
-                                        ui.selectable_value(&mut f.move_to, Some(*id), name);
-                                    }
-                                });
-                            });
-                        });
-                        if ui.checkbox(&mut f.delete, tl("Delete (move to Deleted Items)")).changed() && f.delete {
-                            f.move_on = false;
-                        }
-                        ui.checkbox(&mut f.stop, tl("Stop processing more rules"));
-                    });
-                    ui.end_row();
-                    ui.label("");
-                    ui.checkbox(&mut f.enabled, tl("On"));
-                    ui.end_row();
                 });
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    if chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked() {
-                        save = true;
-                    }
-                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Cancel", true).clicked() {
-                        cancel = true;
+                return;
+            }
+            if !f.note.is_empty() {
+                ui.add(egui::Label::new(RichText::new(&f.note).color(t.unread)).wrap());
+                ui.add_space(8.0);
+            }
+            if f.editing.is_none() {
+                ui.add(
+                    egui::Label::new(RichText::new(tl("Rules run on new mail in the Inbox after Send/Receive, in this order.")).color(t.text_weak))
+                        .wrap(),
+                );
+                ui.add_space(10.0);
+                if rules.is_empty() {
+                    ui.label(RichText::new(tl("No rules yet.")).color(t.text_weak));
+                }
+                for (i, r) in rules.iter().enumerate() {
+                    let id = r["id"].clone();
+                    ui.horizontal(|ui| {
+                        let mut on = r["enabled"].as_bool().unwrap_or(false);
+                        if ui.checkbox(&mut on, "").on_hover_text(tl("On")).changed() {
+                            action = Some(("rule.set", json!({ "id": id, "enabled": on })));
+                        }
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 2.0;
+                            ui.label(RichText::new(r["name"].as_str().unwrap_or("")).strong().color(t.text));
+                            ui.label(RichText::new(rule_summary(r)).small().color(t.text_weak));
+                        });
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            if chrome::button(ui, &t, Kind::Danger, None, "Delete", true).clicked() {
+                                action = Some(("rule.delete", json!({ "id": id })));
+                            }
+                            if chrome::button(ui, &t, Kind::Quiet, None, "Edit…", true).clicked() {
+                                edit = Some(r.clone());
+                            }
+                            if chrome::button(ui, &t, Kind::Quiet, None, "Later", i + 1 < rules.len())
+                                .on_hover_text(tl("Run this rule later"))
+                                .clicked()
+                            {
+                                action = Some(("rule.move", json!({ "id": id, "up": false })));
+                            }
+                            if chrome::button(ui, &t, Kind::Quiet, None, "Earlier", i > 0).on_hover_text(tl("Run this rule earlier")).clicked() {
+                                action = Some(("rule.move", json!({ "id": id, "up": true })));
+                            }
+                        });
+                    });
+                    ui.add_space(6.0);
+                }
+                return;
+            }
+            form_row(ui, &t, "Name", None, |ui| {
+                theme::field(ui, egui::TextEdit::singleline(&mut f.name).hint_text(tl("default: the condition")).desired_width(f32::INFINITY));
+            });
+            form_row(ui, &t, "Condition", None, |ui| {
+                theme::field(
+                    ui,
+                    egui::TextEdit::singleline(&mut f.query).hint_text("from:ana@example.org subject:factura").desired_width(f32::INFINITY),
+                )
+                .on_hover_text(tl(SEARCH_HELP));
+            });
+            form_row(ui, &t, "", None, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (label, key) in [("From", "from:"), ("Subject", "subject:"), ("Sent to", "to:"), ("Has attachment", "has:attachment")] {
+                        if chrome::button(ui, &t, Kind::Quiet, None, label, true).clicked() {
+                            if !f.query.is_empty() && !f.query.ends_with(' ') {
+                                f.query.push(' ');
+                            }
+                            f.query.push_str(key);
+                        }
                     }
                 });
             });
+            form_row(ui, &t, "", None, |ui| {
+                ui.add(egui::Label::new(RichText::new(tl("Search syntax; empty: every message.")).small().color(t.text_weak)).wrap());
+            });
+            ui.add_space(6.0);
+            form_row(ui, &t, "Do this", None, |ui| {
+                ui.vertical(|ui| {
+                    ui.checkbox(&mut f.mark_read, tl("Mark as read"));
+                    ui.checkbox(&mut f.flag, tl("Flag"));
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut f.move_on, tl("Move to")).changed() && f.move_on {
+                            f.delete = false;
+                            if f.move_to.is_none() {
+                                f.move_to = archive;
+                            }
+                        }
+                        let current = f.move_to.and_then(|id| folders.iter().find(|(fid, _)| *fid == id)).map(|(_, n)| n.clone()).unwrap_or_default();
+                        ui.add_enabled_ui(f.move_on, |ui| {
+                            egui::ComboBox::from_id_salt("rule-folder").selected_text(current).show_ui(ui, |ui| {
+                                for (id, name) in &folders {
+                                    ui.selectable_value(&mut f.move_to, Some(*id), name);
+                                }
+                            });
+                        });
+                    });
+                    if ui.checkbox(&mut f.delete, tl("Delete (move to Deleted Items)")).changed() && f.delete {
+                        f.move_on = false;
+                    }
+                    ui.checkbox(&mut f.stop, tl("Stop processing more rules"));
+                });
+            });
+            form_row(ui, &t, "", None, |ui| {
+                ui.checkbox(&mut f.enabled, tl("On"));
+            });
+        });
         if let Some(r) = edit {
             self.rule_form.edit(&r);
         }
@@ -1465,74 +1472,65 @@ impl App {
             tf("{n} Reminders", &[("n", &self.due.len().to_string())])
         };
         // A compact header of our own, as a mail app's reminder: a bell and the count, on the left.
-        let frame = Frame::window(&ui.ctx().global_style()).inner_margin(Margin { left: 14, right: 14, top: 10, bottom: 12 });
-        egui::Window::new(&title)
-            .id(egui::Id::new("reminders"))
-            .title_bar(false)
-            .collapsible(false)
-            .resizable(false)
-            .frame(frame)
-            // Above the status bar, never over it.
-            .anchor(egui::Align2::RIGHT_BOTTOM, [-16.0, -40.0])
-            .show(ui.ctx(), |ui| {
-                ui.set_width(380.0);
-                ui.horizontal(|ui| {
-                    let (bell, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                    icons::paint(ui.painter(), bell, Icon::Bell, t.accent);
-                    ui.label(RichText::new(&title).size(15.0).strong().color(t.text));
-                });
-                ui.add_space(4.0);
-                egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
-                    for r in &self.due {
-                        let id = r["id"].clone();
-                        let start = r["start"].clone();
-                        Frame::NONE
-                            .fill(theme::mix(t.card, t.window, 0.55))
-                            .corner_radius(CornerRadius::same(8))
-                            .stroke(Stroke::new(1.0, t.border))
-                            .inner_margin(Margin { left: 12, right: 10, top: 8, bottom: 8 })
-                            .show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.spacing_mut().item_spacing.y = 4.0;
-                                ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
-                                let when = r["start"].as_str().unwrap_or("").replace('T', " ");
-                                let place = r["location"].as_str().filter(|l| !l.is_empty()).map(|l| format!(" · 📍 {l}")).unwrap_or_default();
-                                // When and where, how soon, and the buttons, on one line.
-                                ui.horizontal(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.spacing_mut().item_spacing.y = 0.0;
-                                        ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
-                                        ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
-                                    });
-                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                        if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss", true).clicked() {
-                                            action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
-                                        }
-                                        ui.menu_button(tl("Snooze…"), |ui| {
-                                            for (minutes, label) in SNOOZES {
-                                                if ui.button(tl(label)).clicked() {
-                                                    action = Some(("reminder.snooze", json!({ "id": id, "start": start, "minutes": minutes })));
-                                                    ui.close();
-                                                }
+        chrome::corner_window(ui.ctx(), "reminders", &title, [-16.0, -40.0], |ui| {
+            ui.set_width(380.0);
+            ui.horizontal(|ui| {
+                let (bell, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+                icons::paint(ui.painter(), bell, Icon::Bell, t.accent);
+                ui.label(RichText::new(&title).size(15.0).strong().color(t.text));
+            });
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical().max_height(340.0).show(ui, |ui| {
+                for r in &self.due {
+                    let id = r["id"].clone();
+                    let start = r["start"].clone();
+                    Frame::NONE
+                        .fill(theme::mix(t.card, t.window, 0.55))
+                        .corner_radius(CornerRadius::same(8))
+                        .stroke(Stroke::new(1.0, t.border))
+                        .inner_margin(Margin { left: 12, right: 10, top: 8, bottom: 8 })
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.spacing_mut().item_spacing.y = 4.0;
+                            ui.label(RichText::new(r["summary"].as_str().unwrap_or("")).strong().color(t.text));
+                            let when = r["start"].as_str().unwrap_or("").replace('T', " ");
+                            let place = r["location"].as_str().filter(|l| !l.is_empty()).map(|l| format!(" · 📍 {l}")).unwrap_or_default();
+                            // When and where, how soon, and the buttons, on one line.
+                            ui.horizontal(|ui| {
+                                ui.vertical(|ui| {
+                                    ui.spacing_mut().item_spacing.y = 0.0;
+                                    ui.label(RichText::new(format!("{when}{place}")).small().color(t.text_weak));
+                                    ui.label(RichText::new(due_in(r["minutesUntil"].as_i64().unwrap_or(0))).small().color(t.accent));
+                                });
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss", true).clicked() {
+                                        action = Some(("reminder.dismiss", json!({ "id": id, "start": start })));
+                                    }
+                                    ui.menu_button(tl("Snooze…"), |ui| {
+                                        for (minutes, label) in SNOOZES {
+                                            if ui.button(tl(label)).clicked() {
+                                                action = Some(("reminder.snooze", json!({ "id": id, "start": start, "minutes": minutes })));
+                                                ui.close();
                                             }
-                                        });
+                                        }
                                     });
                                 });
                             });
-                        ui.add_space(6.0);
-                    }
-                });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss All", true).clicked() {
-                        action = Some(("reminder.dismiss", json!({})));
-                    }
-                    if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Snooze all 5 minutes", true).clicked() {
-                        action = Some(("reminder.snooze", json!({ "minutes": 5 })));
-                    }
-                });
+                        });
+                    ui.add_space(6.0);
+                }
             });
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                if chrome::button(ui, &t, chrome::Kind::Secondary, None, "Dismiss All", true).clicked() {
+                    action = Some(("reminder.dismiss", json!({})));
+                }
+                if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Snooze all 5 minutes", true).clicked() {
+                    action = Some(("reminder.snooze", json!({ "minutes": 5 })));
+                }
+            });
+        });
         if let Some((id, params)) = action {
             self.run(id, params);
         }
@@ -3029,32 +3027,42 @@ impl App {
         let mut save = false;
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
         let default_calendar = self.last_calendar.filter(|id| calendars.iter().any(|c| c.0 == *id)).or_else(|| calendars.first().map(|c| c.0));
-        egui::Window::new(tl("New Appointment")).collapsible(false).resizable(false).open(&mut open).show(ui.ctx(), |ui| {
+        let mut cancel = false;
+        chrome::dialog(ui.ctx(), &t, "new-appointment", tl("New Appointment"), 520.0, &mut open, |ui, part| {
+            use chrome::{Kind, Part, form_row};
+            if part == Part::Footer {
+                ui.horizontal(|ui| {
+                    chrome::footer_right(ui, |ui| {
+                        save = chrome::button(ui, &t, Kind::Primary, None, "Save", true).clicked();
+                        cancel = chrome::button(ui, &t, Kind::Secondary, None, "Cancel", true).clicked();
+                    });
+                });
+                return;
+            }
             let f = &mut self.event_form;
-            egui::Grid::new("event-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
-                for (label, field, hint) in [
-                    ("Title", &mut f.summary, ""),
-                    ("Start", &mut f.start, "2026-10-22T09:00 or 2026-10-22"),
-                    ("End", &mut f.end, "optional"),
-                    ("Location", &mut f.location, ""),
-                ] {
-                    ui.label(tl(label));
-                    theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(260.0));
-                    ui.end_row();
-                }
-                ui.label(tl("Reminder"));
+            for (label, field, hint) in [
+                ("Title", &mut f.summary, ""),
+                ("Start", &mut f.start, "2026-10-22T09:00 or 2026-10-22"),
+                ("End", &mut f.end, "optional"),
+                ("Location", &mut f.location, ""),
+            ] {
+                form_row(ui, &t, label, None, |ui| {
+                    theme::field(ui, egui::TextEdit::singleline(field).hint_text(tl(hint)).desired_width(f32::INFINITY));
+                });
+            }
+            form_row(ui, &t, "Reminder", None, |ui| {
                 let shown = tl(REMINDERS.iter().find(|(id, _)| *id == f.reminder.as_str()).map_or("15 minutes", |(_, label)| *label));
-                egui::ComboBox::from_id_salt("event-reminder").selected_text(shown).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("event-reminder").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
                     for (id, label) in REMINDERS {
                         ui.selectable_value(&mut f.reminder, id.to_string(), tl(label));
                     }
                 });
-                ui.end_row();
-                if calendars.len() > 1 {
-                    ui.label(tl("Calendar"));
+            });
+            if calendars.len() > 1 {
+                form_row(ui, &t, "Calendar", None, |ui| {
                     let chosen = f.calendar.or(default_calendar);
                     let shown = calendars.iter().find(|c| Some(c.0) == chosen).map_or(String::new(), |c| c.1.clone());
-                    egui::ComboBox::from_id_salt("event-calendar").selected_text(shown).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("event-calendar").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
                         for (id, name, synced) in &calendars {
                             let label = if *synced { format!("{name}  ⟳") } else { name.clone() };
                             if ui.selectable_label(chosen == Some(*id), label).clicked() {
@@ -3062,20 +3070,20 @@ impl App {
                             }
                         }
                     });
-                    ui.end_row();
-                }
-                ui.label(tl("Repeat"));
+                });
+            }
+            form_row(ui, &t, "Repeat", None, |ui| {
                 let shown = tl(REPEATS.iter().find(|(id, _)| *id == f.repeat.as_str()).map_or("Never", |(_, label)| *label));
-                egui::ComboBox::from_id_salt("event-repeat").selected_text(shown).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("event-repeat").width(ui.available_width()).selected_text(shown).show_ui(ui, |ui| {
                     for (id, label) in REPEATS {
                         ui.selectable_value(&mut f.repeat, id.to_string(), tl(label));
                     }
                 });
-                ui.end_row();
             });
-            ui.add_space(8.0);
-            save = chrome::button(ui, &t, chrome::Kind::Primary, None, "Save", true).clicked();
         });
+        if cancel {
+            open = false;
+        }
         if save {
             let f = &self.event_form;
             let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location, "repeat": f.repeat });
@@ -3312,7 +3320,9 @@ impl App {
         if let Some(i) = remove {
             f.phones.remove(i);
         }
-        if f.phones.len() < 50 && ui.small_button(tl("➕ Add phone")).clicked() {
+        if f.phones.len() < 50
+            && chrome::button(ui, &t, chrome::Kind::Quiet, Some(Icon::Plus), tl("➕ Add phone").trim_start_matches('➕').trim(), true).clicked()
+        {
             f.phones.push((if f.phones.is_empty() { "mobile" } else { "work" }.into(), String::new()));
         }
         field(ui, "Organization", &mut f.organization, "");
@@ -4992,6 +5002,81 @@ mod tests {
             !shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Text(t) if t.galley.job.text.starts_with("Hello Marta,"))),
             "the hint goes once there is text"
         );
+    }
+
+    /// Every dialog goes through the one frame in `chrome`: nothing else opens a window.
+    #[test]
+    fn every_dialog_uses_the_shared_frame() {
+        let (window, modal) = (concat!("egui::Window", "::new"), concat!("egui::Modal", "::new"));
+        for (file, source) in [
+            ("lib.rs", include_str!("lib.rs")),
+            ("tinta_feedback.rs", include_str!("tinta_feedback.rs")),
+            ("tinta_reports_ui.rs", include_str!("tinta_reports_ui.rs")),
+        ] {
+            assert!(!source.contains(window) && !source.contains(modal), "{file} opens a window of its own");
+        }
+    }
+
+    /// In a short, narrow window a dialog stays whole: its title and its main button are on
+    /// screen, and the long form scrolls between them.
+    #[test]
+    fn a_dialog_is_never_cut_off() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        app.account_form.open = true;
+        let ctx = egui::Context::default();
+        let size = vec2(620.0, 420.0);
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() };
+        for _ in 0..4 {
+            ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+        }
+        let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+        out.textures_delta.clear();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+        for wanted in ["Add account", "Save and Send/Receive"] {
+            let found = out.shapes.iter().find_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.job.text == wanted => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                _ => None,
+            });
+            let found = found.unwrap_or_else(|| panic!("{wanted} is not drawn"));
+            assert!(screen.contains_rect(found), "{wanted} at {found:?} is outside {screen:?}");
+        }
+    }
+
+    /// Account settings, the rules and the appointment form all draw in the shared style, with
+    /// no framed field left.
+    #[test]
+    fn the_dialogs_draw_in_every_theme() {
+        for theme in ["teal", "azulejo"] {
+            for mode in [egui::Theme::Light, egui::Theme::Dark] {
+                let mut store = ibercorreo_store::Store::new();
+                store.theme = Some(theme.into());
+                store.appearance = Some(if mode == egui::Theme::Dark { "dark" } else { "light" }.into());
+                let mut app = App::new(Session::new(store, Date::EPOCH));
+                app.account_form.open = true;
+                app.rule_form.open = true;
+                app.rule_form.start("");
+                app.event_form.open = true;
+                app.session.run("view.calendar", &json!({})).unwrap();
+                let ctx = egui::Context::default();
+                let input =
+                    || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 1000.0))), ..Default::default() };
+                // Past the windows' fade-in.
+                for _ in 0..30 {
+                    ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+                }
+                let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+                out.textures_delta.clear();
+                let fill = app.tokens.field;
+                assert!(out.shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == fill)), "{theme}: no filled field");
+                let border = app.tokens.border;
+                assert!(
+                    !out.shapes
+                        .iter()
+                        .any(|c| matches!(&c.shape, egui::Shape::Rect(r) if r.fill == fill && r.stroke.width > 0.0 && r.stroke.color == border)),
+                    "{theme}: a field with a hard border"
+                );
+            }
+        }
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.

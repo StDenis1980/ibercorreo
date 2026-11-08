@@ -13,6 +13,10 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use egui::{Color32, ColorImage, RichText, TextureHandle, Ui};
 
+use crate::chrome::{self, Kind as CKind, Part};
+use crate::icons::Icon;
+use crate::theme::Tokens;
+
 /// The longest feedback text, in characters (the server keeps this much).
 pub const MAX_TEXT: usize = 4000;
 /// A screenshot is scaled down to fit this box, and to fit [`MAX_SHOT_BYTES`] as a PNG.
@@ -164,7 +168,7 @@ impl Feedback {
     }
 
     /// Each frame: collects the screenshot and shows the dialog while it is open.
-    pub fn show(&mut self, ctx: &egui::Context, lang: &str) {
+    pub fn show(&mut self, ctx: &egui::Context, lang: &str, t: &Tokens) {
         if std::mem::take(&mut self.requested) {
             self.start(ctx);
         }
@@ -202,19 +206,22 @@ impl Feedback {
         if !self.open {
             return;
         }
-        let modal = egui::Modal::new(egui::Id::new("tinta.feedback")).show(ctx, |ui| {
-            ui.set_width(480.0);
-            self.contents(ui, lang);
+        let mut keep = true;
+        let close = (self.status != Status::Sending).then_some(&mut keep);
+        let modal = chrome::modal_dialog(ctx, t, "tinta.feedback", tr(lang, TITLE), 520.0, close, |ui, part| match part {
+            Part::Body => self.body(ui, lang),
+            Part::Footer => self.footer(ui, lang, t),
         });
+        if !keep {
+            self.open = false;
+        }
         // Escape closes it; a click beside it doesn't, so typed text isn't lost by accident.
         if modal.should_close() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.status != Status::Sending {
             self.open = false;
         }
     }
 
-    fn contents(&mut self, ui: &mut Ui, lang: &str) {
-        ui.label(RichText::new(tr(lang, TITLE)).strong().size(17.0));
-        ui.add_space(8.0);
+    fn body(&mut self, ui: &mut Ui, lang: &str) {
         if let Status::Done(outcome) = &self.status {
             match outcome {
                 Outcome::Sent(id) => {
@@ -229,10 +236,6 @@ impl Feedback {
                 Outcome::Failed => {
                     ui.label(tr(lang, FAILED));
                 }
-            }
-            ui.add_space(12.0);
-            if ui.button(tr(lang, CLOSE)).clicked() {
-                self.open = false;
             }
             return;
         }
@@ -281,25 +284,35 @@ impl Feedback {
                 egui::TextEdit::singleline(&mut self.email).char_limit(254).desired_width(f32::INFINITY).id(egui::Id::new("tinta.feedback.email")),
             );
         });
-        let email_ok = self.email.trim().is_empty() || looks_like_email(self.email.trim());
-        if !email_ok {
+        if !self.email_ok() {
             ui.colored_label(ui.visuals().error_fg_color, tr(lang, EMAIL_BAD));
         }
         ui.add_space(6.0);
         ui.label(RichText::new(tr(lang, PRIVACY)).small().weak());
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            if self.status == Status::Sending {
-                ui.spinner();
+    }
+
+    fn email_ok(&self) -> bool {
+        self.email.trim().is_empty() || looks_like_email(self.email.trim())
+    }
+
+    /// The buttons under the form: Send and Cancel, or Close once it is done.
+    fn footer(&mut self, ui: &mut Ui, lang: &str, t: &Tokens) {
+        let ready = !self.text.trim().is_empty() && self.email_ok();
+        chrome::footer_right(ui, |ui| {
+            if matches!(self.status, Status::Done(_)) {
+                if chrome::button(ui, t, CKind::Primary, None, tr(lang, CLOSE), true).clicked() {
+                    self.open = false;
+                }
+            } else if self.status == Status::Sending {
                 ui.label(tr(lang, SENDING));
-                return;
-            }
-            let ready = !self.text.trim().is_empty() && email_ok;
-            if ui.add_enabled(ready, egui::Button::new(tr(lang, SEND))).clicked() {
-                self.send();
-            }
-            if ui.button(tr(lang, CANCEL)).clicked() {
-                self.open = false;
+                ui.spinner();
+            } else {
+                if chrome::button(ui, t, CKind::Primary, Some(Icon::Sent), tr(lang, SEND), ready).clicked() {
+                    self.send();
+                }
+                if chrome::button(ui, t, CKind::Secondary, None, tr(lang, CANCEL), true).clicked() {
+                    self.open = false;
+                }
             }
         });
     }
@@ -862,7 +875,7 @@ mod tests {
 
     fn frame(ctx: &egui::Context, time: f64, fb: &mut Feedback) {
         let input = egui::RawInput { time: Some(time), ..Default::default() };
-        let mut out = ctx.run_ui(input, |ui| fb.show(&ui.ctx().clone(), "es"));
+        let mut out = ctx.run_ui(input, |ui| fb.show(&ui.ctx().clone(), "es", &Tokens::light()));
         // A test has no renderer to hand the font and screenshot textures to.
         out.textures_delta.clear();
     }
@@ -977,7 +990,7 @@ mod tests {
             ] {
                 let mut fb = Feedback { available: true, open: true, status, email: "bad address".into(), ..Feedback::default() };
                 let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
-                    fb.show(&ui.ctx().clone(), lang);
+                    fb.show(&ui.ctx().clone(), lang, &Tokens::light());
                     let _ = button(ui, &mut fb, lang);
                 });
                 out.textures_delta.clear();
