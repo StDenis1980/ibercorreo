@@ -495,6 +495,8 @@ fn refresh_through_eds(_goa: &str) {}
 mod tests {
     use super::*;
 
+    // GNOME calendar sync runs on Linux and the BSDs; `/home/ana` is not an absolute path on Windows.
+    #[cfg(unix)]
     #[test]
     fn paths_are_the_hosts_also_inside_flatpak() {
         let home = PathBuf::from("/home/ana");
