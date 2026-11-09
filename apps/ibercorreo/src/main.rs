@@ -929,6 +929,11 @@ impl eframe::App for Shell {
         self.exchange();
         self.gnome_accounts();
         self.app.ui(ui);
+        for url in self.app.take_links() {
+            if let Err(e) = oauth::open_browser(&url) {
+                self.app.session.status = e;
+            }
+        }
         if let Some(g) = &mut self.gnome {
             g.tick(&mut self.app.session, self.worker.is_some());
         }
