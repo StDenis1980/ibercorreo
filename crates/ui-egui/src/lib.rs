@@ -6,6 +6,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod body_text;
 mod chrome;
 pub mod i18n;
 pub mod icons;
@@ -533,6 +534,8 @@ pub struct App {
     room_wanted: (f32, f32),
     /// The main pane's card width last frame, inside its border.
     main_width: f32,
+    /// The open message's text and what is selected in it.
+    body: body_text::BodyText,
 }
 
 /// The narrowest the main pane of each view gets before side panes give way: the reading pane,
@@ -737,6 +740,7 @@ impl App {
             peek_my_day: false,
             room_wanted: (0.0, 0.0),
             main_width: 0.0,
+            body: body_text::BodyText::default(),
             last_calendar: None,
             invite: None,
             content: None,
@@ -2513,10 +2517,11 @@ impl App {
         ui.add_space(14.0);
         ui.separator();
         ui.add_space(8.0);
-        egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| match (&content, rich) {
-            (_, Some(rich)) if !self.session.plain_text => rich_body(ui, &t, rich),
+        let plain = self.session.plain_text;
+        self.body.show(ui, egui::Id::new(("message-text", m.id.0, plain)), |body, ui| match (&content, rich) {
+            (_, Some(rich)) if !plain => rich_body(ui, &t, rich, body),
             (Some(Ok(c)), _) => {
-                ui.add(egui::Label::new(RichText::new(&c.body).size(15.0).color(t.text)).wrap());
+                body.add(ui, egui::Label::new(RichText::new(&c.body).size(15.0).color(t.text)).wrap(), t.text, "");
             }
             (Some(Err(e)), _) => {
                 ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
@@ -3759,7 +3764,7 @@ fn long_date(d: Date) -> String {
 
 /// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
 /// Links show their real address on hover; a link whose text names another site is marked ⚠.
-fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
+fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyText) {
     ui.spacing_mut().item_spacing.y = 8.0;
     for block in &rich.blocks {
         let quote = f32::from(block.quote) * 14.0;
@@ -3786,13 +3791,18 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
             .horizontal_top(|ui| {
                 ui.add_space(quote + (list - 14.0).max(0.0));
                 if let Some(marker) = &marker {
-                    ui.add_sized(vec2(14.0, size), egui::Label::new(RichText::new(marker).size(size).color(t.text_weak)));
+                    ui.add_sized(vec2(14.0, size), egui::Label::new(RichText::new(marker).size(size).color(t.text_weak)).selectable(false));
+                    body.mark_next(marker.clone());
                 }
                 ui.vertical(|ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
+                        // Between items a line break, between paragraphs an empty line; nothing
+                        // between the runs of one paragraph.
+                        let mut before = if marker.is_some() { "\n" } else { "\n\n" };
                         for span in &block.spans {
-                            rich_span(ui, t, span, size, pre);
+                            rich_span(ui, t, span, size, pre, body, before);
+                            before = "";
                         }
                     });
                 });
@@ -3807,7 +3817,7 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich) {
     }
 }
 
-fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
+fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &mut body_text::BodyText, before: &'static str) {
     let mut text = if span.image { RichText::new(format!("🖼 {}", span.text)).italics() } else { RichText::new(&span.text) };
     text = text.size(size);
     if pre || span.code {
@@ -3834,15 +3844,17 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool) {
         } else {
             t.text
         };
-        ui.label(text.color(color));
+        body.add(ui, egui::Label::new(text.color(color)), color, before);
         return;
     };
     if span.deceptive {
-        ui.label(RichText::new("⚠ ").size(size).color(t.flag)).on_hover_text(tl("This link does not go where its text says"));
+        ui.add(egui::Label::new(RichText::new("⚠ ").size(size).color(t.flag)).selectable(false))
+            .on_hover_text(tl("This link does not go where its text says"));
     }
-    let shown = egui::Link::new(text.color(t.accent).underline());
+    let shown = egui::Label::new(text.color(t.accent).underline()).sense(Sense::click());
     let hover = if span.deceptive { format!("Careful: the text names one site, but the link goes to\n{url}") } else { url.clone() };
-    if ui.add(shown).on_hover_text(hover).clicked() {
+    let link = body.add(ui, shown, t.accent, before).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(hover);
+    if link.clicked() {
         ui.ctx().open_url(egui::OpenUrl::new_tab(url));
     }
 }
@@ -5077,6 +5089,71 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// In the real reading pane, with a formatted message longer than the window: a drag from
+    /// its first line past the bottom selects on beyond what was on screen, Ctrl+C copies that,
+    /// and a click on a link still is a click on a link.
+    #[test]
+    fn a_long_formatted_message_can_be_selected_past_the_window() {
+        let mut html = String::from("From: a@example.org\r\nSubject: Long\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body>");
+        for n in 0..300 {
+            html.push_str(&format!("<p>Synthetic paragraph {n} with <b>bold</b> words</p>"));
+        }
+        html.push_str("</body></html>");
+        let mut store = ibercorreo_store::Store::new();
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let id = store.import_eml(html.as_bytes(), inbox).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+        let mut app = App::new(s);
+        app.session.message = Some(id);
+        let ctx = egui::Context::default();
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1500.0, 800.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out
+        };
+        let mut shapes = Vec::new();
+        for _ in 0..3 {
+            shapes = run(&mut app, Vec::new()).shapes;
+        }
+        // The list's preview shows it too: the pane's is the one further right.
+        let first = shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Text(t) if t.galley.job.text.starts_with("Synthetic paragraph 0") => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                _ => None,
+            })
+            .max_by(|a, b| a.left().total_cmp(&b.left()))
+            .expect("the first paragraph on screen");
+        let start = first.left_center() + vec2(1.0, 0.0);
+        let press = |pressed: bool, pos: egui::Pos2| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        run(&mut app, vec![egui::Event::PointerMoved(start), press(true, start)]);
+        let below = egui::pos2(start.x, 790.0);
+        for _ in 0..240 {
+            run(&mut app, vec![egui::Event::PointerMoved(below)]);
+        }
+        run(&mut app, vec![press(false, below)]);
+        let out = run(&mut app, vec![egui::Event::Copy]);
+        let copied = out.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        });
+        let copied = copied.expect("Ctrl+C copies the selection");
+        assert!(copied.contains("Synthetic paragraph 0 with bold words"), "{}", &copied[..60.min(copied.len())]);
+        assert!(
+            copied.contains("Synthetic paragraph 30 with bold words\n\nSynthetic paragraph 31"),
+            "far past the first screenful: {} characters",
+            copied.len()
+        );
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.
