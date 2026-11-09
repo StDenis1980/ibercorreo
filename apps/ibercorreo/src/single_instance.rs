@@ -280,7 +280,9 @@ mod tests {
     fn a_second_start_hands_its_files_to_the_first_window() {
         let store = temp_store("handover");
         let Start::First(inbox) = start(&store, &Request::default()) else { panic!("first start") };
-        let request = Request { imports: vec![PathBuf::from("/tmp/Cita médica.ics")], mailto: vec!["mailto:ana@example.org".into()] };
+        // An absolute path on every system: the second start sends files as absolute paths.
+        let ics = std::env::temp_dir().join("Cita médica.ics");
+        let request = Request { imports: vec![ics], mailto: vec!["mailto:ana@example.org".into()] };
         assert!(matches!(start(&store, &request), Start::Forwarded));
         assert!(matches!(inbox.rx.recv_timeout(WAIT).unwrap(), Incoming::Open(r) if r == request));
         // A plain second start (no files) only brings the window forward.
@@ -321,11 +323,19 @@ mod tests {
         let many: Vec<String> = (0..1000).map(|i| format!("mailto:a{i}@example.org")).collect();
         let r = open(&json!({"token": token, "mailto": many, "files": ["zz", "", 7]}).to_string(), token).unwrap();
         assert_eq!(r.mailto.len(), MAX_ITEMS);
-        assert!(r.imports.is_empty());
+        // Paths are hex of their bytes on Unix, where "zz" is no path; elsewhere they are text.
+        // An empty path and a number are never paths.
+        if cfg!(unix) {
+            assert!(r.imports.is_empty());
+        } else {
+            assert_eq!(r.imports, [PathBuf::from("zz")]);
+        }
         let r = open(&json!({"token": token, "mailto": ["javascript:alert(1)", "MAILTO:x@example.org"]}).to_string(), token).unwrap();
         assert_eq!(r.mailto, ["MAILTO:x@example.org"]);
         let p = PathBuf::from("/home/ana/carta.eml");
         assert_eq!(path_from_wire(&path_to_wire(&p)), Some(p));
+        assert_eq!(path_from_wire(""), None);
+        #[cfg(unix)]
         assert_eq!(path_from_wire("abc"), None);
     }
 
