@@ -536,6 +536,15 @@ pub struct App {
     main_width: f32,
     /// The open message's text and what is selected in it.
     body: body_text::BodyText,
+    /// Addresses to open in the browser, for the shell.
+    links: Vec<String>,
+}
+
+/// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
+/// A message's links are `http:`, `https:` or `mailto:` already; this is the last gate.
+fn opens_outside(url: &str) -> bool {
+    let scheme = url.split(':').next().unwrap_or("").to_ascii_lowercase();
+    url.contains(':') && matches!(scheme.as_str(), "http" | "https" | "file")
 }
 
 /// The narrowest the main pane of each view gets before side panes give way: the reading pane,
@@ -741,12 +750,18 @@ impl App {
             room_wanted: (0.0, 0.0),
             main_width: 0.0,
             body: body_text::BodyText::default(),
+            links: Vec::new(),
             last_calendar: None,
             invite: None,
             content: None,
             invite_reply: 0,
             folded,
         }
+    }
+
+    /// Addresses the person asked to open in the browser, for the shell. Taken once.
+    pub fn take_links(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.links)
     }
 
     /// A password typed in Account settings and the account it is for, for the shell to store.
@@ -1273,6 +1288,31 @@ impl App {
         self.reminder_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
+        self.take_open_requests(ui.ctx());
+    }
+
+    /// Takes every request this frame to open an address (a link in a message, any hyperlink).
+    /// eframe is built without its `links` feature, so it would drop them with only a log line:
+    /// the web goes to the shell, which opens it as it opens a browser sign-in, and `mailto:`
+    /// becomes a new draft here.
+    fn take_open_requests(&mut self, ctx: &egui::Context) {
+        let mut asked = Vec::new();
+        ctx.output_mut(|o| {
+            o.commands.retain(|c| match c {
+                egui::OutputCommand::OpenUrl(open) => {
+                    asked.push(open.url.clone());
+                    false
+                }
+                _ => true,
+            });
+        });
+        for url in asked {
+            if url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("mailto:")) {
+                self.run("message.composeMailto", json!({ "uri": url }));
+            } else if opens_outside(&url) {
+                self.links.push(url);
+            }
+        }
     }
 
     /// Rules: the list in the order they run (on/off, up/down, edit, delete), New rule and Run
@@ -5154,6 +5194,104 @@ mod tests {
             "far past the first screenful: {} characters",
             copied.len()
         );
+    }
+
+    /// A click on a link in a message opens its address: in the browser for the web, as a new
+    /// draft here for `mailto:`. A drag that starts on a link selects instead, and what a sender
+    /// wrote as `javascript:` is no link at all.
+    #[test]
+    fn links_in_a_message_open() {
+        let html = "From: a@example.org\r\nSubject: Links\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body>\
+            <p><a href=\"https://example.org/page?a=1&amp;b=2\">Web link</a></p>\
+            <p><a href=\"mailto:ana@example.org?subject=Hola\">Mail link</a></p>\
+            <p><a href=\"javascript:alert(1)\">Script link</a></p></body></html>";
+        let mut store = ibercorreo_store::Store::new();
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let id = store.import_eml(html.as_bytes(), inbox).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+        let mut app = App::new(s);
+        app.session.message = Some(id);
+        let ctx = egui::Context::default();
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1500.0, 800.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out
+        };
+        let press = |pressed: bool, pos: egui::Pos2| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let find = |app: &mut App, text: &str| {
+            let out = run(app, Vec::new());
+            // The list's preview can show it too: the pane's is the one further right.
+            let rect = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == text => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    _ => None,
+                })
+                .max_by(|a, b| a.left().total_cmp(&b.left()));
+            rect.unwrap_or_else(|| panic!("{text} is not on screen"))
+        };
+        let click = |app: &mut App, at: egui::Pos2| {
+            run(app, vec![egui::Event::PointerMoved(at)]);
+            run(app, vec![press(true, at)]);
+            run(app, vec![press(false, at)]);
+            run(app, Vec::new())
+        };
+        for _ in 0..3 {
+            run(&mut app, Vec::new());
+        }
+        let web = find(&mut app, "Web link").center();
+        let out = click(&mut app, web);
+        assert_eq!(app.take_links(), ["https://example.org/page?a=1&b=2"], "the shell is given the address");
+        assert!(
+            !out.platform_output.commands.iter().any(|c| matches!(c, egui::OutputCommand::OpenUrl(_))),
+            "nothing is left for eframe, which cannot open it"
+        );
+        assert!(app.take_links().is_empty(), "taken once");
+
+        // A drag from the link selects; it opens nothing.
+        run(&mut app, vec![egui::Event::PointerMoved(web)]);
+        run(&mut app, vec![press(true, web)]);
+        let away = web + vec2(200.0, 60.0);
+        run(&mut app, vec![egui::Event::PointerMoved(away)]);
+        run(&mut app, vec![press(false, away)]);
+        run(&mut app, Vec::new());
+        assert!(app.take_links().is_empty(), "a drag is not a click");
+
+        let script = find(&mut app, "Script link").center();
+        click(&mut app, script);
+        assert!(app.take_links().is_empty(), "javascript: opens nothing");
+
+        let mail = find(&mut app, "Mail link").center();
+        click(&mut app, mail);
+        assert!(app.take_links().is_empty(), "mailto: stays here");
+        run(&mut app, Vec::new());
+        let draft = app.draft.as_ref().expect("a new draft");
+        assert_eq!((draft.to.as_str(), draft.subject.as_str()), ("ana@example.org", "Hola"));
+    }
+
+    /// Only the web, and our own folders, go to the system's opener.
+    #[test]
+    fn only_safe_addresses_are_handed_on() {
+        for (url, ok) in [
+            ("https://example.org", true),
+            ("HTTP://example.org", true),
+            ("file:///C:/reports", true),
+            ("javascript:alert(1)", false),
+            ("ms-settings:", false),
+            ("calc.exe", false),
+            ("", false),
+        ] {
+            assert_eq!(opens_outside(url), ok, "{url}");
+        }
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.
