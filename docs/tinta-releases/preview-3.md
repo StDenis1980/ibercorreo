@@ -25,7 +25,7 @@ Novedades:
 - **Enviar y recibir:** elija cada cuánto se comprueba el correo.
 - **Una sola ventana:** abrir otro archivo o un enlace mailto: lo lleva a la ventana abierta.
 - **Informes de error** opcionales (solo si lo acepta al primer inicio); se cambian en el menú
-  Informes de error de la barra de estado.
+  Informes de errores de la barra de estado.
 - **Enviar comentarios:** el botón de la carita en la barra de estado para
   decirnos qué le gusta, qué falla o qué idea tiene, con correo opcional, captura de pantalla y
   datos técnicos; sin conexión se guarda y se envía después.
