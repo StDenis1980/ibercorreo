@@ -58,27 +58,35 @@ pub(crate) fn menu(app: &mut App, ui: &mut Ui) {
     let Some(dir) = app.error_reports_dir.clone() else { return };
     let r = app.session.store.error_reports.clone();
     let mut action = None;
+    let t = app.tokens;
     app.icon_menu(ui, crate::icons::Icon::Report, tl(SECTION), |ui| {
-        ui.set_max_width(420.0);
+        ui.set_max_width(400.0);
+        chrome::menu_title(ui, &t, tl(SECTION));
         let mut on = r.consent == Some(true);
         if ui.checkbox(&mut on, tl(CHECKBOX)).changed() {
             action = Some(json!({"value": on}));
         }
-        ui.label(RichText::new(tl(WHAT)).small().weak());
-        ui.label(RichText::new(tl(RIGHTS)).small().weak());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(tl(WHAT)).small().color(t.text_weak)).wrap());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(tl(RIGHTS)).small().color(t.text_weak)).wrap());
         if !r.install_id.is_empty() {
-            ui.label(RichText::new(tf(ID, &[("id", &r.install_id)])).small().monospace());
-        }
-        if ui.add_enabled(!r.install_id.is_empty(), egui::Button::new(tl(FORGET))).clicked() {
-            action = Some(json!({"forget": true}));
+            ui.add_space(4.0);
+            ui.label(RichText::new(tf(ID, &[("id", &r.install_id)])).small().monospace().color(t.text_weak));
         }
         if r.forget_pending.is_some() {
-            ui.label(RichText::new(tl(PENDING)).small().weak());
+            ui.add(egui::Label::new(RichText::new(tl(PENDING)).small().color(t.text_weak)).wrap());
         }
-        if ui.button(tl(FOLDER)).clicked() {
-            let _ = std::fs::create_dir_all(&dir);
-            ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
-        }
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            if chrome::button(ui, &t, Kind::Quiet, None, FOLDER, true).clicked() {
+                let _ = std::fs::create_dir_all(&dir);
+                ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
+            }
+            if chrome::button(ui, &t, Kind::Danger, Some(crate::icons::Icon::Trash), FORGET, !r.install_id.is_empty()).clicked() {
+                action = Some(json!({"forget": true}));
+            }
+        });
     });
     if let Some(params) = action {
         app.run("file.errorReports", params);

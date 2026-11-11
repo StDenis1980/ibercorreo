@@ -53,6 +53,8 @@ pub enum Icon {
     Report,
     /// A dialog's close button.
     Close,
+    /// A tick: the chosen item of a menu, an accepted invitation.
+    Check,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -252,6 +254,9 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
             p.add(egui::Shape::line(vec![at(-0.34, 0.32), at(-0.28, 0.1), at(-0.08, 0.04), at(0.08, 0.08)], w));
             p.line_segment([at(0.22, 0.04), at(0.22, 0.32)], w);
             p.line_segment([at(0.08, 0.18), at(0.36, 0.18)], w);
+        }
+        Icon::Check => {
+            p.add(egui::Shape::line(vec![at(-0.24, 0.02), at(-0.07, 0.19), at(0.25, -0.17)], w));
         }
         Icon::Close => {
             p.line_segment([at(-0.22, -0.22), at(0.22, 0.22)], w);

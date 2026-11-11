@@ -140,6 +140,47 @@ fn dialog_contents(ui: &mut Ui, t: &Tokens, id: egui::Id, title: &str, width: f3
     }
 }
 
+/// A menu's heading: what the menu is about, a little apart from its items.
+pub(crate) fn menu_title(ui: &mut Ui, t: &Tokens, text: &str) {
+    ui.add_space(2.0);
+    ui.label(RichText::new(text).size(theme::CAPTION).strong().color(t.text_weak));
+    ui.add_space(2.0);
+}
+
+/// A menu item as wide as the menu, 32 points high, with a tick when it is the chosen one.
+pub(crate) fn menu_item(ui: &mut Ui, t: &Tokens, label: &str, chosen: bool) -> bool {
+    let galley = ui.painter().layout_no_wrap(label.to_string(), FontId::proportional(theme::BODY), t.text);
+    let width = (galley.size().x + 44.0).max(ui.available_width()).max(220.0);
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 6.0, t.accent_soft);
+    }
+    if chosen {
+        icons::paint(ui.painter(), Rect::from_center_size(pos2(rect.left() + 16.0, rect.center().y), vec2(16.0, 16.0)), Icon::Check, t.accent);
+    }
+    let color = if chosen { t.accent } else { t.text };
+    ui.painter().galley(pos2(rect.left() + 32.0, rect.center().y - galley.size().y / 2.0), galley, color);
+    resp.clicked()
+}
+
+/// A quiet square button with an icon only, as in the toolbars; `danger` tints it for what
+/// cannot be undone.
+pub(crate) fn icon_action(ui: &mut Ui, t: &Tokens, icon: Icon, tip: &str, danger: bool) -> Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+    let color = if danger && resp.hovered() { t.flag } else { t.text_weak };
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 8.0, if danger { theme::mix(t.card, t.flag, 0.12) } else { t.accent_soft });
+    }
+    icons::paint(ui.painter(), rect.shrink(8.0), icon, color);
+    resp.on_hover_text(tl(tip))
+}
+
+/// A label without the symbol the old look put in front of it ("✔ Accept" → "Accept"): the
+/// buttons draw their own icons now.
+pub(crate) fn words(label: &str) -> &str {
+    label.trim_start_matches(|c: char| !c.is_alphanumeric()).trim()
+}
+
 /// How wide the labels of a dialog's form are.
 const FORM_LABEL_W: f32 = 150.0;
 

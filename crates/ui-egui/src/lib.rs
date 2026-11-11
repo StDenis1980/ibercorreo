@@ -2056,12 +2056,15 @@ impl App {
         let current = i18n::current();
         let mut pick: Option<&str> = None;
         let tip = format!("{}: {}", tl("Interface language"), current.name());
+        let t = self.tokens;
         self.icon_menu(ui, Icon::Globe, &tip, |ui| {
-            if ui.selectable_label(chosen.is_none(), tl("Automatic (system language)")).clicked() {
+            chrome::menu_title(ui, &t, tl("Interface language"));
+            if chrome::menu_item(ui, &t, tl("Automatic (system language)"), chosen.is_none()) {
                 pick = Some(i18n::AUTO);
             }
+            ui.separator();
             for l in i18n::Language::ALL {
-                if ui.selectable_label(chosen.as_deref() == Some(l.code()), l.name()).clicked() {
+                if chrome::menu_item(ui, &t, l.name(), chosen.as_deref() == Some(l.code())) {
                     pick = Some(l.code());
                 }
             }
@@ -2589,7 +2592,8 @@ impl App {
                     .on_hover_text(tl("Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them."));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    toggle_plain = ui.small_button(tl(if self.session.plain_text { "Show formatted" } else { "Show as plain text" })).clicked();
+                    let label = if self.session.plain_text { "Show formatted" } else { "Show as plain text" };
+                    toggle_plain = chrome::button(ui, &t, chrome::Kind::Quiet, None, label, true).clicked();
                 });
             });
         }
@@ -3036,44 +3040,57 @@ impl App {
                 When::AllDay { .. } => tl("All day").to_string(),
                 When::Timed { start, end, .. } => format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute()),
             };
-            Frame::NONE.fill(t.card).corner_radius(CornerRadius::same(6)).stroke(Stroke::new(1.0, t.border)).inner_margin(8).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(when).small().color(t.accent));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if e.rrule.is_some() {
-                            if ui.small_button(tl("🗑 Series")).on_hover_text(tl("Delete every occurrence")).clicked() {
+            let color = self.calendar_color(e.calendar);
+            let card = Frame::NONE
+                .fill(theme::mix(t.card, t.window, 0.55))
+                .corner_radius(CornerRadius::same(10))
+                .inner_margin(Margin { left: 14, right: 8, top: 8, bottom: 10 })
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(when).small().color(t.accent));
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            if e.rrule.is_some() {
+                                let series = chrome::words(tl("🗑 Series"));
+                                if chrome::button(ui, &t, chrome::Kind::Danger, Some(Icon::Trash), series, true)
+                                    .on_hover_text(tl("Delete every occurrence"))
+                                    .clicked()
+                                {
+                                    self.run("event.delete", json!({ "id": e.id.0 }));
+                                }
+                                if chrome::icon_action(ui, &t, Icon::Trash, "Delete this occurrence only", true).clicked() {
+                                    self.run("event.delete", json!({ "id": e.id.0, "occurrence": occurrence.start_date().to_string() }));
+                                }
+                            } else if chrome::icon_action(ui, &t, Icon::Trash, "Delete appointment", true).clicked() {
                                 self.run("event.delete", json!({ "id": e.id.0 }));
                             }
-                            if ui.small_button("🗑").on_hover_text(tl("Delete this occurrence only")).clicked() {
-                                self.run("event.delete", json!({ "id": e.id.0, "occurrence": occurrence.start_date().to_string() }));
-                            }
-                        } else if ui.small_button("🗑").on_hover_text(tl("Delete appointment")).clicked() {
-                            self.run("event.delete", json!({ "id": e.id.0 }));
-                        }
+                        });
                     });
+                    ui.label(RichText::new(&e.summary).strong().color(t.text));
+                    if let Some(r) = &e.rrule {
+                        let text = e.rule().map_or_else(
+                            || tf("Repeats ({rule}), shown once", &[("rule", &r.to_string())]),
+                            |rule| format!("⟳ {}", describe_rule(&rule)),
+                        );
+                        ui.label(RichText::new(text).small().color(t.text_weak));
+                    }
+                    if !e.location.is_empty() {
+                        ui.label(RichText::new(format!("📍 {}", e.location)).small().color(t.text_weak));
+                    }
+                    if let Some(m) = e.reminders.first() {
+                        let text = match *m {
+                            0 => format!("🔔 {}", tl("At start time")),
+                            m if m > 0 => format!("🔔 {}", tf("{span} before", &[("span", &span(i64::from(m)))])),
+                            m => format!("🔔 {}", tf("{span} after the start", &[("span", &span(i64::from(m)))])),
+                        };
+                        ui.label(RichText::new(text).small().color(t.text_weak));
+                    }
                 });
-                ui.label(RichText::new(&e.summary).strong().color(t.text));
-                if let Some(r) = &e.rrule {
-                    let text = e.rule().map_or_else(
-                        || tf("Repeats ({rule}), shown once", &[("rule", &r.to_string())]),
-                        |rule| format!("⟳ {}", describe_rule(&rule)),
-                    );
-                    ui.label(RichText::new(text).small().color(t.text_weak));
-                }
-                if !e.location.is_empty() {
-                    ui.label(RichText::new(format!("📍 {}", e.location)).small().color(t.text_weak));
-                }
-                if let Some(m) = e.reminders.first() {
-                    let text = match *m {
-                        0 => format!("🔔 {}", tl("At start time")),
-                        m if m > 0 => format!("🔔 {}", tf("{span} before", &[("span", &span(i64::from(m)))])),
-                        m => format!("🔔 {}", tf("{span} after the start", &[("span", &span(i64::from(m)))])),
-                    };
-                    ui.label(RichText::new(text).small().color(t.text_weak));
-                }
-            });
-            ui.add_space(6.0);
+            // The calendar's colour down the card's left edge.
+            let r = card.response.rect;
+            ui.painter().rect_filled(Rect::from_min_size(r.left_top() + vec2(0.0, 8.0), vec2(4.0, (r.height() - 16.0).max(4.0))), 2.0, color);
+            ui.add_space(8.0);
         }
     }
 
@@ -3376,25 +3393,26 @@ impl App {
         let t = self.tokens;
         let books: Vec<(u32, String)> = self.session.store.books().iter().map(|b| (b.id, b.name.clone())).collect();
         let f = &mut self.contact_form;
-        ui.label(RichText::new(tl(if f.id.is_some() { "Contact" } else { "New contact" })).strong());
-        ui.add_space(6.0);
-        let field = |ui: &mut Ui, label: &str, value: &mut String, hint: &str| {
-            ui.label(RichText::new(label).small().color(t.text_weak));
-            theme::field(ui, egui::TextEdit::singleline(value).hint_text(hint).desired_width(f32::INFINITY));
-        };
-        field(ui, "Name", &mut f.name, "");
-        field(ui, "Email", &mut f.email, "one or more, comma-separated");
-        ui.label(RichText::new(tl("Phone")).small().color(t.text_weak));
+        use chrome::{Kind, form_row};
+        ui.label(RichText::new(tl(if f.id.is_some() { "Contact" } else { "New contact" })).size(theme::TITLE).strong().color(t.text));
+        ui.add_space(12.0);
+        fn line<'a>(value: &'a mut String, hint: &str) -> egui::TextEdit<'a> {
+            egui::TextEdit::singleline(value).hint_text(hint.to_string()).desired_width(f32::INFINITY)
+        }
+        form_row(ui, &t, "Name", None, |ui| theme::field(ui, line(&mut f.name, "")));
+        form_row(ui, &t, "Email", None, |ui| theme::field(ui, line(&mut f.email, tl("one or more, comma-separated"))));
+        ui.add_space(10.0);
+        ui.label(RichText::new(tl("Phone")).color(t.text_weak));
         let mut remove = None;
         for (i, (kind, number)) in f.phones.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                egui::ComboBox::from_id_salt(("phone-kind", i)).width(70.0).selected_text(phone_kind_label(kind)).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt(("phone-kind", i)).width(84.0).selected_text(phone_kind_label(kind)).show_ui(ui, |ui| {
                     for k in ibercorreo_core::contact::PHONE_KINDS {
                         ui.selectable_value(kind, (*k).to_string(), phone_kind_label(k));
                     }
                 });
                 theme::field(ui, egui::TextEdit::singleline(number).desired_width((ui.available_width() - 40.0).max(60.0)));
-                if ui.small_button("✖").on_hover_text(tl("Remove this phone")).clicked() {
+                if chrome::icon_action(ui, &t, Icon::Close, "Remove this phone", true).clicked() {
                     remove = Some(i);
                 }
             });
@@ -3402,34 +3420,37 @@ impl App {
         if let Some(i) = remove {
             f.phones.remove(i);
         }
-        if f.phones.len() < 50
-            && chrome::button(ui, &t, chrome::Kind::Quiet, Some(Icon::Plus), tl("➕ Add phone").trim_start_matches('➕').trim(), true).clicked()
-        {
+        if f.phones.len() < 50 && chrome::button(ui, &t, Kind::Quiet, Some(Icon::Plus), chrome::words(tl("➕ Add phone")), true).clicked() {
             f.phones.push((if f.phones.is_empty() { "mobile" } else { "work" }.into(), String::new()));
         }
-        field(ui, "Organization", &mut f.organization, "");
-        field(ui, "Job title", &mut f.title, "");
-        field(ui, "Birthday", &mut f.birthday, "YYYY-MM-DD");
-        ui.label(RichText::new(tl("Notes")).small().color(t.text_weak));
+        ui.add_space(10.0);
+        form_row(ui, &t, "Organization", None, |ui| theme::field(ui, line(&mut f.organization, "")));
+        form_row(ui, &t, "Job title", None, |ui| theme::field(ui, line(&mut f.title, "")));
+        form_row(ui, &t, "Birthday", None, |ui| theme::field(ui, line(&mut f.birthday, "YYYY-MM-DD")));
+        ui.add_space(10.0);
+        ui.label(RichText::new(tl("Notes")).color(t.text_weak));
         theme::field(ui, egui::TextEdit::multiline(&mut f.note).desired_rows(3).desired_width(f32::INFINITY));
         if books.len() > 1 {
-            ui.label(RichText::new(tl("Address book")).small().color(t.text_weak));
-            let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
-            egui::ComboBox::from_id_salt("contact-book").width(ui.available_width()).selected_text(current).show_ui(ui, |ui| {
-                for (id, name) in &books {
-                    ui.selectable_value(&mut f.book, *id, name);
-                }
+            form_row(ui, &t, "Address book", None, |ui| {
+                let current = books.iter().find(|b| b.0 == f.book).map_or("?", |b| b.1.as_str());
+                egui::ComboBox::from_id_salt("contact-book").width(ui.available_width()).selected_text(current).show_ui(ui, |ui| {
+                    for (id, name) in &books {
+                        ui.selectable_value(&mut f.book, *id, name);
+                    }
+                });
             });
         }
-        ui.add_space(8.0);
+        ui.add_space(16.0);
         let (mut save, mut delete) = (false, false);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            let label = if f.id.is_some() { "Save" } else { "Add" };
-            save = chrome::button(ui, &t, chrome::Kind::Primary, None, label, true).clicked();
+            // What cannot be undone stands apart, on the left.
             if f.id.is_some() {
-                delete = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Delete", true).clicked();
+                delete = chrome::button(ui, &t, Kind::Danger, Some(Icon::Trash), "Delete", true).clicked();
             }
+            chrome::footer_right(ui, |ui| {
+                let label = if f.id.is_some() { "Save" } else { "Add" };
+                save = chrome::button(ui, &t, Kind::Primary, None, label, true).clicked();
+            });
         });
         if save {
             let p = self.contact_form.params();
@@ -3456,7 +3477,7 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
     let cancelled = info.method == "CANCEL";
     let mut out = None;
     let fill = if cancelled { soft(t.flag, t.card) } else { t.accent_soft };
-    Frame::NONE.fill(fill).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(12, 10)).show(ui, |ui| {
+    Frame::NONE.fill(fill).corner_radius(CornerRadius::same(10)).inner_margin(Margin::symmetric(16, 12)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let answered = |s: &str| {
             tl(match s {
@@ -3519,12 +3540,18 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
         {
             ui.label(RichText::new(tf("You have {status} it", &[("status", answered(status))])).small().color(t.text_weak));
         }
-        ui.add_space(4.0);
-        ui.horizontal(|ui| match info.method.as_str() {
+        ui.add_space(8.0);
+        ui.horizontal_wrapped(|ui| match info.method.as_str() {
             "REQUEST" | "PUBLISH" => {
+                ui.spacing_mut().item_spacing.x = 10.0;
                 let mode = ["send", "edit", "none"].get(*reply).copied().unwrap_or("send");
-                for (label, response) in [("✔ Accept", "accept"), ("？ Tentative", "tentative"), ("✖ Decline", "decline")] {
-                    if ui.button(tl(label)).clicked() {
+                let answers = [
+                    ("✔ Accept", "accept", chrome::Kind::Primary, Some(Icon::Check)),
+                    ("？ Tentative", "tentative", chrome::Kind::Secondary, None),
+                    ("✖ Decline", "decline", chrome::Kind::Secondary, Some(Icon::Close)),
+                ];
+                for (label, response, kind, icon) in answers {
+                    if chrome::button(ui, t, kind, icon, chrome::words(tl(label)), true).clicked() {
                         out = Some(json!({ "response": response, "reply": mode }));
                     }
                 }
@@ -3537,7 +3564,9 @@ fn invite_banner(ui: &mut Ui, t: &Tokens, info: &ibercorreo_engine::commands::In
                     });
                 }
             }
-            "CANCEL" if ui.add_enabled(info.in_calendar, egui::Button::new(tl("Remove from Calendar"))).clicked() => out = Some(json!({})),
+            "CANCEL" if chrome::button(ui, t, chrome::Kind::Danger, Some(Icon::Trash), "Remove from Calendar", info.in_calendar).clicked() => {
+                out = Some(json!({}))
+            }
             _ => {}
         });
     });
@@ -5463,6 +5492,21 @@ mod tests {
         click(&mut app, mail);
         run(&mut app, Vec::new());
         assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("help@example.org"));
+    }
+
+    /// The old look's symbols leave the labels; the buttons draw their own icons.
+    #[test]
+    fn labels_lose_their_old_symbols() {
+        for (label, words) in [
+            ("✔ Accept", "Accept"),
+            ("？ Tentative", "Tentative"),
+            ("✖ Decline", "Decline"),
+            ("🗑 Series", "Series"),
+            ("➕ Add phone", "Add phone"),
+            ("Save", "Save"),
+        ] {
+            assert_eq!(chrome::words(label), words);
+        }
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.
