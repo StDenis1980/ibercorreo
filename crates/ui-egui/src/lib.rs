@@ -2560,9 +2560,7 @@ impl App {
         let plain = self.session.plain_text;
         self.body.show(ui, egui::Id::new(("message-text", m.id.0, plain)), |body, ui| match (&content, rich) {
             (_, Some(rich)) if !plain => rich_body(ui, &t, rich, body),
-            (Some(Ok(c)), _) => {
-                body.add(ui, egui::Label::new(RichText::new(&c.body).size(15.0).color(t.text)).wrap(), t.text, "");
-            }
+            (Some(Ok(c)), _) => plain_body(ui, &t, &c.body, body),
             (Some(Err(e)), _) => {
                 ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
             }
@@ -3854,6 +3852,46 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyTex
             let x = rect.left() + f32::from(level) * 14.0 + 3.0;
             ui.painter().vline(x, rect.y_range(), Stroke::new(2.0, t.border));
         }
+    }
+}
+
+/// A plain message, line by line, its web and e-mail addresses links like a formatted one's.
+fn plain_body(ui: &mut Ui, t: &Tokens, text: &str, body: &mut body_text::BodyText) {
+    // What goes before a line when copied: its line break, and those of empty lines before it.
+    const BREAKS: [&str; 4] = ["\n", "\n\n", "\n\n\n", "\n\n\n\n"];
+    ui.spacing_mut().item_spacing.y = 2.0;
+    let mut blank = 0usize;
+    let mut first = true;
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.trim().is_empty() {
+            blank = blank.saturating_add(1);
+            ui.add_space(8.0);
+            continue;
+        }
+        let mut before = if first { "" } else { BREAKS.get(blank).or(BREAKS.last()).copied().unwrap_or("\n") };
+        first = false;
+        blank = 0;
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for run in ibercorreo_core::rich::linkify(line) {
+                let words = RichText::new(run.text).size(15.0);
+                match run.link {
+                    None => {
+                        body.add(ui, egui::Label::new(words.color(t.text)), t.text, before);
+                    }
+                    Some(url) => {
+                        let label = egui::Label::new(words.color(t.accent).underline()).sense(Sense::click());
+                        let shown = url.strip_prefix("mailto:").unwrap_or(&url).to_string();
+                        let link = body.add(ui, label, t.accent, before).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(shown);
+                        if link.clicked() {
+                            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                        }
+                    }
+                }
+                before = "";
+            }
+        });
     }
 }
 
@@ -5233,7 +5271,9 @@ mod tests {
                 .shapes
                 .iter()
                 .filter_map(|c| match &c.shape {
-                    egui::Shape::Text(t) if t.galley.job.text == text => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    egui::Shape::Text(t) if t.galley.job.text == text => {
+                        t.galley.rows.iter().find(|r| usize::from(r.char_count_excluding_newline()) > 0).map(|r| r.rect().translate(t.pos.to_vec2()))
+                    }
                     _ => None,
                 })
                 .max_by(|a, b| a.left().total_cmp(&b.left()));
@@ -5292,6 +5332,73 @@ mod tests {
         ] {
             assert_eq!(opens_outside(url), ok, "{url}");
         }
+    }
+
+    /// A plain message's addresses are links: the web one goes to the shell, the e-mail one
+    /// becomes a draft; copying gives back the text as it was.
+    #[test]
+    fn addresses_in_a_plain_message_are_links() {
+        let raw = "From: a@example.org\r\nSubject: Plain\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nHello,\r\n\r\nThe notes are at www.example.org/notes, and questions go to help@example.org.\r\nBye\r\n";
+        let mut store = ibercorreo_store::Store::new();
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let id = store.import_eml(raw.as_bytes(), inbox).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        s.run("folder.select", &json!({ "folder": inbox.0 })).unwrap();
+        let mut app = App::new(s);
+        app.session.message = Some(id);
+        let ctx = egui::Context::default();
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1500.0, 800.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out
+        };
+        let press = |pressed: bool, pos: egui::Pos2| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let find = |app: &mut App, text: &str| {
+            let out = run(app, Vec::new());
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == text => {
+                        t.galley.rows.iter().find(|r| usize::from(r.char_count_excluding_newline()) > 0).map(|r| r.rect().translate(t.pos.to_vec2()))
+                    }
+                    _ => None,
+                })
+                .max_by(|a, b| a.left().total_cmp(&b.left()))
+                .unwrap_or_else(|| panic!("{text} is not on screen"))
+        };
+        let click = |app: &mut App, at: egui::Pos2| {
+            run(app, vec![egui::Event::PointerMoved(at)]);
+            run(app, vec![press(true, at)]);
+            run(app, vec![press(false, at)]);
+            run(app, Vec::new());
+        };
+        for _ in 0..3 {
+            run(&mut app, Vec::new());
+        }
+        let keys = egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        run(&mut app, vec![keys]);
+        let out = run(&mut app, vec![egui::Event::Copy]);
+        let copied = out.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::CopyText(t) => Some(t.clone()),
+            _ => None,
+        });
+        assert_eq!(copied.as_deref(), Some("Hello,\n\nThe notes are at www.example.org/notes, and questions go to help@example.org.\nBye"));
+        let web = find(&mut app, "www.example.org/notes").center();
+        click(&mut app, web);
+        assert_eq!(app.take_links(), ["https://www.example.org/notes"]);
+        // Away from the first link, whose tooltip would cover the next one.
+        run(&mut app, vec![egui::Event::PointerMoved(egui::pos2(5.0, 5.0))]);
+        let mail = find(&mut app, "help@example.org").center();
+        click(&mut app, mail);
+        run(&mut app, Vec::new());
+        assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("help@example.org"));
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.
