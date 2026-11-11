@@ -282,6 +282,29 @@ fn folder_pane_and_my_day_turn_over_or_take_a_value() {
 }
 
 #[test]
+fn calendars_are_shown_and_hidden_saved_not_undone() {
+    let mut s = session();
+    let first = s.store.calendars().first().map(|c| c.id).unwrap();
+    let second = s.store.add_calendar("Birthdays", "#c0392b", None).unwrap();
+    let hidden = s.run("calendar.show", &json!({ "id": second })).unwrap();
+    assert_eq!(hidden["hidden"], json!([second]), "a click hides a shown calendar");
+    assert!(s.dirty && !s.can_undo());
+    let listed = s.run("calendar.list", &Value::Null).unwrap();
+    assert_eq!(listed.as_array().unwrap().iter().map(|c| c["shown"].clone()).collect::<Vec<_>>(), [json!(true), json!(false)]);
+    s.run("calendar.show", &json!({ "id": second })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty(), "and shows it again");
+    s.run("calendar.show", &json!({ "id": second, "visible": true })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty(), "visible: true keeps it shown");
+    s.run("calendar.show", &json!({ "id": second, "only": true })).unwrap();
+    assert_eq!(s.store.hidden_calendars, [first]);
+    s.run("calendar.show", &json!({ "all": true })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty());
+    for bad in [json!({}), json!({ "id": 999 }), json!({ "id": -1 }), json!({ "id": "x" })] {
+        assert!(s.run("calendar.show", &bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn what_is_folded_in_the_folder_pane_is_saved_not_undone() {
     let mut s = session();
     let asked = s.run("view.folded", &Value::Null).unwrap();

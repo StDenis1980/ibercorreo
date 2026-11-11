@@ -799,7 +799,7 @@ impl App {
             let events: Vec<_> = self
                 .session
                 .store
-                .events_on(d, &zone)
+                .shown_events_on(d, &zone)
                 .into_iter()
                 .map(|o| (o.event.calendar, o.event.summary.clone(), o.event.location.clone(), o.when))
                 .collect();

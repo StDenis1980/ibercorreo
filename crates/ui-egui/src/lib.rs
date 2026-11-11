@@ -2792,7 +2792,7 @@ impl App {
                         );
                     }
                     let mut y = rect.top() + 32.0;
-                    for o in self.session.store.events_on(day, self.session.zone()) {
+                    for o in self.session.store.shown_events_on(day, self.session.zone()) {
                         let e = o.event;
                         if y + 20.0 > rect.bottom() {
                             p.text(egui::pos2(rect.left() + 8.0, y), egui::Align2::LEFT_TOP, "…", egui::FontId::proportional(12.0), t.text_weak);
@@ -2867,7 +2867,7 @@ impl App {
             .map(|d| {
                 self.session
                     .store
-                    .events_on(*d, self.session.zone())
+                    .shown_events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
                     .map(|o| (o.event.summary.clone(), *d, o.event.calendar))
@@ -2965,7 +2965,7 @@ impl App {
                 let occurrences: Vec<_> = self
                     .session
                     .store
-                    .events_on(*day, self.session.zone())
+                    .shown_events_on(*day, self.session.zone())
                     .into_iter()
                     .filter_map(|o| o.when.minutes_on(*day).map(|m| (o.event.clone(), o.when, m)))
                     .collect();
@@ -3031,7 +3031,7 @@ impl App {
         let day = self.session.day;
         ui.label(RichText::new(long_date(day)).heading().color(t.text));
         ui.add_space(8.0);
-        let events: Vec<_> = self.session.store.events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
+        let events: Vec<_> = self.session.store.shown_events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
             ui.label(RichText::new(tl("No appointments")).color(t.text_weak));
         }
@@ -3094,21 +3094,63 @@ impl App {
         }
     }
 
-    /// The calendars, with their colours; the ones synced from a server are marked.
+    /// The calendars, with their colours; the ones synced from a server are marked. A click on
+    /// a row shows or hides that calendar's appointments (its square filled or empty); a right
+    /// click can show it alone, or every calendar again.
     fn calendar_list(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         ui.add_space(12.0);
         ui.label(RichText::new(tl("Calendars")).strong().color(t.text));
+        ui.add_space(4.0);
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
+        let mut act: Option<Value> = None;
         for (id, name, synced) in calendars {
-            ui.horizontal(|ui| {
-                let (dot, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                ui.painter().rect_filled(dot, 3.0, self.calendar_color(id));
-                ui.label(RichText::new(name).color(t.text));
-                if synced {
-                    ui.label(RichText::new("⟳").small().color(t.text_weak)).on_hover_text(tl("Synced with the CalDAV server at Send/Receive"));
+            let shown = !self.session.store.hidden_calendars.contains(&id);
+            let color = self.calendar_color(id);
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+            let p = ui.painter();
+            if resp.hovered() {
+                p.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.6));
+            }
+            let square = Rect::from_center_size(egui::pos2(rect.left() + 16.0, rect.center().y), vec2(14.0, 14.0));
+            if shown {
+                p.rect_filled(square, 3.0, color);
+                icons::paint(p, square.shrink(1.5), Icon::Check, Color32::WHITE);
+            } else {
+                p.rect_stroke(square, 3.0, Stroke::new(1.5, color), StrokeKind::Inside);
+            }
+            let text_color = if shown { t.text } else { t.text_weak };
+            let mut job = egui::text::LayoutJob::simple_singleline(name.clone(), egui::FontId::proportional(theme::BODY), text_color);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 64.0).max(0.0));
+            let g = p.layout_job(job);
+            let text_x = rect.left() + 32.0;
+            let after = text_x + g.size().x + 8.0;
+            p.galley(egui::pos2(text_x, rect.center().y - g.size().y / 2.0), g, text_color);
+            if synced {
+                p.text(egui::pos2(after, rect.center().y), egui::Align2::LEFT_CENTER, "⟳", egui::FontId::proportional(theme::CAPTION), t.text_weak);
+            }
+            let tip = if synced {
+                format!("{}\n{}", tl("Show or hide this calendar"), tl("Synced with the CalDAV server at Send/Receive"))
+            } else {
+                tl("Show or hide this calendar").to_string()
+            };
+            let resp = resp.on_hover_text(tip);
+            if resp.clicked() {
+                act = Some(json!({ "id": id }));
+            }
+            resp.context_menu(|ui| {
+                if ui.button(tl("Show only this calendar")).clicked() {
+                    act = Some(json!({ "id": id, "only": true }));
+                    ui.close();
+                }
+                if ui.button(tl("Show all calendars")).clicked() {
+                    act = Some(json!({ "all": true }));
+                    ui.close();
                 }
             });
+        }
+        if let Some(p) = act {
+            self.run("calendar.show", p);
         }
     }
 
@@ -5507,6 +5549,68 @@ mod tests {
         ] {
             assert_eq!(chrome::words(label), words);
         }
+    }
+
+    /// A click on a calendar in the pane hides its appointments from the week, a second shows
+    /// them again; another calendar's stay.
+    #[test]
+    fn a_click_on_a_calendar_shows_or_hides_it() {
+        let mut store = ibercorreo_store::Store::new();
+        let work = store.calendars().first().map(|c| c.id).unwrap();
+        let home = store.add_calendar("Home", "#c0392b", None).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        for (calendar, summary) in [(work, "Synthetic standup"), (home, "Synthetic dentist")] {
+            s.run("event.add", &json!({ "summary": summary, "start": format!("{}T10:00", Date::EPOCH), "calendar": calendar })).unwrap();
+        }
+        s.run("view.calendar", &json!({})).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let run = |app: &mut App, events: Vec<egui::Event>| {
+            let raw =
+                egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1500.0, 900.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out
+        };
+        let texts = |out: &egui::FullOutput| -> Vec<String> {
+            out.shapes.iter().filter_map(|c| if let egui::Shape::Text(t) = &c.shape { Some(t.galley.job.text.clone()) } else { None }).collect()
+        };
+        let row = |out: &egui::FullOutput| {
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == "Home" => Some(t.galley.rect.translate(t.pos.to_vec2()).center()),
+                    _ => None,
+                })
+                .min_by(|a, b| a.x.total_cmp(&b.x))
+                .expect("Home in the list of calendars")
+        };
+        let click = |app: &mut App, at: egui::Pos2| {
+            let press = |pressed: bool| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            run(app, vec![egui::Event::PointerMoved(at)]);
+            run(app, vec![press(true)]);
+            run(app, vec![press(false)]);
+            run(app, vec![egui::Event::PointerMoved(egui::pos2(5.0, 5.0))])
+        };
+        let mut out = run(&mut app, Vec::new());
+        for _ in 0..2 {
+            out = run(&mut app, Vec::new());
+        }
+        let shown = texts(&out);
+        assert!(shown.iter().any(|t| t.contains("Synthetic dentist")) && shown.iter().any(|t| t.contains("Synthetic standup")), "{shown:?}");
+        let out = click(&mut app, row(&out));
+        assert_eq!(app.session.store.hidden_calendars, [home]);
+        let shown = texts(&out);
+        assert!(!shown.iter().any(|t| t.contains("Synthetic dentist")), "hidden: {shown:?}");
+        assert!(shown.iter().any(|t| t.contains("Synthetic standup")), "the other calendar stays");
+        let out = click(&mut app, row(&out));
+        assert!(app.session.store.hidden_calendars.is_empty());
+        assert!(texts(&out).iter().any(|t| t.contains("Synthetic dentist")), "shown again");
     }
 
     /// The status bar's size slider shows the size kept, and its + saves a step.

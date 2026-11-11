@@ -496,6 +496,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: reminder_snooze,
     },
     CommandSpec {
+        id: "calendar.show",
+        label: "Show or hide a calendar",
+        group: "Calendar/Manage Calendars",
+        shortcut: None,
+        params: "id?: number — the calendar; visible?: true or false (default: the other way round); only?: true — show it and hide every other; all?: true — show every calendar",
+        edits: false,
+        run: calendar_show,
+    },
+    CommandSpec {
         id: "calendar.list",
         label: "Calendars",
         group: "Calendar/Manage Calendars",
@@ -2005,9 +2014,39 @@ fn calendar_list(s: &mut Session, _: &Value) -> Result<Value> {
         s.store
             .calendars()
             .iter()
-            .map(|c| json!({ "id": c.id, "name": c.name, "color": c.color, "server": c.remote.as_ref().map(|r| r.href.clone()) }))
+            .map(|c| {
+                let shown = !s.store.hidden_calendars.contains(&c.id);
+                json!({ "id": c.id, "name": c.name, "color": c.color, "server": c.remote.as_ref().map(|r| r.href.clone()), "shown": shown })
+            })
             .collect(),
     ))
+}
+
+/// Show or hide calendars in the calendar views and My Day; saved, not undone.
+fn calendar_show(s: &mut Session, p: &Value) -> Result<Value> {
+    let before = s.store.hidden_calendars.clone();
+    if bool_param(p, "all")?.unwrap_or(false) {
+        s.store.hidden_calendars.clear();
+    } else {
+        let id = u64_param(p, "id")?.ok_or_else(|| Error::invalid("id", "a calendar"))?;
+        let id = u32::try_from(id).map_err(|_| Error::invalid("id", "a calendar"))?;
+        s.store.calendar(id)?;
+        if bool_param(p, "only")?.unwrap_or(false) {
+            s.store.hidden_calendars = s.store.calendars().iter().map(|c| c.id).filter(|c| *c != id).collect();
+        } else {
+            let shown = !s.store.hidden_calendars.contains(&id);
+            if bool_param(p, "visible")?.unwrap_or(!shown) {
+                s.store.hidden_calendars.retain(|c| *c != id);
+            } else if shown {
+                s.store.hidden_calendars.push(id);
+            }
+        }
+    }
+    s.store.hidden_calendars.sort_unstable();
+    if s.store.hidden_calendars != before {
+        s.dirty = true;
+    }
+    Ok(json!({ "hidden": s.store.hidden_calendars }))
 }
 
 fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {

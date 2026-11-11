@@ -123,6 +123,10 @@ pub struct Store {
     /// so the pane decides (every account but the open one, with several).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folded: Option<Vec<String>>,
+    /// Calendars whose appointments the calendar views and My Day leave out (their reminders
+    /// still come).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_calendars: Vec<u32>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,
@@ -845,6 +849,13 @@ impl Store {
     /// Occurrences on `day` as seen in zone `view`, all-day first, then by start time. A
     /// repeating event's occurrence that was changed on its own (`RECURRENCE-ID`) shows as the
     /// changed copy instead.
+    /// [`Store::events_on`] without the calendars hidden from the views.
+    pub fn shown_events_on(&self, day: Date, view: &Zone) -> Vec<Occurrence<'_>> {
+        let mut v = self.events_on(day, view);
+        v.retain(|o| !self.hidden_calendars.contains(&o.event.calendar));
+        v
+    }
+
     pub fn events_on(&self, day: Date, view: &Zone) -> Vec<Occurrence<'_>> {
         let mut v: Vec<Occurrence<'_>> = self
             .events
