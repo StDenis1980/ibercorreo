@@ -282,6 +282,28 @@ fn folder_pane_and_my_day_turn_over_or_take_a_value() {
 }
 
 #[test]
+fn what_is_folded_in_the_folder_pane_is_saved_not_undone() {
+    let mut s = session();
+    let asked = s.run("view.folded", &Value::Null).unwrap();
+    assert_eq!((asked["keys"].clone(), asked["kept"].clone()), (Value::Null, json!(false)));
+    assert!(!s.dirty, "asking changes nothing");
+    let set = s.run("view.folded", &json!({ "keys": ["t:0:clients", "h:4294967295", "t:0:clients"] })).unwrap();
+    assert_eq!(set["keys"], json!(["h:4294967295", "t:0:clients"]), "sorted, once each");
+    assert!(s.dirty && !s.can_undo());
+    s.dirty = false;
+    s.run("view.folded", &json!({ "keys": ["t:0:clients", "h:4294967295"] })).unwrap();
+    assert!(!s.dirty, "the same again changes nothing");
+    s.run("view.folded", &json!({ "keys": [] })).unwrap();
+    assert_eq!(s.store.folded, Some(Vec::new()), "nothing folded is kept too: the pane no longer decides");
+    let long = "x".repeat(ibercorreo_store::MAX_FOLDED_LEN + 1);
+    let many: Vec<String> = (0..=ibercorreo_store::MAX_FOLDED).map(|n| n.to_string()).collect();
+    for bad in [json!({"keys": "t:0:a"}), json!({"keys": [1]}), json!({"keys": [""]}), json!({"keys": [long]}), json!({ "keys": many })] {
+        assert!(s.run("view.folded", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.folded, Some(Vec::new()), "a refused list changes nothing");
+}
+
+#[test]
 fn interface_size_steps_by_ten_stays_in_range_and_is_saved_not_undone() {
     let mut s = session();
     assert_eq!(s.run("view.zoom", &Value::Null).unwrap()["percent"], 110);

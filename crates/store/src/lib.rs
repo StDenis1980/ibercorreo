@@ -60,6 +60,10 @@ pub const THEMES: &[&str] = &["teal", "terracotta", "sea", "lavender", "olive", 
 /// The interface's size in percent unless the person chose otherwise (View › Size): a little
 /// larger than egui's own, which reads small on desktop screens.
 pub const DEFAULT_ZOOM: u16 = 110;
+/// The most folded things in the folder pane the mailbox keeps, and the longest name of one.
+pub const MAX_FOLDED: usize = 2000;
+pub const MAX_FOLDED_LEN: usize = 1024;
+
 /// The smallest and largest interface sizes, in percent.
 pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 80..=200;
 
@@ -115,6 +119,10 @@ pub struct Store {
     /// The interface's size in percent (View › Size); `None` is [`DEFAULT_ZOOM`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zoom: Option<u16>,
+    /// What is folded shut in the folder pane ([`MAX_FOLDED`] at most); `None`: never changed,
+    /// so the pane decides (every account but the open one, with several).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folded: Option<Vec<String>>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,

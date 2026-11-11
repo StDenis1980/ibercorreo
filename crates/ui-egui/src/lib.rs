@@ -600,6 +600,30 @@ fn fit(full: f32, main: f32, left: Option<Side>, middle: Option<Side>, right: Op
     }
 }
 
+/// The names `view.folded` keeps for what is folded: `h:` and a heading's key (an account's
+/// id, or [`FOLD_FAVORITES`]), `t:` and a folder's account and path ([`TreeRow::key`]).
+fn fold_keys(headings: &std::collections::HashSet<u32>, paths: &std::collections::HashSet<(u32, String)>) -> Vec<String> {
+    let mut keys: Vec<String> = headings.iter().map(|h| format!("h:{h}")).chain(paths.iter().map(|(a, p)| format!("t:{a}:{p}"))).collect();
+    keys.sort();
+    keys
+}
+
+/// What `view.folded` kept, back as the folder pane's sets; a name it does not know is skipped.
+fn folds_from_keys(keys: &[String]) -> (std::collections::HashSet<u32>, std::collections::HashSet<(u32, String)>) {
+    let mut headings = std::collections::HashSet::new();
+    let mut paths = std::collections::HashSet::new();
+    for k in keys {
+        if let Some(h) = k.strip_prefix("h:").and_then(|h| h.parse().ok()) {
+            headings.insert(h);
+        } else if let Some((account, path)) = k.strip_prefix("t:").and_then(|t| t.split_once(':'))
+            && let Ok(account) = account.parse()
+        {
+            paths.insert((account, path.to_string()));
+        }
+    }
+    (headings, paths)
+}
+
 /// How far in each level of subfolders sits in the folder pane.
 const FOLDER_INDENT: f32 = 16.0;
 
@@ -701,11 +725,16 @@ impl App {
     pub fn new(session: Session) -> App {
         // With several accounts, each but the one open starts folded, so every account's
         // heading is in sight, however many folders the others have.
-        let folded = if session.store.accounts.len() > 1 {
-            let open = session.current_account();
-            session.store.accounts.iter().map(|a| a.id).filter(|id| *id != open).map(|id| id.0).collect()
-        } else {
-            std::collections::HashSet::new()
+        // What was folded is kept in the mailbox; till anything is, with several accounts each
+        // but the one open starts folded, so every account's heading is in sight, however many
+        // folders the others have.
+        let (folded, folded_paths) = match &session.store.folded {
+            Some(keys) => folds_from_keys(keys),
+            None if session.store.accounts.len() > 1 => {
+                let open = session.current_account();
+                (session.store.accounts.iter().map(|a| a.id).filter(|id| *id != open).map(|id| id.0).collect(), Default::default())
+            }
+            None => Default::default(),
         };
         App {
             session,
@@ -740,7 +769,7 @@ impl App {
             due: Vec::new(),
             due_checked: None,
             styled: None,
-            folded_paths: std::collections::HashSet::new(),
+            folded_paths,
             zoom_drag: None,
             zoom_limits: None,
             folders_squeezed: false,
@@ -757,6 +786,12 @@ impl App {
             invite_reply: 0,
             folded,
         }
+    }
+
+    /// Keep what is folded in the folder pane in the mailbox (`view.folded`).
+    fn save_folds(&mut self) {
+        let keys = fold_keys(&self.folded, &self.folded_paths);
+        self.run("view.folded", json!({ "keys": keys }));
     }
 
     /// Addresses the person asked to open in the browser, for the shell. Taken once.
@@ -1215,7 +1250,9 @@ impl App {
 
     /// Unfold `account` in the folder pane and open its Inbox.
     fn show_account(&mut self, account: AccountId) {
-        self.folded.remove(&account.0);
+        if self.folded.remove(&account.0) {
+            self.save_folds();
+        }
         if let Ok(inbox) = self.session.store.folder_by_role(account, FolderRole::Inbox) {
             self.run("folder.select", json!({ "folder": inbox.0 }));
         }
@@ -2221,6 +2258,7 @@ impl App {
             } else {
                 self.folded.remove(&key);
             }
+            self.save_folds();
         }
         (open, gear)
     }
@@ -2371,6 +2409,7 @@ impl App {
                 } else {
                     self.folded_paths.remove(&key);
                 }
+                self.save_folds();
             }
         }
     }
@@ -4902,6 +4941,31 @@ mod tests {
         assert_eq!(shown[at("Important")].0, 1);
         assert_eq!(shown[at("Notes")], (0, "Notes", true, false));
         assert!(shown.iter().filter(|r| r.0 == 0).count() >= 8, "standard folders stay at the top level");
+    }
+
+    /// What is folded in the folder pane comes back after a restart: a folder with subfolders
+    /// (the path may hold a colon) and an account's heading.
+    #[test]
+    fn what_is_folded_is_kept_across_a_restart() {
+        let mut store = ibercorreo_store::Store::new();
+        let a = store.first_account();
+        store.add_folder(a, "Clients", FolderRole::Other);
+        store.add_folder(a, "Clients/Acme", FolderRole::Other);
+        store.add_folder(a, "Work: 2026", FolderRole::Other);
+        store.add_folder(a, "Work: 2026/Q1", FolderRole::Other);
+        let mut app = App::new(Session::new(store, Date::EPOCH));
+        assert!(app.session.store.folded.is_none(), "nothing kept till something is folded");
+        for key in [(a.0, "clients".to_string()), (a.0, "work: 2026".to_string())] {
+            app.folded_paths.insert(key);
+        }
+        app.folded.insert(FOLD_FAVORITES);
+        app.save_folds();
+        assert!(!app.session.can_undo(), "folding is no edit to undo");
+        let kept = app.session.store.clone();
+        let again = App::new(Session::new(kept, Date::EPOCH));
+        assert_eq!(again.folded_paths, app.folded_paths);
+        assert_eq!(again.folded, app.folded);
+        assert_eq!(folds_from_keys(&["t:x:y".into(), "h:-1".into(), "nonsense".into()]), Default::default(), "a name it does not know is skipped");
     }
 
     /// Folding a parent hides its subfolders, and their unread mail is counted on it.

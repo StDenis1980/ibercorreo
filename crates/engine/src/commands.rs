@@ -368,6 +368,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: |s, p| toggle_pane(s, p, Pane::Folders),
     },
     CommandSpec {
+        id: "view.folded",
+        label: "Folded in the folder pane",
+        group: "View/Layout",
+        shortcut: None,
+        params: "keys?: [string] — what is folded shut in the folder pane, as the window names it (accounts, Favorites, folders with subfolders); replaces what was kept — default: just say it",
+        edits: false,
+        run: folded,
+    },
+    CommandSpec {
         id: "view.myDay",
         label: "My Day",
         group: "View/Layout",
@@ -1762,6 +1771,31 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
         "mode": s.store.appearance.as_deref().unwrap_or("system"),
         "themes": THEMES,
     }))
+}
+
+/// What is folded shut in the folder pane (`keys`, as the window names them); saved, not undone.
+fn folded(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::{MAX_FOLDED, MAX_FOLDED_LEN};
+    if let Some(v) = p.get("keys").filter(|v| !v.is_null()) {
+        let list = v.as_array().ok_or_else(|| Error::invalid("keys", "a list of names"))?;
+        if list.len() > MAX_FOLDED {
+            return Err(Error::invalid("keys", format!("at most {MAX_FOLDED}")));
+        }
+        let mut keys = Vec::with_capacity(list.len());
+        for k in list {
+            match k.as_str() {
+                Some(k) if !k.is_empty() && k.len() <= MAX_FOLDED_LEN => keys.push(k.to_string()),
+                _ => return Err(Error::invalid("keys", format!("names of 1 to {MAX_FOLDED_LEN} bytes"))),
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        if s.store.folded.as_ref() != Some(&keys) {
+            s.store.folded = Some(keys);
+            s.dirty = true;
+        }
+    }
+    Ok(json!({ "keys": s.store.folded, "kept": s.store.folded.is_some() }))
 }
 
 /// The interface's size (`percent`, a `step` of 10, or `reset`); saved, not undone.
