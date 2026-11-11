@@ -5380,4 +5380,19 @@ mod tests {
             }
         }
     }
+    /// Every request to open an address takes the same road: the app-password link, the reports
+    /// folder, whatever else asks; an unsafe one goes nowhere.
+    #[test]
+    fn every_request_to_open_an_address_reaches_the_shell() {
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::EPOCH));
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for url in ["https://example.org/app-passwords", "file:///C:/reports", "ms-settings:"] {
+                ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+            }
+            app.ui(ui);
+        });
+        out.textures_delta.clear();
+        assert_eq!(app.take_links(), ["https://example.org/app-passwords", "file:///C:/reports"]);
+    }
 }

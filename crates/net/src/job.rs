@@ -119,8 +119,13 @@ pub fn run_with(job: &Job, progress: &mut dyn FnMut(&ibercorreo_sync::Progress))
             // Gmail files what it sends itself: a saved copy would be a second one.
             if ibercorreo_core::mail::OAuthProvider::for_host(smtp_host).is_some_and(|p| p.saves_sent) {
                 outbox::server_saved(&mut sent);
-            } else if let Some(path) = &job.sent_path {
-                outbox::save_sent(&mut c, path, &job.outbox, &mut sent);
+            } else if sent.iter().any(|r| matches!(r.outcome, Outcome::Sent { .. })) {
+                // Only to a mailbox the server lists: a Sent folder linked to one it does not
+                // have (another provider's) would lose every copy.
+                let path = c.list().ok().and_then(|listed| outbox::sent_mailbox(&listed, job.sent_path.as_deref()));
+                if let Some(path) = path {
+                    outbox::save_sent(&mut c, &path, &job.outbox, &mut sent);
+                }
             }
             let batch = ibercorreo_sync::run_with(&mut c, &job.state, &job.limits, progress).map_err(|e| e.to_string());
             let _ = c.logout();

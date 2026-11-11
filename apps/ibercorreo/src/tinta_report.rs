@@ -516,9 +516,14 @@ mod tests {
         assert_eq!(parse_conf("enabled=false\nenabled=yes\n"), Some(true));
         assert_eq!(parse_conf("; enabled=true\nenabled=maybe\nsend=true"), None);
         assert_eq!(parse_conf(""), None);
-        assert_eq!(config_dirs(None), [PathBuf::from("/etc/xdg")]);
-        assert_eq!(config_dirs(Some(std::ffi::OsStr::new(""))), [PathBuf::from("/etc/xdg")]);
-        assert_eq!(config_dirs(Some(std::ffi::OsStr::new("relative:/usr/etc/xdg"))), [PathBuf::from("/usr/etc/xdg")]);
+        // `$XDG_CONFIG_DIRS` is read on Unix only: elsewhere `/usr/etc/xdg` is not absolute and the
+        // list separator is `;`.
+        #[cfg(unix)]
+        {
+            assert_eq!(config_dirs(None), [PathBuf::from("/etc/xdg")]);
+            assert_eq!(config_dirs(Some(std::ffi::OsStr::new(""))), [PathBuf::from("/etc/xdg")]);
+            assert_eq!(config_dirs(Some(std::ffi::OsStr::new("relative:/usr/etc/xdg"))), [PathBuf::from("/usr/etc/xdg")]);
+        }
 
         let root = std::env::temp_dir().join(format!("tinta-system-reports-{}", std::process::id()));
         let (first, second) = (root.join("a"), root.join("b"));

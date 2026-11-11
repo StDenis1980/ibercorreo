@@ -174,6 +174,9 @@ pub struct Batch {
     pub pushed: Vec<(Push, std::result::Result<(), String>)>,
     /// Mailboxes that could not be synced, and why; the others still were.
     pub errors: Vec<String>,
+    /// `mailboxes` is the server's whole list, not cut at [`Limits::folders`]: a linked folder
+    /// whose mailbox is not in it is gone from the server, and [`apply`] unlinks it.
+    pub listed_all: bool,
 }
 
 fn has(flags: &[String], flag: &str) -> bool {
@@ -214,6 +217,7 @@ pub fn run_with<S: Read + Write>(client: &mut Client<S>, state: &State, limits: 
     push(client, state, &mut batch)?;
 
     let mut mailboxes = client.list()?;
+    batch.listed_all = mailboxes.len() <= limits.folders;
     mailboxes.truncate(limits.folders);
     let selectable: Vec<&Mailbox> = mailboxes.iter().filter(|m| m.selectable()).collect();
     let folders = selectable.len();
@@ -336,6 +340,8 @@ pub struct Report {
     pub updated: usize,
     pub removed: usize,
     pub pushed: usize,
+    /// Folders unlinked because the server no longer lists their mailbox.
+    pub folders_unlinked: usize,
     /// Messages on the server still to download.
     pub remaining: usize,
     pub errors: Vec<String>,
@@ -366,6 +372,51 @@ fn local_folder(store: &mut Store, account: AccountId, mailbox: &Mailbox, report
     store.add_folder(account, &name, FolderRole::Other)
 }
 
+/// Unlink each folder of `account` whose mailbox is not in the server's whole list `mailboxes`:
+/// one deleted or renamed on the server, or one a standard folder was wrongly linked to (another
+/// provider's `[Gmail]/Sent Mail` in an Outlook.com account). Its mail is kept, as mail on this
+/// computer. A standard folder (Sent, Drafts, Junk…) must stay free to mirror the server's own:
+/// the mail synced from the old mailbox moves to a folder of its own named after it, and when
+/// the mailbox that carries the role (RFC 6154 special-use, else its name) is already mirrored by
+/// an ordinary folder, the standard folder is folded into that one, which takes the role.
+fn unlink_gone(store: &mut Store, account: AccountId, mailboxes: &[Mailbox], report: &mut Report) {
+    let listed: BTreeSet<&str> = mailboxes.iter().filter(|m| m.selectable()).map(|m| m.raw.as_str()).collect();
+    let gone: Vec<(FolderId, FolderRole, String)> = store
+        .folders_of(account)
+        .iter()
+        .filter_map(|f| f.remote.as_ref().filter(|r| !listed.contains(r.path.as_str())).map(|r| (f.id, f.role, r.path.clone())))
+        .collect();
+    for (id, role, path) in gone {
+        let synced: Vec<MessageId> = if role == FolderRole::Other {
+            Vec::new()
+        } else {
+            store.all_messages().filter(|m| m.folder == id && m.remote.as_ref().is_some_and(|r| r.folder == id)).map(|m| m.id).collect()
+        };
+        if !store.unlink_folder(id) {
+            continue;
+        }
+        report.folders_unlinked = report.folders_unlinked.saturating_add(1);
+        if role == FolderRole::Other {
+            continue;
+        }
+        if !synced.is_empty() {
+            let name = if path.trim().is_empty() { "Unlinked" } else { path.as_str() };
+            let kept = store.add_folder(account, name, FolderRole::Other);
+            for m in synced {
+                let _ = store.move_message(m, kept);
+            }
+        }
+        let mirrored = mailboxes
+            .iter()
+            .filter(|m| m.selectable() && m.role() == role)
+            .filter_map(|m| store.folder_by_path(account, &m.raw))
+            .find(|f| store.folder(*f).is_ok_and(|f| f.role == FolderRole::Other));
+        if let Some(into) = mirrored {
+            let _ = store.merge_folder(id, into);
+        }
+    }
+}
+
 /// Fold a [`run`] result for `account` into the store.
 pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
     let mut report = Report { errors: batch.errors, ..Report::default() };
@@ -388,6 +439,10 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             r.seen = *seen;
             r.flagged = *flagged;
         }
+    }
+
+    if batch.listed_all {
+        unlink_gone(store, account, &batch.mailboxes, &mut report);
     }
 
     let mut folder_ids: BTreeMap<String, FolderId> = BTreeMap::new();
