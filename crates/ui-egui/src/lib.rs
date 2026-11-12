@@ -5613,6 +5613,46 @@ mod tests {
         assert!(texts(&out).iter().any(|t| t.contains("Synthetic dentist")), "shown again");
     }
 
+    /// Every view, and a dialog over them, draws at the smallest, the default, a large and the
+    /// largest interface size in a 1366 × 768 window without a panic; the dialog keeps its title
+    /// and its main button on screen.
+    #[test]
+    fn every_view_draws_at_every_size() {
+        for zoom in [80u16, 110, 150, 200] {
+            let px = vec2(1366.0, 768.0);
+            let points = px / (f32::from(zoom) / 100.0);
+            let mut store = ibercorreo_store::Store::new();
+            store.zoom = Some(zoom);
+            let mut s = Session::new(store, Date::EPOCH);
+            s.run("message.compose", &json!({ "to": "Ana Example <ana@example.org>" })).unwrap();
+            let mut app = App::new(s);
+            let ctx = egui::Context::default();
+            let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, points)), ..Default::default() };
+            for view in ["view.mail", "view.calendar", "view.contacts"] {
+                app.session.run(view, &json!({})).unwrap();
+                for _ in 0..3 {
+                    ctx.run_ui(input(), |ui| app.ui(ui)).textures_delta.clear();
+                }
+            }
+            app.account_form.open = true;
+            let mut out = ctx.run_ui(input(), |ui| app.ui(ui));
+            for _ in 0..30 {
+                out.textures_delta.clear();
+                out = ctx.run_ui(input(), |ui| app.ui(ui));
+            }
+            out.textures_delta.clear();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, points);
+            for wanted in ["Add account", "Save and Send/Receive"] {
+                let at = out.shapes.iter().find_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == wanted => Some(t.galley.rect.translate(t.pos.to_vec2())),
+                    _ => None,
+                });
+                let at = at.unwrap_or_else(|| panic!("{wanted} is not drawn at {zoom} %"));
+                assert!(screen.contains_rect(at), "{wanted} at {at:?} is off a {points:?} screen at {zoom} %");
+            }
+        }
+    }
+
     /// The status bar's size slider shows the size kept, and its + saves a step.
     #[test]
     fn the_size_slider_follows_the_size_kept() {

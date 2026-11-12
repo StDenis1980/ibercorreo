@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-06 · Pick from the top.
+Status: 2026-11-12 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -11,10 +11,10 @@ Status: 2026-11-06 · Pick from the top.
    Several accounts sit side by side, each with its own folders, Send/Receive and IDLE watch
    (M3.3); choosing Google or Microsoft (or typing their address) fills in the servers; a folder
    with more than 500 new messages keeps downloading until it is complete. Calendars and contacts
-   sync with one account's server at a time. The folder pane has Favorites and folding
-   accounts, as Outlook's does; each account has its own signature, compose has Bcc, and the
+   sync with one account's server at a time. The folder pane has Favorites, folding accounts and
+   a tree of subfolders, as Outlook's does, its folds kept after a restart; each account has its own signature, compose has Bcc, and the
    status bar shows sync progress. Missing: a unified Inbox, moving mail between
-   accounts, reordering Favorites by dragging, folding remembered after a restart, DNS SRV (RFC 6186) and MX lookups (no DNS
+   accounts, reordering Favorites by dragging, DNS SRV (RFC 6186) and MX lookups (no DNS
    resolver yet), a separate CardDAV/CalDAV address in Find settings, OAuth for Google's
    calendars and contacts, other OAuth providers. Sent copies are saved to the server's Sent
    except on Gmail, which files them itself (Microsoft 365 may too: unchecked, an account setting
@@ -37,6 +37,8 @@ Status: 2026-11-06 · Pick from the top.
    (streaming notifications), checking against a real server.
 2. **HTML mail, the first pass.** HTML is read into safe formatted text (headings, lists, quotes,
    bold and italic, links with their real address on hover and a ⚠ on phishing-shaped ones);
+   in plain-text mail web and e-mail addresses are links too; a whole message can be selected
+   and copied, past the pane's edge, with Ctrl+A or Copy all;
    scripts, forms, styles and hidden preview text are dropped and remote images are never loaded.
    Missing: inline (`cid:`) images and a "load remote images from this sender" choice, tables laid
    out as tables (cells show as paragraphs), colours and fonts, a confirmation before opening a
@@ -181,3 +183,4 @@ Status: 2026-11-06 · Pick from the top.
 - 2026-11-03 — gap 17: `.pst` from the window, dropped files.
 - 2026-11-03 — gap 17: `.pst` calendar and contacts.
 - 2026-11-06 — gap 1: folders the server no longer lists are unlinked; standard folders re-link.
+- 2026-11-12 — gaps 1 and 2 narrowed (M6.2): folder tree with folds kept; plain-text links; whole-message selection.

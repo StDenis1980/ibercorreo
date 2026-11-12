@@ -284,6 +284,20 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   archive becomes a local calendar or address book of the same name; a second import adds
   nothing. Tasks, notes and contact groups are counted and left out.
 
+- 2026-11-12 — M6.2 finished, after Denys's test builds 1–13 on Windows: every dialog
+  (Account settings, Rules, New appointment, Send feedback, the error-report question,
+  reminders) in one frame with a title row, a footer that stays in sight and a body that scrolls
+  when short of room; forms as headed groups of rows; filled text fields with a line at their foot;
+  one button in three kinds (main with a gentle gradient, second, quiet) and a warning one. No
+  lines between panes. The side panes give way to the main one (My Day first, then the list and
+  the folder pane shrink, then the folder pane folds), and a pane asked for grows the window. The
+  folder pane is a tree of subfolders, its folds kept in the mailbox (`view.folded`). The reading
+  pane keeps its own text selection, so a whole message can be selected past the pane's edge,
+  with Ctrl+A, Ctrl+C, Copy and Copy all. Addresses in plain-text mail are links (`rich::linkify`).
+  Calendars are shown and hidden from the calendar pane (`calendar.show`). The message form is
+  Outlook's (borderless rows, a letter's shape as a hint); the status bar ends in a size slider;
+  Send feedback, error reports and the interface language sit in the title bar.
+
 ## Revision history
 - 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;
   `docs/mcp.md`). Tools for mail (list, search, read, drafts, replies, forwards, flags, move,
@@ -352,6 +366,7 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-04 — M6.1 MCP server.
 - 2026-11-04 — contacts in GNOME (EDS); Send/Receive period.
 - 2026-11-05 — new look after Outlook for macOS; colour themes; hideable panes.
+- 2026-11-12 — M6.2 finished: dialogs, buttons, folder tree, selection, plain-text links, calendars shown and hidden.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.

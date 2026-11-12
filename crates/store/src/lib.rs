@@ -1369,6 +1369,41 @@ mod tests {
     use super::*;
     use ibercorreo_core::{Address, DateTime, RemoteFolder};
 
+    /// The redesign's settings (theme, panes, size, folds, hidden calendars) are kept only when
+    /// set: a store saved before them loads with each at its default, and one that has them
+    /// round-trips. Unknown fields are not refused, so an older Correo opens a newer store too.
+    #[test]
+    fn view_settings_are_optional_in_the_store_file() {
+        const KEYS: [&str; 7] = ["theme", "appearance", "hide_folder_pane", "hide_my_day", "zoom", "folded", "hidden_calendars"];
+        let plain = serde_json::to_value(Store::new()).unwrap();
+        for k in KEYS {
+            assert!(plain.get(k).is_none(), "{k} is written although it is the default");
+        }
+        let older: Store = serde_json::from_value(plain.clone()).unwrap();
+        assert_eq!((older.theme.clone(), older.zoom, older.folded.clone(), older.hidden_calendars.clone()), (None, None, None, Vec::new()));
+        assert!(!older.hide_folder_pane && !older.hide_my_day);
+
+        let mut set = Store::new();
+        set.theme = Some("sea".into());
+        set.appearance = Some("dark".into());
+        set.hide_folder_pane = true;
+        set.hide_my_day = true;
+        set.zoom = Some(130);
+        set.folded = Some(vec!["h:0".into()]);
+        set.hidden_calendars = vec![0];
+        let saved = serde_json::to_value(&set).unwrap();
+        for k in KEYS {
+            assert!(saved.get(k).is_some(), "{k} is not written");
+        }
+        assert_eq!(serde_json::from_value::<Store>(saved.clone()).unwrap(), set);
+
+        let mut newer = saved;
+        if let Some(o) = newer.as_object_mut() {
+            o.insert("a_setting_from_a_later_version".into(), serde_json::json!(true));
+        }
+        assert!(serde_json::from_value::<Store>(newer).is_ok(), "a field it does not know is skipped");
+    }
+
     #[test]
     fn favorites_keep_their_order_and_go_with_their_folder() {
         let mut s = Store::new();
