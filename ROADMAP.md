@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-04 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts; M6.1 MCP server (`ibercorreo-cli mcp`)
+Status: 2026-11-12 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -283,6 +283,15 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   addresses, company, title, birthday, web page, notes). Each calendar or contacts folder of the
   archive becomes a local calendar or address book of the same name; a second import adds
   nothing. Tasks, notes and contact groups are counted and left out.
+- 2026-11-12 — M5.3 (engine, CLI): taking everything out. `ibercorreo-mime::archive` writes a
+  message for keeping (no sender or recipient needed, the formatted body as a `text/html`
+  alternative, read and flagged states for mail programs) and mbox files (mboxrd);
+  `ibercorreo-engine::export` writes the whole store to a new folder `Tinta Correo <date>`:
+  `Mail/<account>/<folder>.mbox`, `Calendars/*.ics`, `Contacts/*.vcf`, never over existing
+  files, names safe on every system. Command `folder.exportMbox` returns a folder as mbox text;
+  `ibercorreo-cli export --store FILE DIR`. The window button follows the redesign (#69). Outlook
+  migration guide `docs/outlook-migration.md` (uk/es/en). Linux: the AppImage carries update
+  information and gets an `.AppImage.zsync` for delta updates, as in the other Tinta apps.
 
 ## Revision history
 - 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;
@@ -345,3 +354,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
 - 2026-10-22 — M2.4.
+- 2026-11-12 — M5.3 export (engine, CLI), migration guide, AppImage zsync.

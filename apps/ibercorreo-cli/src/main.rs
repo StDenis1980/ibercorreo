@@ -10,6 +10,9 @@
 //!                                                 (named after the archive's folders); without
 //!                                                 --store, lists what it holds without keeping it
 //! ibercorreo-cli ics FILE.ics                     the events in a calendar file as JSON
+//! ibercorreo-cli export --store FILE DIR           everything into a new folder in DIR: each mail
+//!                                                 folder as .mbox, each calendar as .ics, each
+//!                                                 address book as .vcf
 //! ibercorreo-cli sync --store FILE [--account ID] [--ca CERT.der]
 //!                                                 Send/Receive for one of the store's accounts
 //!                                                 (the first, or ID from account.list; set it
@@ -79,7 +82,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | pst FILE [--store FILE] [--account ID] | ics FILE | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH] | mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | pst FILE [--store FILE] [--account ID] | ics FILE | export --store FILE DIR | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH] | mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N]"
     );
     ExitCode::from(2)
 }
@@ -121,6 +124,7 @@ fn main() -> ExitCode {
             None => return usage(),
         },
         Some("pst") => pst(args.get(1..).unwrap_or(&[])),
+        Some("export") => export(args.get(1..).unwrap_or(&[])),
         Some("run") => run(args.get(1..).unwrap_or(&[])),
         Some("sync") => sync(args.get(1..).unwrap_or(&[])),
         Some("autoconfig") => autoconfig(args.get(1..).unwrap_or(&[])),
@@ -195,6 +199,31 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         s.run("file.save", &Value::Null).map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+/// Writes everything in a store to a new folder (`ibercorreo_engine::export`).
+fn export(args: &[String]) -> Result<(), String> {
+    let mut store_path = None;
+    let mut dir = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--store" => store_path = Some(PathBuf::from(it.next().ok_or("--store needs a file")?)),
+            other if dir.is_none() && !other.starts_with("--") => dir = Some(PathBuf::from(other)),
+            other => return Err(format!("export: unexpected {other}")),
+        }
+    }
+    let store_path = store_path.ok_or("export needs --store FILE")?;
+    let dir = dir.ok_or("export needs a folder to write to")?;
+    let store = Store::load(&store_path).map_err(|e| format!("{}: {e}", store_path.display()))?;
+    let today = now().date.to_string();
+    let r = ibercorreo_engine::export::write_all(&store, &dir, &today, |done, total| eprint!("\r{done}/{total}")).map_err(|e| e.to_string())?;
+    eprintln!();
+    print(&json!({
+        "folder": r.dir.display().to_string(), "mailboxes": r.mailboxes, "messages": r.messages, "calendars": r.calendars,
+        "events": r.events, "books": r.books, "contacts": r.contacts, "failed": r.failed
+    }));
     Ok(())
 }
 
