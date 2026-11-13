@@ -1,6 +1,6 @@
 # Перехід з Outlook на Tinta Correo · De Outlook a Tinta Correo · Moving from Outlook
 
-Status: 2026-11-12 · Tinta Correo 0.2 (Preview 4 in progress): `.msg`, `.pst` (mail, calendars,
+Status: 2026-11-13 · Tinta Correo 0.2 (Preview 4 in progress): `.msg`, `.pst` (mail, calendars,
 contacts) and export to mbox / iCalendar / vCard.
 
 - [Українською](#українською)
@@ -61,7 +61,8 @@ contacts) and export to mbox / iCalendar / vCard.
 - `Calendars/<календар>.ics`: календарі для Outlook, Google Calendar, Apple Calendar;
 - `Contacts/<адресна книга>.vcf`: контакти для Outlook, Google Contacts, Apple Contacts.
 
-Поки що це робиться з командного рядка (кнопка у вікні з'явиться в Preview 4):
+У вікні: кнопка **Експортувати все** внизу лівої смужки, над шестернею, → **Експортувати**. Папка
+з'являється в «Документах»; **Відкрити папку експорту** відкриває її. Те саме з командного рядка:
 
 ```sh
 ibercorreo-cli export --store "%APPDATA%\Iber Correo\store.json" "%USERPROFILE%\Documents"
@@ -116,8 +117,9 @@ Compárelo con Outlook y no borre el `.pst` hasta estar seguro de que está todo
 Sus datos no quedan encerrados. La exportación escribe todo en una carpeta nueva
 `Tinta Correo <fecha>`, sin sobrescribir nada: `Mail/…/*.mbox` (Thunderbird con ImportExportTools
 NG, Apple Mail, Evolution), `Calendars/*.ics` (Outlook, Google Calendar, Apple Calendar) y
-`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). De momento se hace desde la línea de
-comandos (el botón en la ventana llega en la Preview 4):
+`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). En la ventana: el botón **Exportar todo**
+abajo en la barra izquierda, sobre el engranaje, → **Exportar**; la carpeta aparece en Documentos y
+**Abrir la carpeta exportada** la abre. Lo mismo desde la línea de comandos:
 
 ```sh
 ibercorreo-cli export --store "%APPDATA%\Iber Correo\store.json" "%USERPROFILE%\Documents"
@@ -169,8 +171,9 @@ with Outlook, and keep the `.pst` until you are sure everything is there.
 Your data is not locked in. The export writes everything to a new folder `Tinta Correo <date>`
 and never overwrites anything: `Mail/<account>/<folder>.mbox` (Thunderbird with ImportExportTools
 NG, Apple Mail, Evolution), `Calendars/*.ics` (Outlook, Google Calendar, Apple Calendar) and
-`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). For now it runs from the command line
-(a button in the window comes with Preview 4):
+`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). In the window: the **Export everything**
+button at the foot of the left rail, above the gear, → **Export**; the folder appears in Documents
+and **Open the exported folder** opens it. The same from the command line:
 
 ```sh
 ibercorreo-cli export --store "%APPDATA%\Iber Correo\store.json" "%USERPROFILE%\Documents"
@@ -182,3 +185,4 @@ On macOS the store is `~/Library/Application Support/Iber Correo/store.json`, on
 
 ## Revision history
 - 2026-11-12 — created (M5.3): moving from Outlook, and export, in Ukrainian, Spanish and English.
+- 2026-11-13 — the Export everything button in the window.

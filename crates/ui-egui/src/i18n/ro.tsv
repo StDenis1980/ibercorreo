@@ -367,3 +367,9 @@
 	Show only this calendar	Afișează doar acest calendar
 	Show all calendars	Afișează toate calendarele
 	https://dav.example.org (optional)	https://dav.example.org (opțional)
+	Export everything	Exportă tot
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Toată poșta (un fișier .mbox pentru fiecare dosar), calendarele (.ics) și contactele (.vcf) sunt scrise într-un dosar nou din Documente. Thunderbird, Apple Mail, Outlook și Google le pot importa. Nimic din ce există deja nu este suprascris.
+	Attachment files are not included: Tinta Correo keeps only their names.	Fișierele atașate nu sunt incluse: Tinta Correo păstrează doar numele lor.
+	Export	Exportă
+	Exporting…	Se exportă…
+	Open the exported folder	Deschide dosarul exportat

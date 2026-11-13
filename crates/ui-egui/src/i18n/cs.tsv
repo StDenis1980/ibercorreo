@@ -367,3 +367,9 @@
 	Show only this calendar	Zobrazit jen tento kalendář
 	Show all calendars	Zobrazit všechny kalendáře
 	https://dav.example.org (optional)	https://dav.example.org (volitelné)
+	Export everything	Exportovat vše
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Veškerá pošta (jeden soubor .mbox pro každou složku), kalendáře (.ics) a kontakty (.vcf) se uloží do nové složky v Dokumentech. Thunderbird, Apple Mail, Outlook a Google je umí importovat. Nic, co tam už je, se nepřepíše.
+	Attachment files are not included: Tinta Correo keeps only their names.	Soubory příloh nejsou zahrnuty: Tinta Correo uchovává jen jejich názvy.
+	Export	Exportovat
+	Exporting…	Exportuje se…
+	Open the exported folder	Otevřít exportovanou složku

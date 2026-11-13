@@ -362,3 +362,9 @@
 	Show only this calendar	Показати лише цей календар
 	Show all calendars	Показати всі календарі
 	https://dav.example.org (optional)	https://dav.example.org (необов’язково)
+	Export everything	Експортувати все
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Уся пошта (окремий файл .mbox для кожної папки), календарі (.ics) і контакти (.vcf) записуються в нову папку в «Документах». Їх можна імпортувати в Thunderbird, Apple Mail, Outlook і Google. Наявні там файли не перезаписуються.
+	Attachment files are not included: Tinta Correo keeps only their names.	Файлів вкладень там не буде: Tinta Correo зберігає лише їхні назви.
+	Export	Експортувати
+	Exporting…	Експорт…
+	Open the exported folder	Відкрити папку експорту

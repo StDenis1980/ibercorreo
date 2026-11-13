@@ -8,6 +8,7 @@
 
 mod body_text;
 mod chrome;
+mod export_ui;
 pub mod i18n;
 pub mod icons;
 pub mod theme;
@@ -538,6 +539,8 @@ pub struct App {
     body: body_text::BodyText,
     /// Addresses to open in the browser, for the shell.
     links: Vec<String>,
+    /// Export everything: asked, being written, the last folder written.
+    export: export_ui::ExportState,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -780,6 +783,7 @@ impl App {
             main_width: 0.0,
             body: body_text::BodyText::default(),
             links: Vec::new(),
+            export: export_ui::ExportState::default(),
             last_calendar: None,
             invite: None,
             content: None,

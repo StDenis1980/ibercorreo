@@ -368,3 +368,9 @@
 	Show only this calendar	Afficher uniquement cet agenda
 	Show all calendars	Afficher tous les agendas
 	https://dav.example.org (optional)	https://dav.example.org (facultatif)
+	Export everything	Tout exporter
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Tout le courrier (un fichier .mbox par dossier), les calendriers (.ics) et les contacts (.vcf) sont enregistrés dans un nouveau dossier de Documents. Thunderbird, Apple Mail, Outlook et Google peuvent les importer. Rien de ce qui s'y trouve déjà n'est écrasé.
+	Attachment files are not included: Tinta Correo keeps only their names.	Les pièces jointes ne sont pas incluses : Tinta Correo n'en garde que les noms.
+	Export	Exporter
+	Exporting…	Exportation…
+	Open the exported folder	Ouvrir le dossier exporté

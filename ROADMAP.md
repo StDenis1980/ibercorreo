@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-12 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree)
+Status: 2026-11-13 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -307,6 +307,10 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Outlook's (borderless rows, a letter's shape as a hint); the status bar ends in a size slider;
   Send feedback, error reports and the interface language sit in the title bar.
 
+- 2026-11-13 — M5.3 in the window: **Export everything** at the foot of the rail writes the
+  whole mailbox to a new folder in Documents (the home folder without one; the app's data folder
+  inside Flatpak) on another thread, with progress in the status bar, then opens the folder.
+
 ## Revision history
 - 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;
   `docs/mcp.md`). Tools for mail (list, search, read, drafts, replies, forwards, flags, move,
@@ -381,3 +385,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-10-22 — M2.3.
 - 2026-10-22 — M2.4.
 - 2026-11-12 — M5.3 export (engine, CLI), migration guide, AppImage zsync.
+- 2026-11-13 — M5.3 Export everything button.

@@ -366,3 +366,9 @@
 	Show only this calendar	Erakutsi egutegi hau soilik
 	Show all calendars	Erakutsi egutegi guztiak
 	https://dav.example.org (optional)	https://dav.example.org (aukerakoa)
+	Export everything	Esportatu dena
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Posta guztia (karpeta bakoitzeko .mbox fitxategi bat), egutegiak (.ics) eta kontaktuak (.vcf) Dokumentuak barruko karpeta berri batean gordetzen dira. Thunderbird, Apple Mail, Outlook eta Googlek inporta ditzakete. Lehendik dagoen ezer ez da gainidazten.
+	Attachment files are not included: Tinta Correo keeps only their names.	Eranskinen fitxategiak ez dira sartzen: Tinta Correok haien izenak soilik gordetzen ditu.
+	Export	Esportatu
+	Exporting…	Esportatzen…
+	Open the exported folder	Ireki esportatutako karpeta
