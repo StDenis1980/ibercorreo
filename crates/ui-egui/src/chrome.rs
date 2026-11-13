@@ -653,7 +653,8 @@ impl App {
         }
     }
 
-    /// The rail: the app's mark, then Mail, Calendar and People; Account settings at the foot.
+    /// The rail: the app's mark, then Mail, Calendar and People; Export everything and Account
+    /// settings at the foot.
     pub(crate) fn rail(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         ui.vertical_centered(|ui| {
@@ -680,10 +681,12 @@ impl App {
                 }
                 ui.add_space(8.0);
             }
-            let space = ui.available_height() - 52.0;
+            let space = ui.available_height() - 104.0;
             if space > 0.0 {
                 ui.add_space(space);
             }
+            crate::export_ui::rail_button(self, ui);
+            ui.add_space(8.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(44.0, 44.0), Sense::click());
             if resp.hovered() {
                 ui.painter().rect_filled(rect, 10.0, t.accent_soft.gamma_multiply(0.7));
