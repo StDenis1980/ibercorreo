@@ -53,6 +53,20 @@ const STANDARD_FOLDERS: [(&str, FolderRole); 7] = [
     ("Trash", FolderRole::Trash),
 ];
 
+/// The colour themes, by id: each tints the window and the accent (the colours themselves are the
+/// interface's). The first is the default.
+pub const THEMES: &[&str] = &["teal", "terracotta", "sea", "lavender", "olive", "azulejo"];
+
+/// The interface's size in percent unless the person chose otherwise (View › Size): a little
+/// larger than egui's own, which reads small on desktop screens.
+pub const DEFAULT_ZOOM: u16 = 110;
+/// The most folded things in the folder pane the mailbox keeps, and the longest name of one.
+pub const MAX_FOLDED: usize = 2000;
+pub const MAX_FOLDED_LEN: usize = 1024;
+
+/// The smallest and largest interface sizes, in percent.
+pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 80..=200;
+
 /// Minutes between automatic Send/Receives unless the person chose otherwise.
 pub const DEFAULT_SYNC_MINUTES: u32 = 5;
 /// The longest period that can be chosen: a day.
@@ -90,6 +104,29 @@ pub struct Store {
     /// [`DEFAULT_SYNC_MINUTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_minutes: Option<u32>,
+    /// The colour theme (an id from [`THEMES`]), chosen by the person; `None` the first one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
+    /// Light or dark, chosen by the person (`"light"`, `"dark"`); `None` follows the computer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub appearance: Option<String>,
+    /// The folder pane is hidden (View › Folder pane).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_folder_pane: bool,
+    /// The My Day pane (the coming days' events, beside mail and the calendar) is hidden.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_my_day: bool,
+    /// The interface's size in percent (View › Size); `None` is [`DEFAULT_ZOOM`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<u16>,
+    /// What is folded shut in the folder pane ([`MAX_FOLDED`] at most); `None`: never changed,
+    /// so the pane decides (every account but the open one, with several).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folded: Option<Vec<String>>,
+    /// Calendars whose appointments the calendar views and My Day leave out (their reminders
+    /// still come).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hidden_calendars: Vec<u32>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,
@@ -452,6 +489,11 @@ impl Store {
         self.sync_minutes.unwrap_or(DEFAULT_SYNC_MINUTES).min(MAX_SYNC_MINUTES)
     }
 
+    /// The interface's size in percent, within [`ZOOM_RANGE`].
+    pub fn zoom(&self) -> u16 {
+        self.zoom.unwrap_or(DEFAULT_ZOOM).clamp(*ZOOM_RANGE.start(), *ZOOM_RANGE.end())
+    }
+
     pub fn first_account(&self) -> AccountId {
         self.accounts.first().map(|a| a.id).or_else(|| self.folders.first().map(|f| f.account)).unwrap_or_default()
     }
@@ -807,6 +849,13 @@ impl Store {
     /// Occurrences on `day` as seen in zone `view`, all-day first, then by start time. A
     /// repeating event's occurrence that was changed on its own (`RECURRENCE-ID`) shows as the
     /// changed copy instead.
+    /// [`Store::events_on`] without the calendars hidden from the views.
+    pub fn shown_events_on(&self, day: Date, view: &Zone) -> Vec<Occurrence<'_>> {
+        let mut v = self.events_on(day, view);
+        v.retain(|o| !self.hidden_calendars.contains(&o.event.calendar));
+        v
+    }
+
     pub fn events_on(&self, day: Date, view: &Zone) -> Vec<Occurrence<'_>> {
         let mut v: Vec<Occurrence<'_>> = self
             .events
@@ -1319,6 +1368,41 @@ impl Store {
 mod tests {
     use super::*;
     use ibercorreo_core::{Address, DateTime, RemoteFolder};
+
+    /// The redesign's settings (theme, panes, size, folds, hidden calendars) are kept only when
+    /// set: a store saved before them loads with each at its default, and one that has them
+    /// round-trips. Unknown fields are not refused, so an older Correo opens a newer store too.
+    #[test]
+    fn view_settings_are_optional_in_the_store_file() {
+        const KEYS: [&str; 7] = ["theme", "appearance", "hide_folder_pane", "hide_my_day", "zoom", "folded", "hidden_calendars"];
+        let plain = serde_json::to_value(Store::new()).unwrap();
+        for k in KEYS {
+            assert!(plain.get(k).is_none(), "{k} is written although it is the default");
+        }
+        let older: Store = serde_json::from_value(plain.clone()).unwrap();
+        assert_eq!((older.theme.clone(), older.zoom, older.folded.clone(), older.hidden_calendars.clone()), (None, None, None, Vec::new()));
+        assert!(!older.hide_folder_pane && !older.hide_my_day);
+
+        let mut set = Store::new();
+        set.theme = Some("sea".into());
+        set.appearance = Some("dark".into());
+        set.hide_folder_pane = true;
+        set.hide_my_day = true;
+        set.zoom = Some(130);
+        set.folded = Some(vec!["h:0".into()]);
+        set.hidden_calendars = vec![0];
+        let saved = serde_json::to_value(&set).unwrap();
+        for k in KEYS {
+            assert!(saved.get(k).is_some(), "{k} is not written");
+        }
+        assert_eq!(serde_json::from_value::<Store>(saved.clone()).unwrap(), set);
+
+        let mut newer = saved;
+        if let Some(o) = newer.as_object_mut() {
+            o.insert("a_setting_from_a_later_version".into(), serde_json::json!(true));
+        }
+        assert!(serde_json::from_value::<Store>(newer).is_ok(), "a field it does not know is skipped");
+    }
 
     #[test]
     fn favorites_keep_their_order_and_go_with_their_folder() {

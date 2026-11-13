@@ -1,4 +1,4 @@
-//! Tinta Office: the first-start question about automatic error reports, and the status bar's
+//! Tinta Office: the first-start question about automatic error reports, and the title bar's
 //! Error reports menu that changes it ([`ibercorreo_store::tinta_reports`] keeps the choice in the
 //! store, `file.errorReports` changes it; the desktop app writes and sends the reports). Both show
 //! only in builds that can send reports: the desktop app sets [`App::error_reports_dir`] then.
@@ -7,6 +7,7 @@ use egui::{RichText, Ui};
 use serde_json::json;
 
 use crate::App;
+use crate::chrome::{self, Kind, Part};
 use crate::i18n::{tf, tl};
 
 pub(crate) const TITLE: &str = "Send error reports automatically?";
@@ -34,51 +35,58 @@ pub(crate) fn first_start(app: &mut App, ctx: &egui::Context) {
     if !asks(app) {
         return;
     }
-    egui::Modal::new(egui::Id::new("tinta.errorReports")).show(ctx, |ui| {
-        ui.set_max_width(460.0);
-        ui.label(RichText::new(tl(TITLE)).strong().size(17.0));
-        ui.add_space(8.0);
-        ui.label(tl(WHAT));
-        ui.add_space(6.0);
-        ui.label(RichText::new(tl(RIGHTS)).small().weak());
-        ui.add_space(12.0);
-        ui.horizontal(|ui| {
-            if ui.button(tl(YES)).clicked() {
+    let t = app.tokens;
+    chrome::modal_dialog(ctx, &t, "tinta.errorReports", tl(TITLE), 500.0, None, |ui, part| match part {
+        Part::Body => {
+            ui.label(tl(WHAT));
+            ui.add_space(8.0);
+            ui.label(RichText::new(tl(RIGHTS)).small().color(t.text_weak));
+        }
+        Part::Footer => chrome::footer_right(ui, |ui| {
+            if chrome::button(ui, &t, Kind::Primary, None, YES, true).clicked() {
                 app.run("file.errorReports", json!({"value": true}));
             }
-            if ui.button(tl(NO)).clicked() {
+            if chrome::button(ui, &t, Kind::Secondary, None, NO, true).clicked() {
                 app.run("file.errorReports", json!({"value": false}));
             }
-        });
+        }),
     });
 }
 
-/// The status bar's Error reports menu.
+/// The title bar's Error reports menu.
 pub(crate) fn menu(app: &mut App, ui: &mut Ui) {
     let Some(dir) = app.error_reports_dir.clone() else { return };
     let r = app.session.store.error_reports.clone();
     let mut action = None;
-    ui.menu_button(RichText::new(tl(SECTION)).small(), |ui| {
-        ui.set_max_width(420.0);
+    let t = app.tokens;
+    app.icon_menu(ui, crate::icons::Icon::Report, tl(SECTION), |ui| {
+        ui.set_max_width(400.0);
+        chrome::menu_title(ui, &t, tl(SECTION));
         let mut on = r.consent == Some(true);
         if ui.checkbox(&mut on, tl(CHECKBOX)).changed() {
             action = Some(json!({"value": on}));
         }
-        ui.label(RichText::new(tl(WHAT)).small().weak());
-        ui.label(RichText::new(tl(RIGHTS)).small().weak());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(tl(WHAT)).small().color(t.text_weak)).wrap());
+        ui.add_space(4.0);
+        ui.add(egui::Label::new(RichText::new(tl(RIGHTS)).small().color(t.text_weak)).wrap());
         if !r.install_id.is_empty() {
-            ui.label(RichText::new(tf(ID, &[("id", &r.install_id)])).small().monospace());
-        }
-        if ui.add_enabled(!r.install_id.is_empty(), egui::Button::new(tl(FORGET))).clicked() {
-            action = Some(json!({"forget": true}));
+            ui.add_space(4.0);
+            ui.label(RichText::new(tf(ID, &[("id", &r.install_id)])).small().monospace().color(t.text_weak));
         }
         if r.forget_pending.is_some() {
-            ui.label(RichText::new(tl(PENDING)).small().weak());
+            ui.add(egui::Label::new(RichText::new(tl(PENDING)).small().color(t.text_weak)).wrap());
         }
-        if ui.button(tl(FOLDER)).clicked() {
-            let _ = std::fs::create_dir_all(&dir);
-            ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
-        }
+        ui.add_space(6.0);
+        ui.horizontal_wrapped(|ui| {
+            if chrome::button(ui, &t, Kind::Quiet, None, FOLDER, true).clicked() {
+                let _ = std::fs::create_dir_all(&dir);
+                ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
+            }
+            if chrome::button(ui, &t, Kind::Danger, Some(crate::icons::Icon::Trash), FORGET, !r.install_id.is_empty()).clicked() {
+                action = Some(json!({"forget": true}));
+            }
+        });
     });
     if let Some(params) = action {
         app.run("file.errorReports", params);
