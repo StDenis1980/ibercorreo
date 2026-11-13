@@ -7,6 +7,7 @@
 //! header value can carry a line break (header injection). A meeting invitation's `text/calendar`
 //! part is kept in [`Message::invite`]; a message carrying one is written as
 //! `multipart/alternative` with the calendar as its second part (iMIP, RFC 6047).
+//! [`archive`] writes messages for keeping outside the app: `.eml` text and mbox files.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -16,6 +17,7 @@ use ibercorreo_core::mail::{Attachment, MAX_INVITE_BYTES};
 use ibercorreo_core::{Address, Content, Date, DateTime, Error, FolderId, MAX_FIELD_LEN, Message, MessageId, Result, clamp_text};
 use mail_parser::{MessageParser, MimeHeaders, PartType};
 
+pub mod archive;
 pub mod html;
 
 /// Largest message read: 64 MiB, above what common servers accept (Gmail 25 MB, Exchange Online 150 MB is rare).

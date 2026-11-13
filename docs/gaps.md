@@ -136,11 +136,14 @@ Status: 2026-11-12 · Pick from the top.
     RTF, M5.1b), and the attachment list. The mail of a `.pst` archive imports into local folders
     named after the archive's (M5.2), opened with the app or dropped on the window and read in
     the background; an imported folder can be deleted. Its calendars and contacts become local
-    calendars and address books (M5.2b), with recurring series and their exceptions. Missing: the
-    tasks, notes and contact groups of a `.pst`, meeting attendees, Hijri-calendar series, `.ost` files, the formatting of mail written as RTF
-    (its text is shown), contacts, appointments and tasks saved as `.msg`, opening an attached
-    message, Outlook rules (`.rwz`), a File > Open dialog, a Linux file type for `.pst`, and
-    export.
+    calendars and address books (M5.2b), with recurring series and their exceptions. Everything
+    exports to mbox, iCalendar and vCard (M5.3, engine and CLI), and `docs/outlook-migration.md`
+    guides the move. Missing: attachment files (only names and sizes are kept, for `.pst`, `.msg`
+    and the mbox export alike), an export button in the window (after the redesign), the
+    tasks, notes and contact groups of a `.pst`, meeting attendees, Hijri-calendar series, `.ost`
+    files, the formatting of mail written as RTF (its text is shown), contacts, appointments and
+    tasks saved as `.msg`, opening an attached message, Outlook rules (`.rwz`), a File > Open
+    dialog, a Linux file type for `.pst`, and writing `.pst`.
 
 ## Revision history
 - 2026-10-22 — created with M0.
@@ -183,4 +186,5 @@ Status: 2026-11-12 · Pick from the top.
 - 2026-11-03 — gap 17: `.pst` from the window, dropped files.
 - 2026-11-03 — gap 17: `.pst` calendar and contacts.
 - 2026-11-06 — gap 1: folders the server no longer lists are unlinked; standard folders re-link.
+- 2026-11-12 — gap 17: export to mbox/iCalendar/vCard, migration guide.
 - 2026-11-12 — gaps 1 and 2 narrowed (M6.2): folder tree with folds kept; plain-text links; whole-message selection.

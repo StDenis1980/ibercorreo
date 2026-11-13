@@ -268,6 +268,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: import_pst,
     },
     CommandSpec {
+        id: "folder.exportMbox",
+        label: "Export folder (.mbox)",
+        group: "File/Save",
+        shortcut: None,
+        params: "folder?: number — default: the current folder\nreturns { mbox: string — the folder's mail, oldest first, as an mbox file (mboxrd) that Thunderbird, Apple Mail and Evolution import; messages: number; failed: number — messages whose text could not be read }",
+        edits: false,
+        run: export_mbox,
+    },
+    CommandSpec {
         id: "search.messages",
         label: "Search",
         group: "Home/Find",
@@ -1285,22 +1294,13 @@ fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body, signed: true, quoted: &quote(&orig, &text) })
 }
 
-fn rfc5322_date(dt: DateTime) -> String {
-    const DAYS: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    let d = dt.date;
-    let day = DAYS.get(usize::from(d.weekday().index())).copied().unwrap_or("Mon");
-    let month = MONTHS.get(usize::from(d.month()).saturating_sub(1)).copied().unwrap_or("Jan");
-    format!("{day}, {} {month} {:04} {:02}:{:02}:{:02} +0000", d.day(), d.year(), dt.hour(), dt.minute(), dt.second())
-}
-
 /// The message as RFC 5322 text. The `Message-ID` is made from the message's id and its date, so
 /// rendering the same queued message twice gives the same bytes (what is sent is what is saved).
 pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     let m = s.store.message(id)?;
     let from = m.from.clone().unwrap_or_else(|| the_user(s, s.store.account_of(m.folder).unwrap_or_default()));
     let when = m.date.unwrap_or_else(|| s.now());
-    let date = rfc5322_date(when);
+    let date = ibercorreo_mime::archive::date_header(when);
     let unique = format!("{}.{:05}.{}.ibercorreo", when.date.day_number(), u32::from(when.minute_of_day()) * 60 + u32::from(when.second()), id.0);
     let content = s.store.content(id)?;
     ibercorreo_mime::write(m, &content, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
@@ -2084,6 +2084,12 @@ fn import_ics(s: &mut Session, p: &Value) -> Result<Value> {
     let r = s.store.import_ics(text, cal)?;
     s.status = format!("Imported {} new and {} updated events", r.added, r.updated);
     serde_json::to_value(&r).map_err(|e| Error::invalid("report", e.to_string()))
+}
+
+fn export_mbox(s: &mut Session, p: &Value) -> Result<Value> {
+    let folder = folder_param(s, p, "folder")?.unwrap_or(s.folder);
+    let (mbox, messages, failed) = crate::export::mbox(&s.store, folder)?;
+    Ok(json!({ "mbox": mbox, "messages": messages, "failed": failed }))
 }
 
 fn export_ics(s: &mut Session, p: &Value) -> Result<Value> {

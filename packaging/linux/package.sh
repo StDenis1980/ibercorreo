@@ -2,6 +2,7 @@
 # Build and package Tinta Correo for Linux (x86_64 or aarch64):
 #
 #   $DIST/tinta-correo-<version>-linux-<arch>.AppImage  any distro with glibc >= the build's
+#   $DIST/tinta-correo-<version>-linux-<arch>.AppImage.zsync  delta updates (needs zsyncmake)
 #   $DIST/tinta-correo-<version>-linux-<arch>.deb       Debian, Ubuntu, Mint, Pop!_OS, ...
 #   $DIST/tinta-correo-<version>-linux-<arch>.rpm       Fedora, openSUSE, RHEL, ...
 #   $DIST/tinta-correo-<version>-linux-<arch>.tar.gz    plain FHS-style tree (bin/, share/)
@@ -20,7 +21,7 @@
 #
 # Needs: cargo; nfpm for deb/rpm (https://nfpm.goreleaser.com); curl for appimagetool, which is
 # downloaded (pinned) into $CARGO_TARGET_DIR when it is not on PATH. Optional:
-# desktop-file-validate, appstreamcli.
+# desktop-file-validate, appstreamcli, zsyncmake (the zsync package) for the AppImage's .zsync.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HERE="$ROOT/packaging/linux"
@@ -36,7 +37,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-build) SKIP_BUILD=1; shift ;;
     --formats) FORMATS="$2"; shift 2 ;;
-    -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -163,10 +164,25 @@ if has appimage; then
   APPDIR="$(cd "$APPDIR" && pwd)"
   TOOL="$(cd "$(dirname "$TOOL")" && pwd)/$(basename "$TOOL")"
   RUNTIME="$(cd "$(dirname "$RUNTIME")" && pwd)/$(basename "$RUNTIME")"
+  # A .zsync left by an earlier run would hide a missing zsyncmake and describe another file.
+  rm -f "$OUT.zsync"
+  # Update information: AppImageUpdate, AppImageLauncher and the like read it from the file and
+  # fetch only the blocks that changed in a newer release, through the .zsync published next to
+  # each AppImage on GitHub Releases. `latest` is the newest release that is not a pre-release.
+  # A fork's builds point at its own releases through GITHUB_REPOSITORY.
+  REPO="${GITHUB_REPOSITORY:-StDenis1980/ibercorreo}"
+  UPDATE_INFO="gh-releases-zsync|${REPO%%/*}|${REPO#*/}|latest|$SLUG-*-linux-$ARCH.AppImage.zsync"
   # Extract-and-run: works without FUSE (containers, CI). The output embeds the static runtime,
-  # so users don't need libfuse2 either.
-  (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream --runtime-file "$RUNTIME" "$APPDIR" "$OUT")
+  # so users don't need libfuse2 either. With zsyncmake on the host appimagetool also writes the
+  # .zsync, into its working directory, hence the cd.
+  (cd "$DIST" && ARCH="$ARCH" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOL" --no-appstream \
+    --runtime-file "$RUNTIME" -u "$UPDATE_INFO" "$APPDIR" "$OUT")
   echo "wrote $OUT"
+  if [[ -s "$OUT.zsync" ]]; then
+    echo "wrote $OUT.zsync"
+  else
+    echo "warning: zsyncmake not found, so $OUT.zsync was not written; AppImage delta updates need it" >&2
+  fi
 fi
 
 if [[ -z "${CROSS_TARGET:-}" || "$CROSS_TARGET" = "$(uname -m)-unknown-linux-gnu" ]]; then
