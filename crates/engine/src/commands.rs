@@ -227,7 +227,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Read message",
         group: "Message/Actions",
         shortcut: None,
-        params: "id?: number — the message with its text, its formatted body made safe (`rich`) when it has HTML, and `contentHash` (what message.send checks)",
+        params: "id?: number — the message with its text, its formatted body made safe (`rich`) when it has HTML, `attachmentList` (index, name, type, size, and `kept` with its `sha256` when Tinta Correo keeps the file) and `contentHash` (what message.send checks)",
         edits: false,
         run: message_read,
     },
@@ -1319,14 +1319,22 @@ fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
         let rich = content.rich.as_ref().map(serde_json::to_value).transpose().map_err(|e| Error::invalid("message", e.to_string()))?;
         o.insert("rich".into(), rich.unwrap_or(Value::Null));
         o.insert("invite".into(), invite_info(s, m, &content).map(|i| i.to_json()).unwrap_or(Value::Null));
-        o.insert(
-            "attachmentList".into(),
-            json!(m.attachments.iter().map(|a| json!({ "name": a.name, "type": a.mime_type, "size": a.size })).collect::<Vec<_>>()),
-        );
+        o.insert("attachmentList".into(), json!(m.attachments.iter().enumerate().map(|(i, a)| attachment_json(i, a)).collect::<Vec<_>>()));
         o.insert("account".into(), json!(s.store.account_of(m.folder)?.0));
         o.insert("contentHash".into(), json!(content_hash(s, id)?));
     }
     Ok(v)
+}
+
+/// One of a message's attachments as `message.read` lists it: its place in the list (`index`),
+/// name, type, size, and whether Tinta Correo keeps its contents (`kept`, with their `sha256`,
+/// the name of its file beside the mailbox: `ibercorreo_store::files`).
+fn attachment_json(index: usize, a: &ibercorreo_core::mail::Attachment) -> Value {
+    let mut v = json!({ "index": index, "name": a.name, "type": a.mime_type, "size": a.size, "kept": a.sha256.is_some() });
+    if let (Some(o), Some(h)) = (v.as_object_mut(), &a.sha256) {
+        o.insert("sha256".into(), json!(h));
+    }
+    v
 }
 
 fn view_plain_text(s: &mut Session, p: &Value) -> Result<Value> {

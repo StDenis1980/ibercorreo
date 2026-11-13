@@ -1,6 +1,6 @@
 # Tinta Correo — milestones
 
-Status: 2026-11-12 · Current focus: M5 (Outlook migration); M6.1 MCP server landed early for Vilna OS
+Status: 2026-11-13 · Current focus: M5 (Outlook migration); M6.1 MCP server landed early for Vilna OS
 
 | Milestone | Scope | State |
 |---|---|---|
@@ -10,7 +10,7 @@ Status: 2026-11-12 · Current focus: M5 (Outlook migration); M6.1 MCP server lan
 | M3 | OAuth2 sign-in (Microsoft 365, Gmail), autodiscovery (RFC 6186, Mozilla ISPDB format), full-text search index, rules and filters, signatures, multiple accounts | in progress: autoconfiguration and IDLE (M3.1), OAuth2 for Gmail and Microsoft 365 (M3.2), several accounts (M3.3), the full-text search index (M3.4), rules (M3.5) done; Outlook.com checked; Gmail by app password, Google verification after the public release |
 | M4 | Exchange. Microsoft Graph first, since Exchange Online switches EWS off (from 2026-10, fully 2027-04-01): the Graph client and token (M4.1), the Outlook calendar (M4.2), contacts (M4.3), mail for work accounts without IMAP (M4.4); then EWS for on-premises Exchange (M4.5, Thunderbird's MPL-2.0 `ews` crate, unmodified) | in progress: M4.1 (Graph client, Graph consent in the Microsoft sign-in) M4.2 (Outlook calendars, both ways), M4.3 (Outlook contacts, both ways), M4.4 (mail over Graph for work accounts without IMAP) and M4.5a (mail over EWS for on-premises Exchange, password sign-in) done; M4.5b (Autodiscover, EWS calendars and contacts both ways) done; M4.5c (NTLM sign-in) done |
 | M5 | Migration from Outlook: import `.pst` and `.msg` (Microsoft Open Specifications MS-PST, MS-OXMSG); export; installers (Windows, macOS, Linux); user guide complete | Windows MSI done early (#20); Linux deb/rpm/AppImage and a Flatpak bundle manifest (`packaging/linux/flatpak-bundle.sh`, tintaoffice-web#14) done; M5.1 `.msg` import and M5.1b compressed-RTF bodies done; M5.2 `.pst` mail done (window, CLI); M5.2b `.pst` calendar and contacts done; M5.3 export (engine, CLI) and the Outlook migration guide (`docs/outlook-migration.md`) done, the window button after the redesign; AppImage `.zsync` done; macOS installer open |
-| M6 | MCP server (agent control), PGP/S-MIME (including signing mail with an FNMT certificate), accessibility pass, translations | translations done early (uk, es, ca, gl, eu, it, fr, de, pl: #24–#27; native review pending); MCP server done early (M6.1, `docs/mcp.md`, for Vilna OS); the rest open |
+| M6 | MCP server (agent control), PGP/S-MIME (including signing mail with an FNMT certificate), accessibility pass, translations | translations done early (uk, es, ca, gl, eu, it, fr, de, pl: #24–#27; native review pending); MCP server done early (M6.1, `docs/mcp.md`, for Vilna OS; `save_attachment` M6.1b); the rest open |
 
 ## Current focus
 M3: autoconfiguration and IDLE (M3.1), OAuth2 sign-in for Gmail and Microsoft 365 (M3.2) and several accounts with Favorites, signatures and Bcc (M3.3) landed, and so did the full-text search index with Outlook-style queries and scopes (M3.4) and mail rules (M3.5). Next, in order:
@@ -100,3 +100,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-03 — Suite plan revision 2: M5 finishes in November, real Exchange check and memory in stage 2.
 - 2026-11-03 — Owner decisions recorded: Preview 3 on 12 November, Certum signing from January, beta sign-up form on tintaoffice.com/beta.
 - 2026-11-12 — M5.3 export (engine, CLI), migration guide, AppImage zsync landed.
+- 2026-11-13 — M6.1b: attachment contents kept, `save_attachment` over MCP (Vilna OS #33 item 5).

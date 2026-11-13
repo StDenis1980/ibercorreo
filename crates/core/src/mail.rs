@@ -398,6 +398,11 @@ pub struct Attachment {
     pub name: String,
     pub mime_type: String,
     pub size: usize,
+    /// Tinta: the SHA-256 of the contents (64 lowercase hex digits) when the store keeps them in
+    /// its attachment files (`ibercorreo_store::files`); `None` for mail that arrived before
+    /// contents were kept, or a file too large to keep.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// What a message says, apart from its headers, so a store can leave it on disk until it is read.

@@ -11,6 +11,7 @@ ibercorreo-ical.workspace = true
 ibercorreo-mime.workspace = true
 ibercorreo-vcard.workspace = true
 serde.workspace = true
+sha2 = "0.11"
 serde_json = { workspace = true, features = ["raw_value"] }
 
 [lints]

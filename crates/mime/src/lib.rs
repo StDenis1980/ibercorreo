@@ -29,6 +29,16 @@ const MAX_ATTACHMENTS: usize = 1_000;
 
 /// Read `raw` as one message placed in `folder` under `id`.
 pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
+    read(raw, id, folder, false).map(|(m, _)| m)
+}
+
+/// [`parse`], and the contents of the message's attachments, one per [`Message::attachments`]
+/// entry in the same order (decoded from their transfer encoding).
+pub fn parse_with_files(raw: &[u8], id: MessageId, folder: FolderId) -> Result<(Message, Vec<Vec<u8>>)> {
+    read(raw, id, folder, true)
+}
+
+fn read(raw: &[u8], id: MessageId, folder: FolderId, keep_files: bool) -> Result<(Message, Vec<Vec<u8>>)> {
     if raw.len() > MAX_MESSAGE_BYTES {
         return Err(Error::TooLarge { what: "message", size: raw.len(), limit: MAX_MESSAGE_BYTES });
     }
@@ -51,12 +61,16 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
         _ => parsed.body_text(0).map(|b| b.into_owned()).unwrap_or_default(),
     };
     let body = clamp_text(&body.replace("\r\n", "\n"), MAX_BODY_BYTES).to_string();
-    m.attachments = parsed
+    let parts: Vec<&mail_parser::MessagePart<'_>> = parsed
         .attachments()
         // An invitation's calendar sent as an alternative to the text is not a file (it is kept
         // in `invite` below); one attached under a name still shows.
         .filter(|part| part.attachment_name().is_some() || !is_calendar(part))
         .take(MAX_ATTACHMENTS)
+        .collect();
+    let files = if keep_files { parts.iter().map(|part| part.contents().to_vec()).collect() } else { Vec::new() };
+    m.attachments = parts
+        .iter()
         .map(|part| Attachment {
             name: clamp_text(part.attachment_name().unwrap_or("attachment"), 1024).to_string(),
             mime_type: part
@@ -67,10 +81,11 @@ pub fn parse(raw: &[u8], id: MessageId, folder: FolderId) -> Result<Message> {
                 })
                 .unwrap_or_else(|| "application/octet-stream".into()),
             size: part.contents().len(),
+            sha256: None,
         })
         .collect();
     m.set_content(Arc::new(Content { body, rich, invite: invite(&parsed) }));
-    Ok(m)
+    Ok((m, files))
 }
 
 fn is_calendar(part: &mail_parser::MessagePart<'_>) -> bool {
