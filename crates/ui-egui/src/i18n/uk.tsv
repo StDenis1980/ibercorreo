@@ -309,3 +309,62 @@
 	Every minute	Щохвилини
 	Every {n} min	Кожні {n} хв
 	How often Tinta Correo sends and receives on its own	Як часто Tinta Correo надсилає й отримує пошту сам
+	Address books	Адресні книги
+	All contacts	Усі контакти
+	Azulejo	Азулежу
+	Back	Назад
+	Contacts	Контакти
+	Dark	Темний
+	Hide My Day	Сховати «Мій день»
+	Hide the folder pane	Сховати панель папок
+	Lavender	Лаванда
+	Light	Світлий
+	Mode	Режим
+	Move	Перемістити
+	My Day	Мій день
+	New Contact	Новий контакт
+	New Email	Новий лист
+	Next month	Наступний місяць
+	Nothing in the coming days	Найближчими днями нічого немає
+	Olive	Оливка
+	Previous month	Попередній місяць
+	Redo (Ctrl+Y)	Повторити (Ctrl+Y)
+	Same as the computer	Як у системі
+	Sea	Море
+	Send/Receive	Надіслати/отримати
+	Sending and receiving…	Надсилання й отримання…
+	Show My Day	Показати «Мій день»
+	Show the folder pane	Показати панель папок
+	Syncing…	Синхронізація…
+	Teal	Бірюза
+	Terracotta	Теракота
+	Theme	Тема
+	Title and company	Посада й компанія
+	Tomorrow	Завтра
+	Undo (Ctrl+Z)	Скасувати (Ctrl+Z)
+	Size	Розмір
+	Smaller (Ctrl+-)	Менше (Ctrl+-)
+	Larger (Ctrl+=)	Більше (Ctrl+=)
+	Reset	Скинути
+	Hide subfolders	Сховати вкладені папки
+	Show subfolders	Показати вкладені папки
+	Back to {percent} % (Ctrl+0)	Повернути {percent} % (Ctrl+0)
+	Hello {name},	Добрий день, {name},
+	Hello,	Добрий день,
+	Write your message here…	Напишіть тут своє повідомлення…
+	Kind regards,	З повагою,
+	Close	Закрити
+	Account	Обліковий запис
+	Sign-in	Вхід
+	Copy	Копіювати
+	Copy all	Копіювати все
+	Show or hide this calendar	Показати або сховати цей календар
+	Show only this calendar	Показати лише цей календар
+	Show all calendars	Показати всі календарі
+	https://dav.example.org (optional)	https://dav.example.org (необов’язково)
+	Export everything	Експортувати все
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Уся пошта (окремий файл .mbox для кожної папки), календарі (.ics) і контакти (.vcf) записуються в нову папку в «Документах». Їх можна імпортувати в Thunderbird, Apple Mail, Outlook і Google. Наявні там файли не перезаписуються.
+	Attachment files are not included: Tinta Correo keeps only their names.	Файлів вкладень там не буде: Tinta Correo зберігає лише їхні назви.
+	Export	Експортувати
+	Exporting…	Експорт…
+	Open the exported folder	Відкрити папку експорту

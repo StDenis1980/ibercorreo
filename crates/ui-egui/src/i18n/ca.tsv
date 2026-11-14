@@ -313,3 +313,62 @@
 	Every minute	Cada minut
 	Every {n} min	Cada {n} min
 	How often Tinta Correo sends and receives on its own	Cada quant Tinta Correo envia i rep pel seu compte
+	Address books	Llibretes d'adreces
+	All contacts	Tots els contactes
+	Azulejo	Rajola
+	Back	Enrere
+	Contacts	Contactes
+	Dark	Fosc
+	Hide My Day	Amaga El meu dia
+	Hide the folder pane	Amaga el plafó de carpetes
+	Lavender	Lavanda
+	Light	Clar
+	Mode	Mode
+	Move	Mou
+	My Day	El meu dia
+	New Contact	Contacte nou
+	New Email	Correu nou
+	Next month	Mes següent
+	Nothing in the coming days	Res als propers dies
+	Olive	Oliva
+	Previous month	Mes anterior
+	Redo (Ctrl+Y)	Refés (Ctrl+Y)
+	Same as the computer	Com l'ordinador
+	Sea	Mar
+	Send/Receive	Envia i rep
+	Sending and receiving…	S'està enviant i rebent…
+	Show My Day	Mostra El meu dia
+	Show the folder pane	Mostra el plafó de carpetes
+	Syncing…	S'està sincronitzant…
+	Teal	Turquesa
+	Terracotta	Terracota
+	Theme	Tema
+	Title and company	Càrrec i empresa
+	Tomorrow	Demà
+	Undo (Ctrl+Z)	Desfés (Ctrl+Z)
+	Size	Mida
+	Smaller (Ctrl+-)	Més petit (Ctrl+-)
+	Larger (Ctrl+=)	Més gran (Ctrl+=)
+	Reset	Restableix
+	Hide subfolders	Amaga les subcarpetes
+	Show subfolders	Mostra les subcarpetes
+	Back to {percent} % (Ctrl+0)	Torna a {percent} % (Ctrl+0)
+	Hello {name},	Hola, {name}:
+	Hello,	Hola:
+	Write your message here…	Escriu aquí el teu missatge…
+	Kind regards,	Salutacions,
+	Close	Tanca
+	Account	Compte
+	Sign-in	Inici de sessió
+	Copy	Copia
+	Copy all	Copia-ho tot
+	Show or hide this calendar	Mostra o amaga aquest calendari
+	Show only this calendar	Mostra només aquest calendari
+	Show all calendars	Mostra tots els calendaris
+	https://dav.example.org (optional)	https://dav.example.org (opcional)
+	Export everything	Exporta-ho tot
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Tot el correu (un fitxer .mbox per carpeta), els calendaris (.ics) i els contactes (.vcf) es desen en una carpeta nova dins de Documents. Thunderbird, Apple Mail, Outlook i Google els poden importar. No se sobreescriu res del que ja hi ha.
+	Attachment files are not included: Tinta Correo keeps only their names.	No s'hi inclouen els fitxers adjunts: Tinta Correo només en desa els noms.
+	Export	Exporta
+	Exporting…	S'està exportant…
+	Open the exported folder	Obre la carpeta exportada

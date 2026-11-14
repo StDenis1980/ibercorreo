@@ -315,3 +315,62 @@
 	Every minute	Jede Minute
 	Every {n} min	Alle {n} Min.
 	How often Tinta Correo sends and receives on its own	Wie oft Tinta Correo von selbst sendet und empfängt
+	Address books	Adressbücher
+	All contacts	Alle Kontakte
+	Azulejo	Azulejo
+	Back	Zurück
+	Contacts	Kontakte
+	Dark	Dunkel
+	Hide My Day	Mein Tag ausblenden
+	Hide the folder pane	Ordnerbereich ausblenden
+	Lavender	Lavendel
+	Light	Hell
+	Mode	Modus
+	Move	Verschieben
+	My Day	Mein Tag
+	New Contact	Neuer Kontakt
+	New Email	Neue E-Mail
+	Next month	Nächster Monat
+	Nothing in the coming days	Nichts in den nächsten Tagen
+	Olive	Oliv
+	Previous month	Vorheriger Monat
+	Redo (Ctrl+Y)	Wiederholen (Strg+Y)
+	Same as the computer	Wie der Computer
+	Sea	Meer
+	Send/Receive	Senden/Empfangen
+	Sending and receiving…	Senden und Empfangen…
+	Show My Day	Mein Tag einblenden
+	Show the folder pane	Ordnerbereich einblenden
+	Syncing…	Synchronisieren…
+	Teal	Petrol
+	Terracotta	Terrakotta
+	Theme	Design
+	Title and company	Position und Firma
+	Tomorrow	Morgen
+	Undo (Ctrl+Z)	Rückgängig (Strg+Z)
+	Size	Größe
+	Smaller (Ctrl+-)	Kleiner (Strg+-)
+	Larger (Ctrl+=)	Größer (Strg+=)
+	Reset	Zurücksetzen
+	Hide subfolders	Unterordner ausblenden
+	Show subfolders	Unterordner einblenden
+	Back to {percent} % (Ctrl+0)	Zurück auf {percent} % (Strg+0)
+	Hello {name},	Hallo {name},
+	Hello,	Hallo,
+	Write your message here…	Schreiben Sie hier Ihre Nachricht…
+	Kind regards,	Viele Grüße,
+	Close	Schließen
+	Account	Konto
+	Sign-in	Anmeldung
+	Copy	Kopieren
+	Copy all	Alles kopieren
+	Show or hide this calendar	Diesen Kalender ein- oder ausblenden
+	Show only this calendar	Nur diesen Kalender anzeigen
+	Show all calendars	Alle Kalender anzeigen
+	https://dav.example.org (optional)	https://dav.example.org (optional)
+	Export everything	Alles exportieren
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Alle E-Mails (eine .mbox-Datei pro Ordner), Kalender (.ics) und Kontakte (.vcf) werden in einen neuen Ordner unter Dokumente geschrieben. Thunderbird, Apple Mail, Outlook und Google können sie importieren. Vorhandenes wird nicht überschrieben.
+	Attachment files are not included: Tinta Correo keeps only their names.	Anhänge sind nicht enthalten: Tinta Correo speichert nur ihre Namen.
+	Export	Exportieren
+	Exporting…	Wird exportiert…
+	Open the exported folder	Exportierten Ordner öffnen

@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-13 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`), with `save_attachment`
+Status: 2026-11-13 · M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -301,6 +301,24 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   lists `save_attachment`, which writes a kept attachment to a new file inside a root: links and
   `..` that lead out are refused, an existing file is never replaced, no network is needed.
 
+- 2026-11-12 — M6.2 finished, after Denys's test builds 1–13 on Windows: every dialog
+  (Account settings, Rules, New appointment, Send feedback, the error-report question,
+  reminders) in one frame with a title row, a footer that stays in sight and a body that scrolls
+  when short of room; forms as headed groups of rows; filled text fields with a line at their foot;
+  one button in three kinds (main with a gentle gradient, second, quiet) and a warning one. No
+  lines between panes. The side panes give way to the main one (My Day first, then the list and
+  the folder pane shrink, then the folder pane folds), and a pane asked for grows the window. The
+  folder pane is a tree of subfolders, its folds kept in the mailbox (`view.folded`). The reading
+  pane keeps its own text selection, so a whole message can be selected past the pane's edge,
+  with Ctrl+A, Ctrl+C, Copy and Copy all. Addresses in plain-text mail are links (`rich::linkify`).
+  Calendars are shown and hidden from the calendar pane (`calendar.show`). The message form is
+  Outlook's (borderless rows, a letter's shape as a hint); the status bar ends in a size slider;
+  Send feedback, error reports and the interface language sit in the title bar.
+
+- 2026-11-13 — M5.3 in the window: **Export everything** at the foot of the rail writes the
+  whole mailbox to a new folder in Documents (the home folder without one; the app's data folder
+  inside Flatpak) on another thread, with progress in the status bar, then opens the folder.
+
 ## Revision history
 - 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;
   `docs/mcp.md`). Tools for mail (list, search, read, drafts, replies, forwards, flags, move,
@@ -322,6 +340,16 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   into a folder of its own, and folds a standard folder into the one already mirroring the server's
   Sent/Trash… (RFC 6154, else by name), with its Favorites place and rules. Sent copies are saved
   only to a mailbox the server lists.
+- 2026-11-05 — New look, after Outlook for macOS with our own icons: search in the title bar,
+  a light rail (Mail, Calendar, People, settings), a pane of folders, calendars or address books
+  with its New button, one row of labelled tools per view, white cards on a window washed with the
+  theme's colour, and My Day (month and the coming days) on the right of Mail and Calendar. Six
+  colour themes (teal, terracotta, sea, lavender, olive, azulejo), each light or dark or as the
+  computer (`view.theme`), and buttons that hide the folder pane and My Day (`view.folderPane`,
+  `view.myDay`); all kept in the mailbox. People is a table of contacts beside the contact card.
+  Sizes after Fluent 2 (14 px text, 12 px captions, controls 28 px and up, a 4 px grid), dialogs
+  and menus in the theme's colours, and the interface's size (`view.zoom`, 80–200 %, 110 % by
+  default; Ctrl+= / Ctrl+- / Ctrl+0, or Size in the theme menu).
 - 2026-10-22 — created.
 - 2026-10-22 — M1.1.
 - 2026-10-22 — M1.2.
@@ -358,9 +386,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-03 — M5.2b .pst calendar and contacts.
 - 2026-11-04 — M6.1 MCP server.
 - 2026-11-04 — contacts in GNOME (EDS); Send/Receive period.
+- 2026-11-05 — new look after Outlook for macOS; colour themes; hideable panes.
+- 2026-11-12 — M6.2 finished: dialogs, buttons, folder tree, selection, plain-text links, calendars shown and hidden.
 - 2026-10-22 — M2.1.
 - 2026-10-22 — M2.2.
 - 2026-10-22 — M2.3.
 - 2026-10-22 — M2.4.
 - 2026-11-12 — M5.3 export (engine, CLI), migration guide, AppImage zsync.
+- 2026-11-13 — M5.3 Export everything button.
 - 2026-11-13 — M6.1b `save_attachment`, attachment contents kept.

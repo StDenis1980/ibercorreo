@@ -314,3 +314,62 @@
 	Every minute	Každou minutu
 	Every {n} min	Každých {n} min
 	How often Tinta Correo sends and receives on its own	Jak často Tinta Correo sám odesílá a přijímá poštu
+	Address books	Adresáře
+	All contacts	Všechny kontakty
+	Azulejo	Azulejo
+	Back	Zpět
+	Contacts	Kontakty
+	Dark	Tmavý
+	Hide My Day	Skrýt Můj den
+	Hide the folder pane	Skrýt podokno složek
+	Lavender	Levandule
+	Light	Světlý
+	Mode	Režim
+	Move	Přesunout
+	My Day	Můj den
+	New Contact	Nový kontakt
+	New Email	Nový e-mail
+	Next month	Další měsíc
+	Nothing in the coming days	V příštích dnech nic
+	Olive	Olivová
+	Previous month	Předchozí měsíc
+	Redo (Ctrl+Y)	Znovu (Ctrl+Y)
+	Same as the computer	Podle systému
+	Sea	Moře
+	Send/Receive	Odeslat/přijmout
+	Sending and receiving…	Odesílání a přijímání…
+	Show My Day	Zobrazit Můj den
+	Show the folder pane	Zobrazit podokno složek
+	Syncing…	Synchronizace…
+	Teal	Tyrkysová
+	Terracotta	Terakota
+	Theme	Motiv
+	Title and company	Funkce a firma
+	Tomorrow	Zítra
+	Undo (Ctrl+Z)	Zpět (Ctrl+Z)
+	Size	Velikost
+	Smaller (Ctrl+-)	Menší (Ctrl+-)
+	Larger (Ctrl+=)	Větší (Ctrl+=)
+	Reset	Obnovit
+	Hide subfolders	Skrýt podsložky
+	Show subfolders	Zobrazit podsložky
+	Back to {percent} % (Ctrl+0)	Zpět na {percent} % (Ctrl+0)
+	Hello {name},	Dobrý den, {name},
+	Hello,	Dobrý den,
+	Write your message here…	Sem napište svou zprávu…
+	Kind regards,	S pozdravem,
+	Close	Zavřít
+	Account	Účet
+	Sign-in	Přihlášení
+	Copy	Kopírovat
+	Copy all	Kopírovat vše
+	Show or hide this calendar	Zobrazit nebo skrýt tento kalendář
+	Show only this calendar	Zobrazit jen tento kalendář
+	Show all calendars	Zobrazit všechny kalendáře
+	https://dav.example.org (optional)	https://dav.example.org (volitelné)
+	Export everything	Exportovat vše
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Veškerá pošta (jeden soubor .mbox pro každou složku), kalendáře (.ics) a kontakty (.vcf) se uloží do nové složky v Dokumentech. Thunderbird, Apple Mail, Outlook a Google je umí importovat. Nic, co tam už je, se nepřepíše.
+	Attachment files are not included: Tinta Correo keeps only their names.	Soubory příloh nejsou zahrnuty: Tinta Correo uchovává jen jejich názvy.
+	Export	Exportovat
+	Exporting…	Exportuje se…
+	Open the exported folder	Otevřít exportovanou složku

@@ -358,6 +358,52 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: language,
     },
     CommandSpec {
+        id: "view.theme",
+        label: "Theme",
+        group: "View/Appearance",
+        shortcut: None,
+        params: "theme?: teal, terracotta, sea, lavender, olive or azulejo; mode?: light, dark or system — default: just say which are chosen",
+        // Saved, but not undone: Undo is for mail.
+        edits: false,
+        run: theme,
+    },
+    CommandSpec {
+        id: "view.folderPane",
+        label: "Folder Pane",
+        group: "View/Layout",
+        shortcut: None,
+        params: "visible?: true or false — default: show it if hidden, hide it if shown",
+        edits: false,
+        run: |s, p| toggle_pane(s, p, Pane::Folders),
+    },
+    CommandSpec {
+        id: "view.folded",
+        label: "Folded in the folder pane",
+        group: "View/Layout",
+        shortcut: None,
+        params: "keys?: [string] — what is folded shut in the folder pane, as the window names it (accounts, Favorites, folders with subfolders); replaces what was kept — default: just say it",
+        edits: false,
+        run: folded,
+    },
+    CommandSpec {
+        id: "view.myDay",
+        label: "My Day",
+        group: "View/Layout",
+        shortcut: None,
+        params: "visible?: true or false — default: show it if hidden, hide it if shown",
+        edits: false,
+        run: |s, p| toggle_pane(s, p, Pane::MyDay),
+    },
+    CommandSpec {
+        id: "view.zoom",
+        label: "Size",
+        group: "View/Appearance",
+        shortcut: Some("Ctrl+= / Ctrl+- / Ctrl+0"),
+        params: "percent?: 80–200; step?: 1 (larger) or -1 (smaller), by 10; reset?: true (back to the default) — default: just say the size",
+        edits: false,
+        run: zoom,
+    },
+    CommandSpec {
         id: "file.errorReports",
         label: "Error reports",
         group: "File/Options",
@@ -457,6 +503,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "id?: number, start?: as reminder.list gives it — default: every due reminder\nminutes?: number — default 5, at most a week",
         edits: true,
         run: reminder_snooze,
+    },
+    CommandSpec {
+        id: "calendar.show",
+        label: "Show or hide a calendar",
+        group: "Calendar/Manage Calendars",
+        shortcut: None,
+        params: "id?: number — the calendar; visible?: true or false (default: the other way round); only?: true — show it and hide every other; all?: true — show every calendar",
+        edits: false,
+        run: calendar_show,
     },
     CommandSpec {
         id: "calendar.list",
@@ -1706,6 +1761,114 @@ fn language(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "language": s.store.language.as_deref().unwrap_or("auto"), "followsSystem": s.store.language.is_none() }))
 }
 
+/// The colour theme and light or dark: saved with the person's other choices, not undone.
+fn theme(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::THEMES;
+    let before = (s.store.theme.clone(), s.store.appearance.clone());
+    if let Some(t) = str_param(p, "theme")? {
+        let t = t.trim().to_ascii_lowercase();
+        let Some(id) = THEMES.iter().find(|id| **id == t) else {
+            return Err(Error::invalid("theme", format!("one of {}", THEMES.join(", "))));
+        };
+        s.store.theme = (Some(id) != THEMES.first()).then(|| (*id).to_string());
+    }
+    if let Some(m) = str_param(p, "mode")? {
+        s.store.appearance = match m.trim().to_ascii_lowercase().as_str() {
+            "light" => Some("light".to_string()),
+            "dark" => Some("dark".to_string()),
+            "system" | "auto" | "" => None,
+            _ => return Err(Error::invalid("mode", "light, dark or system")),
+        };
+    }
+    if (s.store.theme.clone(), s.store.appearance.clone()) != before {
+        s.dirty = true;
+    }
+    Ok(json!({
+        "theme": s.store.theme.as_deref().unwrap_or(THEMES.first().copied().unwrap_or_default()),
+        "mode": s.store.appearance.as_deref().unwrap_or("system"),
+        "themes": THEMES,
+    }))
+}
+
+/// What is folded shut in the folder pane (`keys`, as the window names them); saved, not undone.
+fn folded(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::{MAX_FOLDED, MAX_FOLDED_LEN};
+    if let Some(v) = p.get("keys").filter(|v| !v.is_null()) {
+        let list = v.as_array().ok_or_else(|| Error::invalid("keys", "a list of names"))?;
+        if list.len() > MAX_FOLDED {
+            return Err(Error::invalid("keys", format!("at most {MAX_FOLDED}")));
+        }
+        let mut keys = Vec::with_capacity(list.len());
+        for k in list {
+            match k.as_str() {
+                Some(k) if !k.is_empty() && k.len() <= MAX_FOLDED_LEN => keys.push(k.to_string()),
+                _ => return Err(Error::invalid("keys", format!("names of 1 to {MAX_FOLDED_LEN} bytes"))),
+            }
+        }
+        keys.sort();
+        keys.dedup();
+        if s.store.folded.as_ref() != Some(&keys) {
+            s.store.folded = Some(keys);
+            s.dirty = true;
+        }
+    }
+    Ok(json!({ "keys": s.store.folded, "kept": s.store.folded.is_some() }))
+}
+
+/// The interface's size (`percent`, a `step` of 10, or `reset`); saved, not undone.
+fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
+    use ibercorreo_store::{DEFAULT_ZOOM, ZOOM_RANGE};
+    let (lo, hi) = (*ZOOM_RANGE.start(), *ZOOM_RANGE.end());
+    let before = s.store.zoom;
+    let mut size = s.store.zoom();
+    if bool_param(p, "reset")?.unwrap_or(false) {
+        size = DEFAULT_ZOOM;
+    }
+    if let Some(v) = p.get("percent").filter(|v| !v.is_null()) {
+        let n = v.as_f64().or_else(|| v.as_str().and_then(|t| t.trim().trim_end_matches('%').trim().parse().ok()));
+        match n {
+            Some(n) if n.is_finite() && n >= f64::from(lo) && n <= f64::from(hi) => size = n.round() as u16,
+            _ => return Err(Error::invalid("percent", format!("a number from {lo} to {hi}"))),
+        }
+    }
+    if let Some(v) = p.get("step").filter(|v| !v.is_null()) {
+        let step = v.as_i64().ok_or_else(|| Error::invalid("step", "1 or -1"))?;
+        // Round to the tens first, so a step from 115 lands on 120 or 110.
+        let tens = (i64::from(size) + 5) / 10 * 10;
+        let next = tens.saturating_add(step.signum().saturating_mul(10)).clamp(i64::from(lo), i64::from(hi));
+        size = u16::try_from(next).unwrap_or(DEFAULT_ZOOM);
+    }
+    s.store.zoom = (size != DEFAULT_ZOOM).then_some(size);
+    if s.store.zoom != before {
+        s.dirty = true;
+    }
+    Ok(json!({ "percent": size, "default": DEFAULT_ZOOM, "min": lo, "max": hi }))
+}
+
+/// The panes that can be hidden.
+enum Pane {
+    Folders,
+    MyDay,
+}
+
+/// Shows or hides a pane (`visible`), or turns it over; saved, not undone.
+fn toggle_pane(s: &mut Session, p: &Value, pane: Pane) -> Result<Value> {
+    let hidden = match pane {
+        Pane::Folders => &mut s.store.hide_folder_pane,
+        Pane::MyDay => &mut s.store.hide_my_day,
+    };
+    let was = *hidden;
+    *hidden = match bool_param(p, "visible")? {
+        Some(v) => !v,
+        None => !was,
+    };
+    let visible = !*hidden;
+    if *hidden != was {
+        s.dirty = true;
+    }
+    Ok(json!({ "visible": visible }))
+}
+
 /// Tinta Office: whether error reports may be sent. The desktop app asks at the first start and
 /// sends; this keeps the answer with the person's other choices in the store.
 fn error_reports(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1859,9 +2022,39 @@ fn calendar_list(s: &mut Session, _: &Value) -> Result<Value> {
         s.store
             .calendars()
             .iter()
-            .map(|c| json!({ "id": c.id, "name": c.name, "color": c.color, "server": c.remote.as_ref().map(|r| r.href.clone()) }))
+            .map(|c| {
+                let shown = !s.store.hidden_calendars.contains(&c.id);
+                json!({ "id": c.id, "name": c.name, "color": c.color, "server": c.remote.as_ref().map(|r| r.href.clone()), "shown": shown })
+            })
             .collect(),
     ))
+}
+
+/// Show or hide calendars in the calendar views and My Day; saved, not undone.
+fn calendar_show(s: &mut Session, p: &Value) -> Result<Value> {
+    let before = s.store.hidden_calendars.clone();
+    if bool_param(p, "all")?.unwrap_or(false) {
+        s.store.hidden_calendars.clear();
+    } else {
+        let id = u64_param(p, "id")?.ok_or_else(|| Error::invalid("id", "a calendar"))?;
+        let id = u32::try_from(id).map_err(|_| Error::invalid("id", "a calendar"))?;
+        s.store.calendar(id)?;
+        if bool_param(p, "only")?.unwrap_or(false) {
+            s.store.hidden_calendars = s.store.calendars().iter().map(|c| c.id).filter(|c| *c != id).collect();
+        } else {
+            let shown = !s.store.hidden_calendars.contains(&id);
+            if bool_param(p, "visible")?.unwrap_or(!shown) {
+                s.store.hidden_calendars.retain(|c| *c != id);
+            } else if shown {
+                s.store.hidden_calendars.push(id);
+            }
+        }
+    }
+    s.store.hidden_calendars.sort_unstable();
+    if s.store.hidden_calendars != before {
+        s.dirty = true;
+    }
+    Ok(json!({ "hidden": s.store.hidden_calendars }))
 }
 
 fn event_delete(s: &mut Session, p: &Value) -> Result<Value> {

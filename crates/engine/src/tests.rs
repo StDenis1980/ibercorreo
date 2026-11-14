@@ -251,6 +251,105 @@ fn day_week_and_month_views_step_and_list_their_range() {
 }
 
 #[test]
+fn theme_and_mode_are_saved_not_undone_and_refuse_unknown_values() {
+    let mut s = session();
+    let out = s.run("view.theme", &Value::Null).unwrap();
+    assert_eq!((out["theme"].as_str(), out["mode"].as_str()), (Some("teal"), Some("system")));
+    assert!(!s.dirty, "asking changes nothing");
+    let out = s.run("view.theme", &json!({"theme": " Terracotta ", "mode": "dark"})).unwrap();
+    assert_eq!((out["theme"].as_str(), out["mode"].as_str()), (Some("terracotta"), Some("dark")));
+    assert_eq!((s.store.theme.as_deref(), s.store.appearance.as_deref()), (Some("terracotta"), Some("dark")));
+    assert!(s.dirty, "saved with the store");
+    assert!(!s.can_undo(), "Undo is for mail");
+    for bad in [json!({"theme": "neon"}), json!({"theme": 3}), json!({"mode": "sepia"}), json!({"theme": "sea", "mode": "x"})] {
+        assert!(s.run("view.theme", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.theme.as_deref(), Some("terracotta"), "a refused theme changes nothing");
+    s.run("view.theme", &json!({"theme": "teal", "mode": "system"})).unwrap();
+    assert_eq!((s.store.theme.as_ref(), s.store.appearance.as_ref()), (None, None), "the default is kept as none");
+}
+
+#[test]
+fn folder_pane_and_my_day_turn_over_or_take_a_value() {
+    let mut s = session();
+    assert_eq!(s.run("view.folderPane", &Value::Null).unwrap()["visible"], false);
+    assert!(s.store.hide_folder_pane && s.dirty);
+    assert_eq!(s.run("view.folderPane", &Value::Null).unwrap()["visible"], true);
+    assert_eq!(s.run("view.myDay", &json!({"visible": false})).unwrap()["visible"], false);
+    assert_eq!(s.run("view.myDay", &json!({"visible": false})).unwrap()["visible"], false, "a value is not a toggle");
+    assert!(s.store.hide_my_day && !s.store.hide_folder_pane);
+    assert!(s.run("view.myDay", &json!({"visible": "yes"})).is_err());
+    assert!(!s.can_undo());
+}
+
+#[test]
+fn calendars_are_shown_and_hidden_saved_not_undone() {
+    let mut s = session();
+    let first = s.store.calendars().first().map(|c| c.id).unwrap();
+    let second = s.store.add_calendar("Birthdays", "#c0392b", None).unwrap();
+    let hidden = s.run("calendar.show", &json!({ "id": second })).unwrap();
+    assert_eq!(hidden["hidden"], json!([second]), "a click hides a shown calendar");
+    assert!(s.dirty && !s.can_undo());
+    let listed = s.run("calendar.list", &Value::Null).unwrap();
+    assert_eq!(listed.as_array().unwrap().iter().map(|c| c["shown"].clone()).collect::<Vec<_>>(), [json!(true), json!(false)]);
+    s.run("calendar.show", &json!({ "id": second })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty(), "and shows it again");
+    s.run("calendar.show", &json!({ "id": second, "visible": true })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty(), "visible: true keeps it shown");
+    s.run("calendar.show", &json!({ "id": second, "only": true })).unwrap();
+    assert_eq!(s.store.hidden_calendars, [first]);
+    s.run("calendar.show", &json!({ "all": true })).unwrap();
+    assert!(s.store.hidden_calendars.is_empty());
+    for bad in [json!({}), json!({ "id": 999 }), json!({ "id": -1 }), json!({ "id": "x" })] {
+        assert!(s.run("calendar.show", &bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn what_is_folded_in_the_folder_pane_is_saved_not_undone() {
+    let mut s = session();
+    let asked = s.run("view.folded", &Value::Null).unwrap();
+    assert_eq!((asked["keys"].clone(), asked["kept"].clone()), (Value::Null, json!(false)));
+    assert!(!s.dirty, "asking changes nothing");
+    let set = s.run("view.folded", &json!({ "keys": ["t:0:clients", "h:4294967295", "t:0:clients"] })).unwrap();
+    assert_eq!(set["keys"], json!(["h:4294967295", "t:0:clients"]), "sorted, once each");
+    assert!(s.dirty && !s.can_undo());
+    s.dirty = false;
+    s.run("view.folded", &json!({ "keys": ["t:0:clients", "h:4294967295"] })).unwrap();
+    assert!(!s.dirty, "the same again changes nothing");
+    s.run("view.folded", &json!({ "keys": [] })).unwrap();
+    assert_eq!(s.store.folded, Some(Vec::new()), "nothing folded is kept too: the pane no longer decides");
+    let long = "x".repeat(ibercorreo_store::MAX_FOLDED_LEN + 1);
+    let many: Vec<String> = (0..=ibercorreo_store::MAX_FOLDED).map(|n| n.to_string()).collect();
+    for bad in [json!({"keys": "t:0:a"}), json!({"keys": [1]}), json!({"keys": [""]}), json!({"keys": [long]}), json!({ "keys": many })] {
+        assert!(s.run("view.folded", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.folded, Some(Vec::new()), "a refused list changes nothing");
+}
+
+#[test]
+fn interface_size_steps_by_ten_stays_in_range_and_is_saved_not_undone() {
+    let mut s = session();
+    assert_eq!(s.run("view.zoom", &Value::Null).unwrap()["percent"], 110);
+    assert!(!s.dirty, "asking changes nothing");
+    assert_eq!(s.run("view.zoom", &json!({"step": 1})).unwrap()["percent"], 120);
+    assert_eq!(s.store.zoom, Some(120));
+    assert!(s.dirty && !s.can_undo());
+    assert_eq!(s.run("view.zoom", &json!({"percent": "115%"})).unwrap()["percent"], 115);
+    assert_eq!(s.run("view.zoom", &json!({"step": -1})).unwrap()["percent"], 110, "115 rounds to 120, then down");
+    assert_eq!(s.store.zoom, None, "the default is not stored");
+    assert_eq!(s.run("view.zoom", &json!({"percent": 200, "step": 5})).unwrap()["percent"], 200, "never past the largest");
+    assert_eq!(s.run("view.zoom", &json!({"percent": 80, "step": -1})).unwrap()["percent"], 80, "never below the smallest");
+    for bad in [json!({"percent": 79}), json!({"percent": 201}), json!({"percent": "big"}), json!({"percent": f64::MAX}), json!({"step": "up"})] {
+        assert!(s.run("view.zoom", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.zoom(), 80, "a refused size changes nothing");
+    assert_eq!(s.run("view.zoom", &json!({"reset": true})).unwrap()["percent"], 110);
+    s.store.zoom = Some(9999);
+    assert_eq!(s.store.zoom(), 200, "a hand-edited size is kept in range");
+}
+
+#[test]
 fn interface_language_is_chosen_normalised_and_follows_the_computer_by_default() {
     let mut s = session();
     assert_eq!(s.run("app.language", &Value::Null).unwrap()["language"], "auto");

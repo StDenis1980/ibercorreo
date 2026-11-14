@@ -58,6 +58,17 @@ fn now() -> DateTime {
     DateTime::from_unix(i64::try_from(secs).unwrap_or(0)).unwrap_or(DateTime::midnight(Date::EPOCH))
 }
 
+/// Where Export everything writes: the Documents folder (also where OneDrive keeps it on
+/// Windows), else the home folder. Inside Flatpak, which grants no folder outside the app's own,
+/// an `Exports` folder in the app's data folder, which the file manager opens from outside.
+fn export_parent(env: &dyn Fn(&str) -> Option<PathBuf>, is_dir: &dyn Fn(&std::path::Path) -> bool) -> Option<PathBuf> {
+    if env("FLATPAK_ID").is_some() {
+        return ibercorreo_engine::instance::data_dir().map(|d| d.join("Exports"));
+    }
+    let home = env("USERPROFILE").filter(|_| cfg!(windows)).or_else(|| env("HOME"))?;
+    [home.join("Documents"), home.join("OneDrive").join("Documents")].into_iter().find(|d| is_dir(d)).or(Some(home))
+}
+
 /// Where the store lives (`ibercorreo_engine::instance::data_dir`, shared with the CLI).
 fn data_dir() -> Option<PathBuf> {
     ibercorreo_engine::instance::data_dir()
@@ -110,6 +121,15 @@ struct Shell {
     /// Outlook data files to import, one at a time, and the one being read.
     pst_queue: Vec<PathBuf>,
     pst: Option<PstImport>,
+    /// Export everything, being written on another thread.
+    export: Option<Receiver<ExportEvent>>,
+}
+
+/// What the export thread reports.
+enum ExportEvent {
+    /// Messages written, out of how many there are.
+    Wrote(usize, usize),
+    Done(Result<ibercorreo_engine::export::Report, String>),
 }
 
 /// An Outlook data file (`.pst`) read on another thread: archives run to gigabytes.
@@ -745,6 +765,80 @@ impl Shell {
         }
     }
 
+    /// Start Export everything when the window asks (a copy of the store is written on another
+    /// thread, so mail keeps working), or take what the running one reports.
+    fn export_all(&mut self) {
+        if self.app.take_export_request() && self.export.is_none() {
+            let Some(parent) = export_parent(&|k| std::env::var_os(k).map(PathBuf::from), &|p| p.is_dir()) else {
+                self.app.session.status = "No folder to export to: neither a home folder nor a data folder is known".into();
+                return;
+            };
+            let store = self.app.session.store.clone();
+            let today = self.app.session.today().to_string();
+            let (tx, rx) = mpsc::channel();
+            let ctx = self.ctx.clone();
+            let spawned = std::thread::Builder::new().name("export".into()).spawn(move || {
+                let wake = || {
+                    if let Some(c) = &ctx {
+                        c.request_repaint();
+                    }
+                };
+                let mut last = 0usize;
+                let result = ibercorreo_engine::export::write_all(&store, &parent, &today, |done, total| {
+                    // A message at a time is too often to wake the window for.
+                    if done == total || done.saturating_sub(last) >= 200 {
+                        last = done;
+                        let _ = tx.send(ExportEvent::Wrote(done, total));
+                        wake();
+                    }
+                });
+                let _ = tx.send(ExportEvent::Done(result.map_err(|e| e.to_string())));
+                wake();
+            });
+            match spawned {
+                Ok(_) => {
+                    self.app.export_started();
+                    self.app.session.status = "Exporting…".into();
+                    self.export = Some(rx);
+                }
+                Err(e) => self.app.session.status = format!("Export: {e}"),
+            }
+        }
+        let Some(rx) = &self.export else { return };
+        let mut done = None;
+        loop {
+            match rx.try_recv() {
+                Ok(ExportEvent::Wrote(n, total)) => self.app.session.status = format!("Exporting: {n} of {total} messages written…"),
+                Ok(ExportEvent::Done(result)) => {
+                    done = Some(result);
+                    break;
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    done = Some(Err("the export stopped unexpectedly".into()));
+                    break;
+                }
+            }
+        }
+        let Some(result) = done else { return };
+        self.export = None;
+        match result {
+            Ok(r) => {
+                let failed = if r.failed > 0 { format!(" ({} messages could not be read)", r.failed) } else { String::new() };
+                // The folder's name only: the whole path would crowd the status bar, and the
+                // export menu opens the folder.
+                let name = r.dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                self.app.session.status =
+                    format!("Exported {} messages, {} events and {} contacts to the folder {name}{failed}", r.messages, r.events, r.contacts);
+                self.app.export_finished(Some(r.dir));
+            }
+            Err(e) => {
+                self.app.session.status = format!("Export: {e}");
+                self.app.export_finished(None);
+            }
+        }
+    }
+
     fn watched(&mut self) {
         let mut gone = Vec::new();
         for (id, w) in &self.watchers {
@@ -921,6 +1015,7 @@ impl eframe::App for Shell {
         self.handed_over(ui.ctx());
         self.dropped(ui.ctx());
         self.pst_import();
+        self.export_all();
         self.finish_save(false);
         self.finish_sync();
         self.watched();
@@ -958,6 +1053,7 @@ impl eframe::App for Shell {
             || self.sign_in.is_some()
             || self.saving.is_some()
             || self.pst.is_some()
+            || self.export.is_some()
             || self.gnome.as_ref().is_some_and(gnome_calendar::Exporter::waiting);
         ui.ctx().request_repaint_after(if busy { Duration::from_millis(200) } else { AUTOSAVE });
         tinta_report::idle();
@@ -1208,6 +1304,7 @@ fn main() -> eframe::Result {
                 settings_open: false,
                 pst_queue,
                 pst: None,
+                export: None,
             }))
         }),
     )
@@ -1241,6 +1338,21 @@ mod tests {
         assert_eq!(ran, ["message.importEml"]);
         assert_eq!(queue, [dir.join("Archive.PST"), dir.join("old.ost")], "once each, in order");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn exports_go_to_documents_else_home() {
+        let home = PathBuf::from("/home/ana");
+        let env = |vars: &'static [(&'static str, &'static str)]| move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| PathBuf::from(v));
+        let unix = env(&[("HOME", "/home/ana"), ("USERPROFILE", "/home/ana")]);
+        let documents = home.join("Documents");
+        let onedrive = home.join("OneDrive").join("Documents");
+        assert_eq!(export_parent(&unix, &|p| p == documents), Some(documents.clone()));
+        assert_eq!(export_parent(&unix, &|p| p == onedrive), Some(onedrive.clone()), "Documents kept by OneDrive");
+        assert_eq!(export_parent(&unix, &|_| false), Some(home.clone()), "no Documents: the home folder");
+        assert_eq!(export_parent(&env(&[]), &|_| true), None);
+        let flatpak = export_parent(&env(&[("HOME", "/home/ana"), ("FLATPAK_ID", "io.github.stdenis1980.ibercorreo")]), &|_| true);
+        assert!(flatpak.as_ref().is_none_or(|p| p.ends_with("Exports") && !p.starts_with(&documents)), "the sandbox's own folder: {flatpak:?}");
     }
 
     #[test]

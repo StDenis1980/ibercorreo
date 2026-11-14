@@ -313,3 +313,62 @@
 	Every minute	Cada minuto
 	Every {n} min	Cada {n} min
 	How often Tinta Correo sends and receives on its own	Cada canto Tinta Correo envía e recibe pola súa conta
+	Address books	Axendas de enderezos
+	All contacts	Todos os contactos
+	Azulejo	Azulexo
+	Back	Atrás
+	Contacts	Contactos
+	Dark	Escuro
+	Hide My Day	Agochar O meu día
+	Hide the folder pane	Agochar o panel de cartafoles
+	Lavender	Lavanda
+	Light	Claro
+	Mode	Modo
+	Move	Mover
+	My Day	O meu día
+	New Contact	Novo contacto
+	New Email	Novo correo
+	Next month	Mes seguinte
+	Nothing in the coming days	Nada nos próximos días
+	Olive	Oliva
+	Previous month	Mes anterior
+	Redo (Ctrl+Y)	Refacer (Ctrl+Y)
+	Same as the computer	Igual que o ordenador
+	Sea	Mar
+	Send/Receive	Enviar e recibir
+	Sending and receiving…	Enviando e recibindo…
+	Show My Day	Amosar O meu día
+	Show the folder pane	Amosar o panel de cartafoles
+	Syncing…	Sincronizando…
+	Teal	Turquesa
+	Terracotta	Terracota
+	Theme	Tema
+	Title and company	Cargo e empresa
+	Tomorrow	Mañá
+	Undo (Ctrl+Z)	Desfacer (Ctrl+Z)
+	Size	Tamaño
+	Smaller (Ctrl+-)	Máis pequeno (Ctrl+-)
+	Larger (Ctrl+=)	Máis grande (Ctrl+=)
+	Reset	Restablecer
+	Hide subfolders	Ocultar subcartafoles
+	Show subfolders	Amosar subcartafoles
+	Back to {percent} % (Ctrl+0)	Volver a {percent} % (Ctrl+0)
+	Hello {name},	Ola, {name}:
+	Hello,	Ola:
+	Write your message here…	Escribe aquí a túa mensaxe…
+	Kind regards,	Saúdos,
+	Close	Pechar
+	Account	Conta
+	Sign-in	Inicio de sesión
+	Copy	Copiar
+	Copy all	Copiar todo
+	Show or hide this calendar	Amosar ou ocultar este calendario
+	Show only this calendar	Amosar só este calendario
+	Show all calendars	Amosar todos os calendarios
+	https://dav.example.org (optional)	https://dav.example.org (opcional)
+	Export everything	Exportar todo
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Todo o correo (un ficheiro .mbox por cartafol), os calendarios (.ics) e os contactos (.vcf) gárdanse nun cartafol novo dentro de Documentos. Thunderbird, Apple Mail, Outlook e Google poden importalos. Non se sobrescribe nada do que xa hai.
+	Attachment files are not included: Tinta Correo keeps only their names.	Non se inclúen os ficheiros anexos: Tinta Correo só garda os seus nomes.
+	Export	Exportar
+	Exporting…	Exportando…
+	Open the exported folder	Abrir o cartafol exportado

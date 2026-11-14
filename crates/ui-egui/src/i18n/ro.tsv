@@ -314,3 +314,62 @@
 	Every minute	În fiecare minut
 	Every {n} min	La fiecare {n} min
 	How often Tinta Correo sends and receives on its own	Cât de des trimite și primește Tinta Correo singur
+	Address books	Agende
+	All contacts	Toate contactele
+	Azulejo	Azulejo
+	Back	Înapoi
+	Contacts	Contacte
+	Dark	Întunecat
+	Hide My Day	Ascunde Ziua mea
+	Hide the folder pane	Ascunde panoul de foldere
+	Lavender	Lavandă
+	Light	Luminos
+	Mode	Mod
+	Move	Mută
+	My Day	Ziua mea
+	New Contact	Contact nou
+	New Email	E-mail nou
+	Next month	Luna următoare
+	Nothing in the coming days	Nimic în zilele următoare
+	Olive	Măsliniu
+	Previous month	Luna anterioară
+	Redo (Ctrl+Y)	Refă (Ctrl+Y)
+	Same as the computer	La fel ca sistemul
+	Sea	Mare
+	Send/Receive	Trimite/primește
+	Sending and receiving…	Se trimite și se primește…
+	Show My Day	Arată Ziua mea
+	Show the folder pane	Arată panoul de foldere
+	Syncing…	Se sincronizează…
+	Teal	Turcoaz
+	Terracotta	Teracotă
+	Theme	Temă
+	Title and company	Funcție și companie
+	Tomorrow	Mâine
+	Undo (Ctrl+Z)	Anulează (Ctrl+Z)
+	Size	Dimensiune
+	Smaller (Ctrl+-)	Mai mic (Ctrl+-)
+	Larger (Ctrl+=)	Mai mare (Ctrl+=)
+	Reset	Resetează
+	Hide subfolders	Ascunde subfolderele
+	Show subfolders	Afișează subfolderele
+	Back to {percent} % (Ctrl+0)	Înapoi la {percent} % (Ctrl+0)
+	Hello {name},	Bună ziua, {name},
+	Hello,	Bună ziua,
+	Write your message here…	Scrie aici mesajul tău…
+	Kind regards,	Cu stimă,
+	Close	Închide
+	Account	Cont
+	Sign-in	Autentificare
+	Copy	Copiază
+	Copy all	Copiază tot
+	Show or hide this calendar	Afișează sau ascunde acest calendar
+	Show only this calendar	Afișează doar acest calendar
+	Show all calendars	Afișează toate calendarele
+	https://dav.example.org (optional)	https://dav.example.org (opțional)
+	Export everything	Exportă tot
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Toată poșta (un fișier .mbox pentru fiecare dosar), calendarele (.ics) și contactele (.vcf) sunt scrise într-un dosar nou din Documente. Thunderbird, Apple Mail, Outlook și Google le pot importa. Nimic din ce există deja nu este suprascris.
+	Attachment files are not included: Tinta Correo keeps only their names.	Fișierele atașate nu sunt incluse: Tinta Correo păstrează doar numele lor.
+	Export	Exportă
+	Exporting…	Se exportă…
+	Open the exported folder	Deschide dosarul exportat

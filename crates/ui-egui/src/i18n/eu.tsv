@@ -313,3 +313,62 @@
 	Every minute	Minuturo
 	Every {n} min	{n} minuturo
 	How often Tinta Correo sends and receives on its own	Zenbatero bidaltzen eta jasotzen duen Tinta Correok bere kabuz
+	Address books	Helbide-liburuak
+	All contacts	Kontaktu guztiak
+	Azulejo	Azulejoa
+	Back	Atzera
+	Contacts	Kontaktuak
+	Dark	Iluna
+	Hide My Day	Ezkutatu Nire eguna
+	Hide the folder pane	Ezkutatu karpeten panela
+	Lavender	Izpilikua
+	Light	Argia
+	Mode	Modua
+	Move	Mugitu
+	My Day	Nire eguna
+	New Contact	Kontaktu berria
+	New Email	Mezu berria
+	Next month	Hurrengo hilabetea
+	Nothing in the coming days	Ezer ez datozen egunetan
+	Olive	Oliba
+	Previous month	Aurreko hilabetea
+	Redo (Ctrl+Y)	Berregin (Ctrl+Y)
+	Same as the computer	Ordenagailuaren berdina
+	Sea	Itsasoa
+	Send/Receive	Bidali eta jaso
+	Sending and receiving…	Bidaltzen eta jasotzen…
+	Show My Day	Erakutsi Nire eguna
+	Show the folder pane	Erakutsi karpeten panela
+	Syncing…	Sinkronizatzen…
+	Teal	Turkesa
+	Terracotta	Terrakota
+	Theme	Gaia
+	Title and company	Kargua eta enpresa
+	Tomorrow	Bihar
+	Undo (Ctrl+Z)	Desegin (Ctrl+Z)
+	Size	Tamaina
+	Smaller (Ctrl+-)	Txikiagoa (Ctrl+-)
+	Larger (Ctrl+=)	Handiagoa (Ctrl+=)
+	Reset	Berrezarri
+	Hide subfolders	Ezkutatu azpikarpetak
+	Show subfolders	Erakutsi azpikarpetak
+	Back to {percent} % (Ctrl+0)	Itzuli {percent} %-ra (Ctrl+0)
+	Hello {name},	Kaixo, {name}:
+	Hello,	Kaixo:
+	Write your message here…	Idatzi hemen zure mezua…
+	Kind regards,	Agur bero bat,
+	Close	Itxi
+	Account	Kontua
+	Sign-in	Saioa hastea
+	Copy	Kopiatu
+	Copy all	Kopiatu dena
+	Show or hide this calendar	Erakutsi edo ezkutatu egutegi hau
+	Show only this calendar	Erakutsi egutegi hau soilik
+	Show all calendars	Erakutsi egutegi guztiak
+	https://dav.example.org (optional)	https://dav.example.org (aukerakoa)
+	Export everything	Esportatu dena
+	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Posta guztia (karpeta bakoitzeko .mbox fitxategi bat), egutegiak (.ics) eta kontaktuak (.vcf) Dokumentuak barruko karpeta berri batean gordetzen dira. Thunderbird, Apple Mail, Outlook eta Googlek inporta ditzakete. Lehendik dagoen ezer ez da gainidazten.
+	Attachment files are not included: Tinta Correo keeps only their names.	Eranskinen fitxategiak ez dira sartzen: Tinta Correok haien izenak soilik gordetzen ditu.
+	Export	Esportatu
+	Exporting…	Esportatzen…
+	Open the exported folder	Ireki esportatutako karpeta

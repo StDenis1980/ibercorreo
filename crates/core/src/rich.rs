@@ -129,6 +129,96 @@ pub fn web_host(s: &str) -> Option<String> {
     (host.contains('.') && !host.contains(char::is_whitespace)).then(|| host.to_string())
 }
 
+/// A run of a plain text: as it is, or an address the text spells out and where it leads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Run<'a> {
+    pub text: &'a str,
+    /// `https://…` (a bare `www.` name gets `https://`), `http://…` or `mailto:…`.
+    pub link: Option<String>,
+}
+
+/// The web addresses (`http://`, `https://`, `www.`) and e-mail addresses in a plain text, so a
+/// reader can follow them. An address starts a word, never inside a longer one, and ends before a
+/// space, `<`, `>` or `"`; full stops, commas and other punctuation after it, and a bracket it did
+/// not open, are left out. The runs put together are the text.
+pub fn linkify(text: &str) -> Vec<Run<'_>> {
+    let mut out = Vec::new();
+    let mut plain = 0;
+    let mut i = 0;
+    let mut prev: Option<char> = None;
+    while let Some(rest) = text.get(i..) {
+        let Some(c) = rest.chars().next() else { break };
+        let starts_word = prev.is_none_or(|p| !(p.is_alphanumeric() || "._%+-@/:&=?#".contains(p)));
+        if starts_word && let Some((len, link)) = web_address(rest).or_else(|| mail_address(rest)) {
+            if let Some(before) = text.get(plain..i).filter(|b| !b.is_empty()) {
+                out.push(Run { text: before, link: None });
+            }
+            if let Some(found) = text.get(i..i + len) {
+                out.push(Run { text: found, link: Some(link) });
+            }
+            i += len;
+            plain = i;
+            prev = text.get(..i).and_then(|t| t.chars().next_back());
+            continue;
+        }
+        i += c.len_utf8();
+        prev = Some(c);
+    }
+    if let Some(rest) = text.get(plain..).filter(|r| !r.is_empty()) {
+        out.push(Run { text: rest, link: None });
+    }
+    out
+}
+
+/// A web address at the start of `s`: its length and where it leads.
+fn web_address(s: &str) -> Option<(usize, String)> {
+    let lower: String = s.chars().take(8).collect::<String>().to_ascii_lowercase();
+    let www = lower.starts_with("www.");
+    if !(lower.starts_with("https://") || lower.starts_with("http://") || www) {
+        return None;
+    }
+    let end = s.find(|c: char| c.is_whitespace() || c.is_control() || "<>\"".contains(c)).unwrap_or(s.len());
+    let len = trim_tail(s.get(..end)?);
+    let found = s.get(..len)?;
+    let host_start = if www { 0 } else { found.find("://")? + 3 };
+    let host = found.get(host_start..)?.split(['/', '?', '#']).next().unwrap_or("");
+    let host_ok = host.contains('.') && host.chars().next().is_some_and(char::is_alphanumeric) && !host.ends_with('.');
+    // `www.` alone, or `www.example`, is not yet an address.
+    let www_ok = !www || host.matches('.').count() >= 2;
+    (host_ok && www_ok).then(|| (len, if www { format!("https://{found}") } else { found.to_string() }))
+}
+
+/// An e-mail address at the start of `s`: its length and its `mailto:` link.
+fn mail_address(s: &str) -> Option<(usize, String)> {
+    let local = s.find(|c: char| !(c.is_alphanumeric() || "._%+-".contains(c))).unwrap_or(s.len());
+    if local == 0 || !s.get(local..)?.starts_with('@') {
+        return None;
+    }
+    let domain_start = local + 1;
+    let domain_len = s.get(domain_start..)?.find(|c: char| !(c.is_alphanumeric() || ".-".contains(c))).unwrap_or(s.len() - domain_start);
+    let domain = s.get(domain_start..domain_start + domain_len)?.trim_end_matches(['.', '-']);
+    let tld = domain.rsplit('.').next().unwrap_or("");
+    let ok = domain.contains('.') && !domain.starts_with(['.', '-']) && tld.chars().count() >= 2 && tld.chars().all(char::is_alphabetic);
+    let len = domain_start + domain.len();
+    ok.then(|| s.get(..len).map(|a| (len, format!("mailto:{a}")))).flatten()
+}
+
+/// The length of `s` without the punctuation a sentence puts after an address, and without a
+/// closing bracket the address did not open.
+fn trim_tail(s: &str) -> usize {
+    let mut end = s.len();
+    loop {
+        let Some(last) = s.get(..end).and_then(|t| t.chars().next_back()) else { return end };
+        let head = s.get(..end).unwrap_or("");
+        let unopened = |open: char| head.matches(open).count() < head.matches(last).count();
+        let drop = ".,;:!?'\"*".contains(last) || (last == ')' && unopened('(')) || (last == ']' && unopened('[')) || (last == '}' && unopened('{'));
+        if !drop {
+            return end;
+        }
+        end -= last.len_utf8();
+    }
+}
+
 fn is_zero(n: &u8) -> bool {
     *n == 0
 }
@@ -149,6 +239,43 @@ mod tests {
         assert_eq!(web_host("Click here"), None);
         assert_eq!(web_host("mailto:a@b.c"), None);
         assert_eq!(web_host("https://"), None);
+    }
+
+    /// Each address the text spells out, and only those; the runs put back together are the text.
+    #[test]
+    fn addresses_in_plain_text() {
+        let links = |t: &str| -> Vec<(String, String)> {
+            let runs = linkify(t);
+            assert_eq!(runs.iter().map(|r| r.text).collect::<String>(), t, "the runs are the text");
+            runs.into_iter().filter_map(|r| r.link.map(|l| (r.text.to_string(), l))).collect()
+        };
+        let one = |t: &str, text: &str, link: &str| assert_eq!(links(t), [(text.to_string(), link.to_string())], "{t}");
+        one("See https://example.org/a?b=1&c=2.", "https://example.org/a?b=1&c=2", "https://example.org/a?b=1&c=2");
+        one("(details at http://example.org/x)", "http://example.org/x", "http://example.org/x");
+        one("Wiki: https://en.example.org/wiki/Foo_(bar), ok", "https://en.example.org/wiki/Foo_(bar)", "https://en.example.org/wiki/Foo_(bar)");
+        one("go to www.example.org!", "www.example.org", "https://www.example.org");
+        one("<https://example.org/path>", "https://example.org/path", "https://example.org/path");
+        one("Write to ana.gil+news@mail.example.org, please.", "ana.gil+news@mail.example.org", "mailto:ana.gil+news@mail.example.org");
+        one("Пишіть: олена@приклад.укр.", "олена@приклад.укр", "mailto:олена@приклад.укр");
+        one("HTTPS://EXAMPLE.ORG", "HTTPS://EXAMPLE.ORG", "HTTPS://EXAMPLE.ORG");
+        for none in [
+            "nothing here",
+            "xhttps://example.org",
+            "notwww.example.org",
+            "www.example",
+            "https://",
+            "https://.",
+            "a@b",
+            "name@example.c0m",
+            "user@localhost",
+            "path/www.example.org",
+            "@example.org",
+            "1.5 www. example",
+        ] {
+            assert!(links(none).is_empty(), "{none}: {:?}", links(none));
+        }
+        assert_eq!(links("a https://a.example b ana@b.example c").len(), 2);
+        assert!(linkify("").is_empty());
     }
 
     #[test]
