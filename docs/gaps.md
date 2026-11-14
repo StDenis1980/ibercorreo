@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-13 · Pick from the top.
+Status: 2026-11-14 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -66,8 +66,9 @@ Status: 2026-11-13 · Pick from the top.
    (M3.9), so only headers sit in memory. Next: an on-disk search index (it is now most of the
    memory a big mailbox takes, and is rebuilt at every start by reading all the text).
 8. **Attachments**: the contents of mail that arrives are kept beside the mailbox (2026-11-13), and
-   an assistant can save one through MCP (`save_attachment`). Missing: Save and Open in the window
-   (after the redesign, #69), downloading the attachments of mail that arrived before, keeping
+   an assistant can save one through MCP (`save_attachment`); the reading pane has Open and Save on
+   each attachment (Save to the Downloads folder under a free name; Open as a copy, never for a
+   program or script) (2026-11-14). Missing: choosing where to save, downloading the attachments of mail that arrived before, keeping
    those of `.pst`/`.msg` imports and the export, attaching files to a draft (Tinta PDF, Tinta
    Texto, Tinta Calculo hand-off planned).
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.

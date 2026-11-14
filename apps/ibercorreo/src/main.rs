@@ -69,6 +69,22 @@ fn export_parent(env: &dyn Fn(&str) -> Option<PathBuf>, is_dir: &dyn Fn(&std::pa
     [home.join("Documents"), home.join("OneDrive").join("Documents")].into_iter().find(|d| is_dir(d)).or(Some(home))
 }
 
+/// Hand the file at `path` to the program the system opens its kind of file with (never a shell:
+/// the path is one argument). Inside Flatpak, `xdg-open` goes through the OpenURI portal.
+fn open_file(path: &std::path::Path) -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let mut c = if cfg!(target_os = "windows") {
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else {
+        Command::new("xdg-open")
+    };
+    c.arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().map(drop).map_err(|e| format!("could not open it: {e}"))
+}
+
 /// Where the store lives (`ibercorreo_engine::instance::data_dir`, shared with the CLI).
 fn data_dir() -> Option<PathBuf> {
     ibercorreo_engine::instance::data_dir()
@@ -765,6 +781,46 @@ impl Shell {
         }
     }
 
+    /// Open or save the attachments the window asked for (`ibercorreo_engine::attachments`): Save
+    /// writes to the Downloads folder under a free name, Open writes a copy to Correo's `Opened`
+    /// folder and hands it to the system's opener. Programs and scripts are never opened.
+    fn attachments(&mut self) {
+        use ibercorreo_engine::attachments;
+        use ibercorreo_ui_egui::AttachmentAction;
+        for r in self.app.take_attachment_requests() {
+            let name =
+                self.app.session.store.message(r.message).ok().and_then(|m| m.attachments.get(r.index)).map(|a| a.name.clone()).unwrap_or_default();
+            let store = &self.app.session.store;
+            let outcome = match r.action {
+                AttachmentAction::Save => {
+                    let dir = attachments::downloads_dir(&|k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from), &|p| {
+                        std::fs::read_to_string(p).ok()
+                    });
+                    match dir {
+                        Some(dir) => attachments::save_into(store, r.message, r.index, &dir).map(|to| (to, false)).map_err(|e| e.to_string()),
+                        None => Err("no Downloads folder: neither a home folder nor a profile folder is known".into()),
+                    }
+                }
+                AttachmentAction::Open => match attachments::opened_dir() {
+                    Some(dir) => attachments::copy_to_open(store, r.message, r.index, &dir).map(|to| (to, true)).map_err(|e| e.to_string()),
+                    None => Err("no data folder to open it from".into()),
+                },
+            };
+            match outcome {
+                Ok((to, true)) => match open_file(&to) {
+                    Ok(()) => self.app.attachment_opening(&name),
+                    Err(e) => self.app.attachment_failed(&name, &e),
+                },
+                Ok((to, false)) => {
+                    let shown = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name);
+                    let folder = to.parent().map(|d| d.display().to_string()).unwrap_or_default();
+                    self.app.attachment_saved(&shown, &folder);
+                }
+                Err(e) => self.app.attachment_failed(&name, &e),
+            }
+        }
+    }
+
     /// Start Export everything when the window asks (a copy of the store is written on another
     /// thread, so mail keeps working), or take what the running one reports.
     fn export_all(&mut self) {
@@ -1029,6 +1085,7 @@ impl eframe::App for Shell {
                 self.app.session.status = e;
             }
         }
+        self.attachments();
         if let Some(g) = &mut self.gnome {
             g.tick(&mut self.app.session, self.worker.is_some());
         }

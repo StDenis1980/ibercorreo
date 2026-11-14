@@ -368,7 +368,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (opcional)
 	Export everything	Exporta-ho tot
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Tot el correu (un fitxer .mbox per carpeta), els calendaris (.ics) i els contactes (.vcf) es desen en una carpeta nova dins de Documents. Thunderbird, Apple Mail, Outlook i Google els poden importar. No se sobreescriu res del que ja hi ha.
-	Attachment files are not included: Tinta Correo keeps only their names.	No s'hi inclouen els fitxers adjunts: Tinta Correo només en desa els noms.
 	Export	Exporta
 	Exporting…	S'està exportant…
 	Open the exported folder	Obre la carpeta exportada
+# Attachments: Open and Save (Tinta)
+	Open	Obre
+	Open it with the program this kind of file opens with	Obre'l amb el programa que obre aquest tipus de fitxer
+	Save a copy in the Downloads folder	Desa'n una còpia a la carpeta Baixades
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Aquest adjunt va arribar abans que Tinta Correo comencés a guardar els adjunts, així que aquí no es pot obrir ni desar.
+	This file could run a program: save it and check it before you open it.	Aquest fitxer podria executar un programa: desa'l i revisa'l abans d'obrir-lo.
+	Saved {name} in {folder}	{name} desat a {folder}
+	Opening {name}…	S'està obrint {name}…
+	Could not save {name}: {error}	No s'ha pogut desar {name}: {error}
+	Attachment files are not included: save them from each message.	No s'hi inclouen els fitxers adjunts: desa'ls des de cada missatge.

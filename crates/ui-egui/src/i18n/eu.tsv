@@ -368,7 +368,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (aukerakoa)
 	Export everything	Esportatu dena
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Posta guztia (karpeta bakoitzeko .mbox fitxategi bat), egutegiak (.ics) eta kontaktuak (.vcf) Dokumentuak barruko karpeta berri batean gordetzen dira. Thunderbird, Apple Mail, Outlook eta Googlek inporta ditzakete. Lehendik dagoen ezer ez da gainidazten.
-	Attachment files are not included: Tinta Correo keeps only their names.	Eranskinen fitxategiak ez dira sartzen: Tinta Correok haien izenak soilik gordetzen ditu.
 	Export	Esportatu
 	Exporting…	Esportatzen…
 	Open the exported folder	Ireki esportatutako karpeta
+# Attachments: Open and Save (Tinta)
+	Open	Ireki
+	Open it with the program this kind of file opens with	Ireki fitxategi mota hau irekitzen duen programarekin
+	Save a copy in the Downloads folder	Gorde kopia bat Deskargak karpetan
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Eranskin hau Tinta Correo eranskinak gordetzen hasi aurretik iritsi zen; beraz, ezin da hemen ireki edo gorde.
+	This file could run a program: save it and check it before you open it.	Fitxategi honek programa bat exekuta dezake: gorde eta egiaztatu ireki aurretik.
+	Saved {name} in {folder}	{name} gorde da hemen: {folder}
+	Opening {name}…	{name} irekitzen…
+	Could not save {name}: {error}	Ezin izan da {name} gorde: {error}
+	Attachment files are not included: save them from each message.	Ez dira eranskin-fitxategiak sartzen: gorde itzazu mezu bakoitzetik.

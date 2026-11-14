@@ -369,7 +369,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (opțional)
 	Export everything	Exportă tot
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Toată poșta (un fișier .mbox pentru fiecare dosar), calendarele (.ics) și contactele (.vcf) sunt scrise într-un dosar nou din Documente. Thunderbird, Apple Mail, Outlook și Google le pot importa. Nimic din ce există deja nu este suprascris.
-	Attachment files are not included: Tinta Correo keeps only their names.	Fișierele atașate nu sunt incluse: Tinta Correo păstrează doar numele lor.
 	Export	Exportă
 	Exporting…	Se exportă…
 	Open the exported folder	Deschide dosarul exportat
+# Attachments: Open and Save (Tinta)
+	Open	Deschide
+	Open it with the program this kind of file opens with	Deschide-l cu programul care deschide acest tip de fișier
+	Save a copy in the Downloads folder	Salvează o copie în dosarul Descărcări
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Acest atașament a sosit înainte ca Tinta Correo să păstreze atașamentele, așa că aici nu poate fi deschis sau salvat.
+	This file could run a program: save it and check it before you open it.	Acest fișier ar putea porni un program: salvează-l și verifică-l înainte să-l deschizi.
+	Saved {name} in {folder}	{name} a fost salvat în {folder}
+	Opening {name}…	Se deschide {name}…
+	Could not save {name}: {error}	Nu s-a putut salva {name}: {error}
+	Attachment files are not included: save them from each message.	Fișierele atașate nu sunt incluse: salvează-le din fiecare mesaj.

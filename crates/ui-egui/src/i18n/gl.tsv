@@ -368,7 +368,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (opcional)
 	Export everything	Exportar todo
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Todo o correo (un ficheiro .mbox por cartafol), os calendarios (.ics) e os contactos (.vcf) gárdanse nun cartafol novo dentro de Documentos. Thunderbird, Apple Mail, Outlook e Google poden importalos. Non se sobrescribe nada do que xa hai.
-	Attachment files are not included: Tinta Correo keeps only their names.	Non se inclúen os ficheiros anexos: Tinta Correo só garda os seus nomes.
 	Export	Exportar
 	Exporting…	Exportando…
 	Open the exported folder	Abrir o cartafol exportado
+# Attachments: Open and Save (Tinta)
+	Open	Abrir
+	Open it with the program this kind of file opens with	Abrilo co programa que abre este tipo de ficheiro
+	Save a copy in the Downloads folder	Gardar unha copia no cartafol Descargas
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Este anexo chegou antes de que Tinta Correo comezase a gardar os anexos, así que aquí non se pode abrir nin gardar.
+	This file could run a program: save it and check it before you open it.	Este ficheiro podería executar un programa: gárdao e revísao antes de abrilo.
+	Saved {name} in {folder}	{name} gardado en {folder}
+	Opening {name}…	Abrindo {name}…
+	Could not save {name}: {error}	Non se puido gardar {name}: {error}
+	Attachment files are not included: save them from each message.	Non se inclúen os ficheiros anexos: gárdaos desde cada mensaxe.

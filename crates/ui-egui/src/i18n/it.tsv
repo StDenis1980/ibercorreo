@@ -370,7 +370,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (facoltativo)
 	Export everything	Esporta tutto
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Tutta la posta (un file .mbox per cartella), i calendari (.ics) e i contatti (.vcf) vengono salvati in una nuova cartella in Documenti. Thunderbird, Apple Mail, Outlook e Google possono importarli. Nulla di ciò che c'è già viene sovrascritto.
-	Attachment files are not included: Tinta Correo keeps only their names.	I file allegati non sono inclusi: Tinta Correo ne conserva solo i nomi.
 	Export	Esporta
 	Exporting…	Esportazione…
 	Open the exported folder	Apri la cartella esportata
+# Attachments: Open and Save (Tinta)
+	Open	Apri
+	Open it with the program this kind of file opens with	Aprilo con il programma che apre questo tipo di file
+	Save a copy in the Downloads folder	Salva una copia nella cartella Download
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Questo allegato è arrivato prima che Tinta Correo iniziasse a conservare gli allegati, quindi qui non si può aprire né salvare.
+	This file could run a program: save it and check it before you open it.	Questo file potrebbe avviare un programma: salvalo e controllalo prima di aprirlo.
+	Saved {name} in {folder}	{name} salvato in {folder}
+	Opening {name}…	Apertura di {name}…
+	Could not save {name}: {error}	Impossibile salvare {name}: {error}
+	Attachment files are not included: save them from each message.	I file allegati non sono inclusi: salvali da ogni messaggio.

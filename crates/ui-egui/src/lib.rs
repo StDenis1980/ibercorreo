@@ -6,6 +6,8 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod attachments_ui;
+pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod body_text;
 mod chrome;
 mod export_ui;
@@ -541,6 +543,8 @@ pub struct App {
     links: Vec<String>,
     /// Export everything: asked, being written, the last folder written.
     export: export_ui::ExportState,
+    /// Attachments to open or save, for the shell.
+    attachment_requests: Vec<attachments_ui::AttachmentRequest>,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -784,6 +788,7 @@ impl App {
             body: body_text::BodyText::default(),
             links: Vec::new(),
             export: export_ui::ExportState::default(),
+            attachment_requests: Vec::new(),
             last_calendar: None,
             invite: None,
             content: None,
@@ -2559,16 +2564,7 @@ impl App {
         }
         if !m.attachments.is_empty() {
             ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                for a in &m.attachments {
-                    Frame::NONE.stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(8, 4)).show(
-                        ui,
-                        |ui| {
-                            ui.label(RichText::new(format!("📎 {}  ·  {}", a.name, human_size(a.size))).small());
-                        },
-                    );
-                }
-            });
+            attachments_ui::chips(ui, &t, m, &mut self.attachment_requests);
         }
         let mut answer: Option<Value> = None;
         if let Some((_, Some(info))) = &self.invite {
