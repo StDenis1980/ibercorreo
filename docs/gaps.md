@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-14 · Pick from the top.
+Status: 2026-11-15 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -40,7 +40,10 @@ Status: 2026-11-14 · Pick from the top.
    in plain-text mail web and e-mail addresses are links too; a whole message can be selected
    and copied, past the pane's edge, with Ctrl+A or Copy all;
    scripts, forms, styles and hidden preview text are dropped and remote images are never loaded.
-   Missing: inline (`cid:`) images and a "load remote images from this sender" choice, tables laid
+   Pictures the message carries itself (`cid:`, RFC 2392) are drawn in their place, no wider than
+   the pane, and get no attachment chip (their context menu saves them); mail that arrived before
+   attachment contents were kept still shows their placeholders.
+   Missing: a "load remote images from this sender" choice, tables laid
    out as tables (cells show as paragraphs), colours and fonts, a confirmation before opening a
    deceptive link, and a true bold weight (the interface font has one weight, so bold is shown in
    the strong text colour).

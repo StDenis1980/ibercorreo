@@ -8,6 +8,8 @@ description = "Tinta Correo L6: the Outlook-style egui front end (swappable: not
 [dependencies]
 # Tinta Office: the feedback dialog encodes its window screenshot as PNG.
 png = "0.18"
+# Tinta: pictures a message carries (`cid:`) in the reading pane; decoders only, no I/O.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "webp"] }
 ibercorreo-core.workspace = true
 ibercorreo-engine.workspace = true
 egui.workspace = true

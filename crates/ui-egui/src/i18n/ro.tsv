@@ -382,3 +382,13 @@
 	Opening {name}…	Se deschide {name}…
 	Could not save {name}: {error}	Nu s-a putut salva {name}: {error}
 	Attachment files are not included: save them from each message.	Fișierele atașate nu sunt incluse: salvează-le din fiecare mesaj.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Ștergeți definitiv?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Dacă ștergeți acest mesaj aici, dispare definitiv, inclusiv de pe server la următoarea Trimitere/Primire.
+	Delete for good	Șterge definitiv
+	Does Microsoft say “Need admin approval”?	Microsoft afișează „Need admin approval” (este necesară aprobarea administratorului)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	Organizația dvs. permite doar administratorului să aprobe programe noi. Un administrator aprobă Tinta Correo o singură dată pe pagina Microsoft; apoi conectați-vă din nou aici.
+	Copy a message for your administrator	Copiați un mesaj pentru administrator
+	I am an administrator: open the approval page	Sunt administrator: deschide pagina de aprobare
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft cere ca un administrator al organizației dvs. să aprobe mai întâi Tinta Correo. Apoi conectați-vă din nou.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Bună ziua,\n\nVă rog să aprobați programul de e-mail Tinta Correo pentru organizația noastră în Microsoft Entra, ca să putem folosi în el e-mailul, calendarul și contactele. Un administrator deschide această pagină o dată și acceptă:\n{link}\n\nTinta Correo este gratuit și open source (https://tintaoffice.com). ID-ul său de aplicație este {id}.\n\nVă mulțumesc.

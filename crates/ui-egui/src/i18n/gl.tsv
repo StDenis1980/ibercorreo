@@ -381,3 +381,13 @@
 	Opening {name}…	Abrindo {name}…
 	Could not save {name}: {error}	Non se puido gardar {name}: {error}
 	Attachment files are not included: save them from each message.	Non se inclúen os ficheiros anexos: gárdaos desde cada mensaxe.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Eliminar definitivamente?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Se elimina esta mensaxe aquí, desaparece definitivamente, tamén do servidor no seguinte Enviar e recibir.
+	Delete for good	Eliminar definitivamente
+	Does Microsoft say “Need admin approval”?	Microsoft di «Need admin approval» (precísase a aprobación do administrador)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	A súa organización só permite que o administrador aprobe programas novos. Un administrador aproba Tinta Correo unha vez na páxina de Microsoft; despois, volva iniciar sesión aquí.
+	Copy a message for your administrator	Copiar unha mensaxe para o administrador
+	I am an administrator: open the approval page	Son administrador: abrir a páxina de aprobación
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft precisa que un administrador da súa organización aprobe primeiro Tinta Correo. Despois, volva iniciar sesión.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Ola:\n\nPrégolle que aprobe o programa de correo Tinta Correo para a nosa organización en Microsoft Entra, para que poidamos usar nel o correo, o calendario e os contactos. Un administrador abre esta páxina unha vez e acepta:\n{link}\n\nTinta Correo é libre e de código aberto (https://tintaoffice.com). O seu identificador de aplicación é {id}.\n\nGrazas.

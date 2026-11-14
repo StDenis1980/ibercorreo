@@ -382,3 +382,13 @@
 	Opening {name}…	Otevírám {name}…
 	Could not save {name}: {error}	{name} se nepodařilo uložit: {error}
 	Attachment files are not included: save them from each message.	Soubory příloh nejsou zahrnuty: uložte je z každé zprávy.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Odstranit natrvalo?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Když tuto zprávu odstraníte zde, zmizí natrvalo, při příštím odeslání/přijetí i ze serveru.
+	Delete for good	Odstranit natrvalo
+	Does Microsoft say “Need admin approval”?	Hlásí Microsoft „Need admin approval“ (vyžaduje se schválení správcem)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	Vaše organizace dovoluje schvalovat nové programy jen správci. Správce jednou schválí Tinta Correo na stránce Microsoftu; potom se zde znovu přihlaste.
+	Copy a message for your administrator	Zkopírovat zprávu pro správce
+	I am an administrator: open the approval page	Jsem správce: otevřít stránku schválení
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft vyžaduje, aby správce vaší organizace nejprve schválil Tinta Correo. Potom se znovu přihlaste.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Dobrý den,\n\nprosím o schválení poštovního programu Tinta Correo pro naši organizaci v Microsoft Entra, abychom v něm mohli používat poštu, kalendář a kontakty. Správce jednou otevře tuto stránku a udělí souhlas:\n{link}\n\nTinta Correo je zdarma a s otevřeným kódem (https://tintaoffice.com). Jeho ID aplikace je {id}.\n\nDěkuji.

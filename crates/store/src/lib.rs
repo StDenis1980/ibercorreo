@@ -1490,7 +1490,13 @@ mod tests {
         let mut m = msg(&s, "Factura de octubre", 3);
         m.content_mut().unwrap().body = "El camión llega el lunes. Prou col·lecció!".into();
         m.to = vec![Address::parse("Олена Коваль <olena@example.com>").unwrap()];
-        m.attachments.push(Attachment { name: "presupuesto-2026.pdf".into(), mime_type: "application/pdf".into(), size: 10, sha256: None });
+        m.attachments.push(Attachment {
+            name: "presupuesto-2026.pdf".into(),
+            mime_type: "application/pdf".into(),
+            size: 10,
+            sha256: None,
+            content_id: None,
+        });
         let a = s.add_message(m).unwrap();
         let mut other = msg(&s, "Weekly report", 4);
         other.from = Some(Address::parse("Luis <luis@example.net>").unwrap());

@@ -383,3 +383,13 @@
 	Opening {name}…	Ouverture de {name}…
 	Could not save {name}: {error}	Impossible d'enregistrer {name} : {error}
 	Attachment files are not included: save them from each message.	Les fichiers joints ne sont pas inclus : enregistrez-les depuis chaque message.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Supprimer définitivement ?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Supprimer ce message ici l'efface définitivement, y compris du serveur au prochain Envoyer/Recevoir.
+	Delete for good	Supprimer définitivement
+	Does Microsoft say “Need admin approval”?	Microsoft affiche « Need admin approval » (approbation de l'administrateur requise) ?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	Votre organisation ne permet qu'à son administrateur d'approuver de nouveaux programmes. Un administrateur approuve Tinta Correo une fois sur la page de Microsoft ; reconnectez-vous ensuite ici.
+	Copy a message for your administrator	Copier un message pour votre administrateur
+	I am an administrator: open the approval page	Je suis administrateur : ouvrir la page d'approbation
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft demande qu'un administrateur de votre organisation approuve d'abord Tinta Correo. Reconnectez-vous ensuite.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Bonjour,\n\nPouvez-vous approuver le programme de messagerie Tinta Correo pour notre organisation dans Microsoft Entra, afin que nous puissions y utiliser notre courrier, notre calendrier et nos contacts ? Un administrateur ouvre cette page une fois et accepte :\n{link}\n\nTinta Correo est libre et open source (https://tintaoffice.com). Son ID d'application est {id}.\n\nMerci.

@@ -381,3 +381,13 @@
 	Opening {name}…	{name} irekitzen…
 	Could not save {name}: {error}	Ezin izan da {name} gorde: {error}
 	Attachment files are not included: save them from each message.	Ez dira eranskin-fitxategiak sartzen: gorde itzazu mezu bakoitzetik.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Betiko ezabatu?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Mezu hau hemen ezabatzen baduzu, betiko desagertuko da, baita zerbitzaritik ere hurrengo Bidali/Jaso egitean.
+	Delete for good	Ezabatu betiko
+	Does Microsoft say “Need admin approval”?	Microsoft-ek «Need admin approval» (administratzailearen onespena behar da) dio?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	Zure erakundean administratzaileak bakarrik onar ditzake programa berriak. Administratzaile batek behin onartzen du Tinta Correo Microsoft-en orrian; ondoren, hasi saioa berriro hemen.
+	Copy a message for your administrator	Kopiatu administratzailearentzako mezu bat
+	I am an administrator: open the approval page	Administratzailea naiz: ireki onespen-orria
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft-ek zure erakundeko administratzaile batek Tinta Correo lehenik onartzea behar du. Ondoren, hasi saioa berriro.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Kaixo:\n\nMesedez, onartu Tinta Correo posta-programa gure erakundearentzat Microsoft Entra-n, bertan posta, egutegia eta kontaktuak erabili ahal izateko. Administratzaile batek orri hau behin ireki eta onartu behar du:\n{link}\n\nTinta Correo doakoa eta kode irekikoa da (https://tintaoffice.com). Aplikazioaren IDa {id} da.\n\nEskerrik asko.

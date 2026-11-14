@@ -229,7 +229,7 @@ impl Builder {
         {
             if last.link.is_some() {
                 // Not inside the link either: a run of its own.
-                self.spans.push(Span { text: " ".into(), link: None, image: false, ..style.clone() });
+                self.spans.push(Span { text: " ".into(), link: None, image: false, cid: None, ..style.clone() });
             } else {
                 last.text.push(' ');
             }
@@ -472,7 +472,8 @@ impl Builder {
         }
         self.space = false;
         let style = self.style();
-        self.push(text, Span { image: true, ..style });
+        let cid = if src.starts_with("cid:") { tag.src.as_deref().and_then(ibercorreo_core::mail::content_id_key) } else { None };
+        self.push(text, Span { image: true, cid, ..style });
     }
 }
 

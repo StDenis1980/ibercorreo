@@ -383,3 +383,13 @@
 	Opening {name}…	{name} wird geöffnet…
 	Could not save {name}: {error}	{name} konnte nicht gespeichert werden: {error}
 	Attachment files are not included: save them from each message.	Dateianhänge sind nicht enthalten: Speichern Sie sie aus der jeweiligen Nachricht.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Endgültig löschen?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Wenn Sie diese Nachricht hier löschen, ist sie endgültig weg, beim nächsten Senden/Empfangen auch auf dem Server.
+	Delete for good	Endgültig löschen
+	Does Microsoft say “Need admin approval”?	Zeigt Microsoft „Need admin approval“ (Genehmigung durch Administrator erforderlich)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	In Ihrer Organisation darf nur der Administrator neue Programme genehmigen. Ein Administrator genehmigt Tinta Correo einmal auf der Seite von Microsoft; melden Sie sich danach hier erneut an.
+	Copy a message for your administrator	Nachricht für Ihren Administrator kopieren
+	I am an administrator: open the approval page	Ich bin Administrator: Genehmigungsseite öffnen
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft verlangt, dass ein Administrator Ihrer Organisation Tinta Correo zuerst genehmigt. Melden Sie sich danach erneut an.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Hallo,\n\nbitte genehmigen Sie das Mailprogramm Tinta Correo für unsere Organisation in Microsoft Entra, damit wir darin unsere E-Mails, unseren Kalender und unsere Kontakte nutzen können. Ein Administrator öffnet diese Seite einmal und stimmt zu:\n{link}\n\nTinta Correo ist frei und quelloffen (https://tintaoffice.com). Seine Anwendungs-ID ist {id}.\n\nVielen Dank.

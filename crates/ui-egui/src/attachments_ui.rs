@@ -64,9 +64,10 @@ impl App {
 }
 
 /// The chips of `m`'s attachments, each with Open and Save; a click goes to `requests`.
-pub(crate) fn chips(ui: &mut Ui, t: &Tokens, m: &Message, requests: &mut Vec<AttachmentRequest>) {
+/// Tinta: the attachments in `shown` are pictures drawn in the text and get no chip.
+pub(crate) fn chips(ui: &mut Ui, t: &Tokens, m: &Message, shown: &std::collections::HashSet<usize>, requests: &mut Vec<AttachmentRequest>) {
     ui.horizontal_wrapped(|ui| {
-        for (index, a) in m.attachments.iter().enumerate() {
+        for (index, a) in m.attachments.iter().enumerate().filter(|(i, _)| !shown.contains(i)) {
             let kept = a.sha256.is_some();
             let risky = ibercorreo_engine::attachments::risky(&a.name);
             Frame::NONE.stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(8, 4)).show(

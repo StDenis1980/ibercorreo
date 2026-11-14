@@ -75,6 +75,14 @@ the user → Mail → Manage email apps). Until the publisher is verified (a Mic
 Network ID), the consent page says the publisher is unverified, and some organisations block
 such apps.
 
+When an organisation lets only its administrator approve new programs, Microsoft's page says
+"Need admin approval". While the browser sign-in waits, Account settings says what to do, and
+again when Microsoft answers with AADSTS90094, AADSTS90095 or AADSTS65001: an administrator opens
+`https://login.microsoftonline.com/<mail domain>/adminconsent?client_id=<client ID>` once and
+accepts; anybody else copies a short message for one (that address, the program's name and its
+client ID; not the person's own address). Then the person signs in again. A person who declines
+(AADSTS65004) has cancelled.
+
 ## Putting the client IDs into a build
 They are read at compile time, and the same variables at run time win (for trying another
 registration without rebuilding):
@@ -122,3 +130,4 @@ Dovecot and Postfix.
 - 2026-10-26 — several accounts, each with its own grant; choosing a provider fills in its servers (M3.3).
 - 2026-10-30 — Microsoft Graph consent and a separate Graph token (M4.1).
 - 2026-11-01 — Mail over Graph uses the same token (M4.4).
+- 2026-11-15 — Help for Microsoft's "Need admin approval" (M6.2c).

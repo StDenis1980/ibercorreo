@@ -6,13 +6,16 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod body_text;
 mod chrome;
+mod delete_ui;
 mod export_ui;
 pub mod i18n;
 pub mod icons;
+mod inline_images;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
@@ -275,6 +278,9 @@ struct AccountForm {
     goa: String,
     /// The GNOME Online Accounts account the calendars and contacts sign in through, or empty.
     dav_goa: String,
+    /// Tinta: Microsoft answered that an administrator has to approve this application (its id)
+    /// first; the dialog says what to do.
+    admin_client: Option<String>,
 }
 
 /// What to do when `p`'s sign-in page warns that it has not reviewed the app.
@@ -545,6 +551,10 @@ pub struct App {
     export: export_ui::ExportState,
     /// Attachments to open or save, for the shell.
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
+    /// Tinta: the pictures the message being read carries (`cid:`).
+    inline_images: inline_images::InlineImages,
+    /// Tinta: the message in Deleted Items the window asks about deleting for good.
+    confirm_delete: Option<MessageId>,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -789,6 +799,8 @@ impl App {
             links: Vec::new(),
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
+            inline_images: inline_images::InlineImages::default(),
+            confirm_delete: None,
             last_calendar: None,
             invite: None,
             content: None,
@@ -846,6 +858,7 @@ impl App {
             note: note.to_string(),
             goa: text("goa"),
             dav_goa: text("davGoa"),
+            admin_client: None,
         };
         if self.account_form.user == self.account_form.email {
             self.account_form.user.clear();
@@ -945,6 +958,14 @@ impl App {
                             ui.spinner();
                             ui.add(egui::Label::new(tl("Waiting for you to sign in in your browser…")).wrap());
                         });
+                        // Tinta: while Microsoft's page may be saying "Need admin approval".
+                        if let Some(id) = admin_approval::client_id(url) {
+                            ui.add_space(6.0);
+                            let mut open = None;
+                            admin_approval::help(ui, &t, &f.email, &id, &mut open);
+                            self.links.extend(open);
+                            ui.add_space(6.0);
+                        }
                         ui.horizontal(|ui| {
                             if !url.is_empty() {
                                 ui.label(RichText::new(tl("No browser opened?")).small().color(t.text_weak));
@@ -996,6 +1017,13 @@ impl App {
             let (oauth_was, email_was) = (f.oauth.clone(), f.email.clone());
             if !f.note.is_empty() {
                 ui.add(egui::Label::new(RichText::new(&f.note).color(self.tokens.unread)).wrap());
+                ui.add_space(8.0);
+            }
+            // Tinta: Microsoft wants an administrator's approval first: how to get it.
+            if let Some(id) = f.admin_client.clone() {
+                let mut open = None;
+                admin_approval::help(ui, &t, &f.email, &id, &mut open);
+                self.links.extend(open);
                 ui.add_space(8.0);
             }
             fn wide(edit: egui::TextEdit<'_>) -> egui::TextEdit<'_> {
@@ -1332,6 +1360,7 @@ impl App {
         self.account_window(ui);
         self.rules_window(ui);
         self.reminder_window(ui);
+        self.delete_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
         self.take_open_requests(ui.ctx());
@@ -1696,6 +1725,13 @@ impl App {
         ];
         for (cmd, shift, key, id) in actions {
             if pressed(ui, cmd, shift, key) {
+                if id == "message.delete" {
+                    // Tinta: from Deleted Items, the window asks first.
+                    if self.confirm_delete.is_none() {
+                        self.delete_asking();
+                    }
+                    continue;
+                }
                 self.run(id, json!({}));
             }
         }
@@ -1756,7 +1792,7 @@ impl App {
                 self.run("message.compose", json!({}));
             }
             if self.tool(ui, Icon::Trash, "Delete", has_message).clicked() {
-                self.run("message.delete", json!({}));
+                self.delete_asking();
             }
             if self.tool(ui, Icon::Archive, "Archive", has_message).clicked() {
                 self.run("message.archive", json!({}));
@@ -2562,9 +2598,16 @@ impl App {
                 ui.label(RichText::new(format!("{}: {names}", tl(label))).small().color(t.text_weak));
             }
         }
-        if !m.attachments.is_empty() {
+        let rich_now = match &content {
+            Some(Ok(c)) => c.rich.as_ref(),
+            _ => None,
+        };
+        self.inline_images.prepare(ui.ctx(), &self.session, m, rich_now);
+        // As plain text the pictures are not in the text, so each keeps its chip.
+        let no_chip = if self.session.plain_text { &std::collections::HashSet::new() } else { self.inline_images.shown() };
+        if m.attachments.len() > no_chip.len() {
             ui.add_space(6.0);
-            attachments_ui::chips(ui, &t, m, &mut self.attachment_requests);
+            attachments_ui::chips(ui, &t, m, no_chip, &mut self.attachment_requests);
         }
         let mut answer: Option<Value> = None;
         if let Some((_, Some(info))) = &self.invite {
@@ -2601,8 +2644,9 @@ impl App {
         ui.separator();
         ui.add_space(8.0);
         let plain = self.session.plain_text;
+        let pictures = Pictures { images: &self.inline_images, message: m.id, requests: &mut self.attachment_requests };
         self.body.show(ui, egui::Id::new(("message-text", m.id.0, plain)), |body, ui| match (&content, rich) {
-            (_, Some(rich)) if !plain => rich_body(ui, &t, rich, body),
+            (_, Some(rich)) if !plain => rich_body(ui, &t, rich, body, pictures),
             (Some(Ok(c)), _) => plain_body(ui, &t, &c.body, body),
             (Some(Err(e)), _) => {
                 ui.label(RichText::new(tl("The text of this message could not be read.")).color(t.text_weak)).on_hover_text(e);
@@ -3912,7 +3956,14 @@ fn long_date(d: Date) -> String {
 
 /// Draw a formatted message ([`Rich`]): our fonts and colours, nothing from the sender's styles.
 /// Links show their real address on hover; a link whose text names another site is marked ⚠.
-fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyText) {
+/// Tinta: what a formatted body needs to draw the pictures its message carries.
+struct Pictures<'a> {
+    images: &'a inline_images::InlineImages,
+    message: MessageId,
+    requests: &'a mut Vec<attachments_ui::AttachmentRequest>,
+}
+
+fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyText, mut pictures: Pictures<'_>) {
     ui.spacing_mut().item_spacing.y = 8.0;
     for block in &rich.blocks {
         let quote = f32::from(block.quote) * 14.0;
@@ -3949,6 +4000,10 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyTex
                         // between the runs of one paragraph.
                         let mut before = if marker.is_some() { "\n" } else { "\n\n" };
                         for span in &block.spans {
+                            if let Some(texture) = span.cid.as_deref().filter(|_| span.image).and_then(|c| pictures.images.get(c)) {
+                                inline_picture(ui, t, span, texture, &mut pictures);
+                                continue;
+                            }
                             rich_span(ui, t, span, size, pre, body, before);
                             before = "";
                         }
@@ -4003,6 +4058,31 @@ fn plain_body(ui: &mut Ui, t: &Tokens, text: &str, body: &mut body_text::BodyTex
             }
         });
     }
+}
+
+/// Tinta: a picture the message carries, in its place, no wider than the pane; its context menu
+/// saves it as the attachment chips do.
+fn inline_picture(ui: &mut Ui, t: &Tokens, span: &Span, texture: &egui::TextureHandle, pictures: &mut Pictures<'_>) {
+    let mut size = texture.size_vec2();
+    let room = ui.max_rect().width().max(16.0);
+    if size.x > room {
+        size *= room / size.x;
+    }
+    let image = egui::Image::new((texture.id(), size)).sense(Sense::click()).alt_text(span.text.clone());
+    let resp = ui.add(image);
+    let resp = if span.text.is_empty() || span.text == "image" { resp } else { resp.on_hover_text(&span.text) };
+    resp.context_menu(|ui| {
+        if ui.button(RichText::new(tl(attachments_ui::SAVE)).color(t.text)).clicked() {
+            if let Some(index) = span.cid.as_deref().and_then(|c| pictures.images.attachment(c)) {
+                pictures.requests.push(attachments_ui::AttachmentRequest {
+                    action: attachments_ui::AttachmentAction::Save,
+                    message: pictures.message,
+                    index,
+                });
+            }
+            ui.close();
+        }
+    });
 }
 
 fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &mut body_text::BodyText, before: &'static str) {

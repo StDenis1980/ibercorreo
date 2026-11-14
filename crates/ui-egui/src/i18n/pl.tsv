@@ -383,3 +383,13 @@
 	Opening {name}…	Otwieranie {name}…
 	Could not save {name}: {error}	Nie udało się zapisać {name}: {error}
 	Attachment files are not included: save them from each message.	Pliki załączników nie są dołączone: zapisz je z każdej wiadomości.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Usunąć trwale?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Usunięcie tej wiadomości tutaj usuwa ją trwale, także z serwera przy następnym wysyłaniu/odbieraniu.
+	Delete for good	Usuń trwale
+	Does Microsoft say “Need admin approval”?	Microsoft pokazuje „Need admin approval” (wymagana zgoda administratora)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	W Twojej organizacji nowe programy może zatwierdzać tylko administrator. Administrator zatwierdza Tinta Correo raz na stronie Microsoft; potem zaloguj się tu ponownie.
+	Copy a message for your administrator	Skopiuj wiadomość dla administratora
+	I am an administrator: open the approval page	Jestem administratorem: otwórz stronę zatwierdzania
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft wymaga, aby administrator Twojej organizacji najpierw zatwierdził Tinta Correo. Potem zaloguj się ponownie.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Dzień dobry,\n\nproszę o zatwierdzenie programu pocztowego Tinta Correo dla naszej organizacji w Microsoft Entra, abyśmy mogli korzystać w nim z poczty, kalendarza i kontaktów. Administrator otwiera tę stronę raz i wyraża zgodę:\n{link}\n\nTinta Correo jest darmowy i ma otwarty kod (https://tintaoffice.com). Jego identyfikator aplikacji to {id}.\n\nDziękuję.
