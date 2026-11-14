@@ -381,3 +381,13 @@
 	Opening {name}…	S'està obrint {name}…
 	Could not save {name}: {error}	No s'ha pogut desar {name}: {error}
 	Attachment files are not included: save them from each message.	No s'hi inclouen els fitxers adjunts: desa'ls des de cada missatge.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Voleu suprimir-lo definitivament?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Si suprimiu aquest missatge aquí, desapareix definitivament, també del servidor en el proper Envia i rep.
+	Delete for good	Suprimeix definitivament
+	Does Microsoft say “Need admin approval”?	Microsoft diu «Need admin approval» (cal l'aprovació de l'administrador)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	La vostra organització només permet que l'administrador aprovi programes nous. Un administrador aprova Tinta Correo una vegada a la pàgina de Microsoft; després, torneu a iniciar la sessió aquí.
+	Copy a message for your administrator	Copia un missatge per a l'administrador
+	I am an administrator: open the approval page	Sóc administrador: obre la pàgina d'aprovació
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft necessita que un administrador de la vostra organització aprovi primer Tinta Correo. Després, torneu a iniciar la sessió.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Hola,\n\nUs prego que aproveu el programa de correu Tinta Correo per a la nostra organització a Microsoft Entra, perquè hi puguem fer servir el correu, el calendari i els contactes. Un administrador obre aquesta pàgina una vegada i accepta:\n{link}\n\nTinta Correo és lliure i de codi obert (https://tintaoffice.com). El seu identificador d'aplicació és {id}.\n\nGràcies.

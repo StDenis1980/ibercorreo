@@ -82,6 +82,7 @@ fn read(raw: &[u8], id: MessageId, folder: FolderId, keep_files: bool) -> Result
                 .unwrap_or_else(|| "application/octet-stream".into()),
             size: part.contents().len(),
             sha256: None,
+            content_id: part.content_id().and_then(ibercorreo_core::mail::content_id_key),
         })
         .collect();
     m.set_content(Arc::new(Content { body, rich, invite: invite(&parsed) }));
@@ -352,6 +353,40 @@ BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n\
         // A nonsense offset does not move the time by days.
         let wild = at("Thu, 22 Oct 2026 09:30:00 +9959").unwrap();
         assert!(wild.starts_with("2026-10-2"), "{wild}");
+    }
+
+    #[test]
+    fn inline_pictures_are_tied_to_their_parts() {
+        // multipart/related: the HTML names its logo by Content-ID, as mail programs send it.
+        let raw = "From: shop@example.com\r\nSubject: Factura\r\nMIME-Version: 1.0\r\n\
+                   Content-Type: multipart/related; boundary=\"b\"\r\n\r\n\
+                   --b\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+                   <p>Hola <img src=\"cid:Logo%40shop\" alt=\"Shop\"> <img src=\"cid:missing\"></p>\r\n\
+                   --b\r\nContent-Type: image/png\r\nContent-ID: <logo@SHOP>\r\n\
+                   Content-Disposition: inline\r\nContent-Transfer-Encoding: base64\r\n\r\n\
+                   iVBORw0KGgo=\r\n--b--\r\n";
+        let (m, files) = parse_with_files(raw.as_bytes(), MessageId(1), FolderId(0)).unwrap();
+        assert_eq!(m.attachments.len(), 1);
+        assert_eq!(m.attachments.first().and_then(|a| a.content_id.as_deref()), Some("logo@shop"));
+        assert_eq!(files.first().map(Vec::len), Some(8), "the picture's bytes are kept to show it");
+        let content = m.content().unwrap();
+        let rich = content.rich.as_ref().unwrap();
+        let cids: Vec<_> = rich.blocks.iter().flat_map(|b| &b.spans).filter(|s| s.image).map(|s| s.cid.as_deref()).collect();
+        assert_eq!(cids, [Some("logo@shop"), Some("missing")], "both pictures name their part, found or not");
+        // A picture on the web never names a part, so nothing of it can be drawn.
+        let web = html::to_rich("<img src=\"https://cdn.example/a.png\" alt=\"A\">");
+        assert!(web.blocks.iter().flat_map(|b| &b.spans).all(|s| s.cid.is_none()));
+    }
+
+    #[test]
+    fn content_ids_compare_as_mail_programs_write_them() {
+        use ibercorreo_core::mail::content_id_key;
+        assert_eq!(content_id_key(" <Part1.ABC@x> ").as_deref(), Some("part1.abc@x"));
+        assert_eq!(content_id_key("CID:part1.abc%40x").as_deref(), Some("part1.abc@x"));
+        assert_eq!(content_id_key("cid:"), None);
+        assert_eq!(content_id_key("<>"), None);
+        assert_eq!(content_id_key(&"a".repeat(300)), None, "a hostile id is not kept");
+        assert_eq!(content_id_key("%zz%4").as_deref(), Some("%zz%4"), "a broken escape stays as written");
     }
 
     #[test]

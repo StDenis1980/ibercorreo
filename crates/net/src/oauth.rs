@@ -60,6 +60,11 @@ pub enum Error {
     /// it): signing in again asks for it. Mail keeps working meanwhile.
     #[error("sign in to {0} again to let Tinta Correo use the calendar and contacts")]
     NeedsConsent(&'static str),
+    /// Tinta: the person's organisation lets only an administrator approve a new program
+    /// (Microsoft's "Need admin approval"): an administrator approves Tinta Correo once, then the
+    /// person signs in again.
+    #[error("an administrator of your organisation has to approve Tinta Correo first")]
+    AdminApproval,
     /// The sign-in took longer than [`SIGN_IN_TIMEOUT`] or was cancelled.
     #[error("the sign-in was not finished in the browser")]
     Cancelled,
@@ -458,6 +463,9 @@ fn answer(mut tcp: TcpStream, state: &str) -> Option<Result<String, Error>> {
     if let Some(error) = get("error") {
         reply(&mut tcp, "200 OK", PAGE_FAILED);
         let detail = get("error_description").unwrap_or(error).chars().take(300).collect::<String>();
+        if needs_admin(&detail) {
+            return Some(Err(Error::AdminApproval));
+        }
         return Some(if error == "access_denied" { Err(Error::Cancelled) } else { Err(Error::Protocol(detail)) });
     }
     match get("code").filter(|c| !c.is_empty() && c.len() <= MAX_TOKEN) {
@@ -470,6 +478,14 @@ fn answer(mut tcp: TcpStream, state: &str) -> Option<Result<String, Error>> {
             Some(Err(Error::Protocol("the browser came back without a code".into())))
         }
     }
+}
+
+/// Tinta: Microsoft's codes for "an administrator has to approve this program": consent only an
+/// administrator may give (AADSTS90094), a request sent to one through the organisation's
+/// approval workflow (AADSTS90095), and consent not given for the organisation (AADSTS65001).
+/// A person who declined (AADSTS65004) cancelled instead.
+fn needs_admin(description: &str) -> bool {
+    ["AADSTS90094", "AADSTS90095", "AADSTS65001"].iter().any(|code| description.contains(code))
 }
 
 /// The whole browser sign-in: listen, open `authorize_url` with `open`, wait for the code,
@@ -940,6 +956,26 @@ mod tests {
         };
         assert_eq!(sign_in_with(&mut fake, &app, "", &mut deny, &|| false), Err(Error::Cancelled));
         assert!(fake.forms.is_empty(), "nothing is exchanged");
+        // Tinta: Microsoft's "Need admin approval" comes back as its own error; declining stays a cancel.
+        for (query, expected) in [
+            ("error=access_denied&error_description=AADSTS90094%3A+The+grant+requires+admin+permission.", Error::AdminApproval),
+            ("error=invalid_request&error_description=AADSTS90095%3A+Admin+consent+is+required", Error::AdminApproval),
+            ("error=access_denied&error_description=AADSTS65004%3A+User+declined+to+consent", Error::Cancelled),
+        ] {
+            let mut back = |url: &str| -> Result<(), String> {
+                let q = url.split_once('?').map(|(_, q)| q.to_string()).unwrap_or_default();
+                let param = |k: &str| q.split('&').find_map(|kv| kv.strip_prefix(&format!("{k}="))).map(decode).unwrap_or_default();
+                let port = param("redirect_uri").trim_start_matches("http://127.0.0.1:").trim_end_matches('/').to_string();
+                let state = param("state");
+                let query = query.to_string();
+                std::thread::spawn(move || {
+                    let mut s = TcpStream::connect(format!("127.0.0.1:{port}")).unwrap();
+                    s.write_all(format!("GET /?{query}&state={state} HTTP/1.1\r\n\r\n").as_bytes()).unwrap();
+                });
+                Ok(())
+            };
+            assert_eq!(sign_in_with(&mut fake, &app, "", &mut back, &|| false), Err(expected), "{query}");
+        }
         // Stopped while waiting.
         assert_eq!(sign_in_with(&mut fake, &app, "", &mut |_| Ok(()), &|| true), Err(Error::Cancelled));
         // No browser at all.

@@ -382,3 +382,13 @@
 	Opening {name}…	Atveriama {name}…
 	Could not save {name}: {error}	Nepavyko įrašyti {name}: {error}
 	Attachment files are not included: save them from each message.	Priedų failai neįtraukti: įrašykite juos iš kiekvieno laiško.
+# Tinta: deleting for good (two steps), Microsoft admin approval
+	Delete for good?	Ištrinti visam laikui?
+	Deleting this message here removes it for good, also from the server at the next Send/Receive.	Ištrynus šį laišką čia, jis dings visam laikui, kito siuntimo / gavimo metu ir iš serverio.
+	Delete for good	Ištrinti visam laikui
+	Does Microsoft say “Need admin approval”?	„Microsoft“ rodo „Need admin approval“ (reikia administratoriaus patvirtinimo)?
+	Your organisation lets only its administrator approve new programs. An administrator approves Tinta Correo once on Microsoft's page; then sign in again here.	Jūsų organizacijoje naujas programas gali patvirtinti tik administratorius. Administratorius vieną kartą patvirtina „Tinta Correo“ „Microsoft“ puslapyje; tada prisijunkite čia iš naujo.
+	Copy a message for your administrator	Kopijuoti laišką administratoriui
+	I am an administrator: open the approval page	Esu administratorius: atidaryti patvirtinimo puslapį
+	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	„Microsoft“ reikalauja, kad jūsų organizacijos administratorius pirmiau patvirtintų „Tinta Correo“. Tada prisijunkite iš naujo.
+	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Laba diena,\n\nprašau patvirtinti pašto programą „Tinta Correo“ mūsų organizacijai „Microsoft Entra“, kad galėtume joje naudoti paštą, kalendorių ir kontaktus. Administratorius vieną kartą atidaro šį puslapį ir sutinka:\n{link}\n\n„Tinta Correo“ yra nemokama atvirojo kodo programa (https://tintaoffice.com). Jos programos ID yra {id}.\n\nAčiū.

@@ -355,6 +355,7 @@ mod tests {
             mime_type: "application/octet-stream".into(),
             size: 2,
             sha256: hash,
+            content_id: None,
         });
         let e = copy_to_open(&store, pdf, 1, &dir).unwrap_err().to_string();
         assert!(e.contains("could run a program"), "{e}");

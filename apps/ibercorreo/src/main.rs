@@ -181,7 +181,7 @@ struct SignIn {
 enum SignInEvent {
     /// The address opened in the browser.
     Opened(String),
-    Done(Result<oauth::Tokens, String>),
+    Done(Result<oauth::Tokens, oauth::Error>),
 }
 
 impl Drop for SignIn {
@@ -374,7 +374,7 @@ impl Shell {
         let event = match s.rx.try_recv() {
             Ok(e) => e,
             Err(TryRecvError::Empty) => return,
-            Err(TryRecvError::Disconnected) => SignInEvent::Done(Err("the sign-in stopped unexpectedly".into())),
+            Err(TryRecvError::Disconnected) => SignInEvent::Done(Err(oauth::Error::Local("the sign-in stopped unexpectedly".into()))),
         };
         match event {
             SignInEvent::Opened(url) => self.app.oauth_running = Some(url),
@@ -393,7 +393,9 @@ impl Shell {
                                 "Signed in; the system credential store is unavailable, so you sign in again after Tinta Correo closes".into();
                         }
                     }
-                    Err(e) => self.app.apply_oauth(Err(e)),
+                    // Tinta: the organisation's administrator has to approve Tinta Correo first.
+                    Err(oauth::Error::AdminApproval) => self.app.apply_oauth_needs_admin(),
+                    Err(e) => self.app.apply_oauth(Err(e.to_string())),
                 }
             }
         }
@@ -425,7 +427,7 @@ impl Shell {
                 };
                 let stopped = || thread_stop.load(std::sync::atomic::Ordering::Relaxed);
                 let result = oauth::sign_in_with(&mut oauth::Net { tls: &tls }, &thread_app, &hint, &mut open, &stopped);
-                let _ = tx.send(SignInEvent::Done(result.map_err(|e| e.to_string())));
+                let _ = tx.send(SignInEvent::Done(result));
                 wake();
             })
             .map_err(|e| e.to_string())?;

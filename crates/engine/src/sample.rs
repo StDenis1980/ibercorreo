@@ -112,10 +112,10 @@ pub fn store(today: Date) -> Result<Store> {
             let attachment = if name.ends_with(".pdf") {
                 let bytes = sample_pdf();
                 let size = bytes.len();
-                Attachment { name: name.into(), mime_type: "application/pdf".into(), size, sha256: s.keep_file(bytes) }
+                Attachment { name: name.into(), mime_type: "application/pdf".into(), size, sha256: s.keep_file(bytes), content_id: None }
             } else {
                 let mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-                Attachment { name: name.into(), mime_type: mime_type.into(), size: 48_213, sha256: None }
+                Attachment { name: name.into(), mime_type: mime_type.into(), size: 48_213, sha256: None, content_id: None }
             };
             m.attachments.push(attachment);
         }

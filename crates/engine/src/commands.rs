@@ -1389,6 +1389,10 @@ fn attachment_json(index: usize, a: &ibercorreo_core::mail::Attachment) -> Value
     if let (Some(o), Some(h)) = (v.as_object_mut(), &a.sha256) {
         o.insert("sha256".into(), json!(h));
     }
+    // Tinta: a picture an HTML body shows in its text (`cid:`).
+    if let (Some(o), Some(c)) = (v.as_object_mut(), &a.content_id) {
+        o.insert("contentId".into(), json!(c));
+    }
     v
 }
 

@@ -393,7 +393,7 @@ fn is_plausible_email(s: &str) -> bool {
 /// Largest invitation kept with a message (a real one is a few KiB, with its time zones).
 pub const MAX_INVITE_BYTES: usize = 256 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,
     pub mime_type: String,
@@ -403,6 +403,46 @@ pub struct Attachment {
     /// contents were kept, or a file too large to keep.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sha256: Option<String>,
+    /// The part's `Content-ID` without its angle brackets, at most [`MAX_CONTENT_ID_BYTES`]: an
+    /// HTML body shows the part where it says `cid:` and this id (RFC 2392).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_id: Option<String>,
+}
+
+/// Most bytes of an [`Attachment::content_id`] kept.
+pub const MAX_CONTENT_ID_BYTES: usize = 256;
+
+/// A `Content-ID` or a `cid:` address made comparable: without `cid:`, angle brackets and
+/// surrounding space, percent-escapes decoded (as RFC 2392 writes them in URLs), and lowercased
+/// (servers and mail programs differ in case). `None` when nothing is left or it is too long.
+pub fn content_id_key(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let raw = match raw.get(..4) {
+        Some(p) if p.eq_ignore_ascii_case("cid:") => raw.get(4..).unwrap_or(""),
+        _ => raw,
+    };
+    let raw = raw.trim().trim_start_matches('<').trim_end_matches('>').trim();
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while let Some(&b) = bytes.get(i) {
+        let hex = |j: usize| bytes.get(j).and_then(|c| (*c as char).to_digit(16));
+        match (b, hex(i + 1), hex(i + 2)) {
+            (b'%', Some(h), Some(l)) => {
+                out.push(u8::try_from(h * 16 + l).unwrap_or(b'?'));
+                i += 3;
+            }
+            _ => {
+                out.push(b);
+                i += 1;
+            }
+        }
+        if out.len() > MAX_CONTENT_ID_BYTES {
+            return None;
+        }
+    }
+    let key = String::from_utf8_lossy(&out).to_lowercase();
+    if key.is_empty() { None } else { Some(key) }
 }
 
 /// What a message says, apart from its headers, so a store can leave it on disk until it is read.

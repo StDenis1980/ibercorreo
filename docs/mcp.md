@@ -1,6 +1,6 @@
 # Tinta Correo MCP server
 
-Status: 2026-11-13 · `save_attachment` and `--automation-write-root` (Vilna OS request tintaoffice-web#33, item 5)
+Status: 2026-11-15 · `contentId` on attachments shown inside HTML mail
 
 `ibercorreo-cli mcp` lets an AI assistant work with Tinta Correo's mail, calendar and contacts
 over the [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0
@@ -87,7 +87,8 @@ named by its SHA-256, so an attachment sent twice is kept once. A file no messag
 when the mailbox is opened, once it is a day old. Mail that arrived before this version has only
 the attachments' names, types and sizes; so does an attachment larger than 64 MiB.
 
-`read_message` lists each attachment with its `index`, `name`, `type`, `size` and `kept`.
+`read_message` lists each attachment with its `index`, `name`, `type`, `size` and `kept`, and
+`contentId` for a picture the HTML body shows in its text (`cid:`).
 `save_attachment` (`id`, `attachment` as the index or the name, `path?`) writes a kept one to a
 new file: `path` may be a file or a folder (the attachment's name is used, made safe: no folders,
 no leading dot, no characters a file system refuses), absolute or relative to the first write

@@ -62,6 +62,11 @@ pub struct Span {
     /// An image that was not shown; `text` is its description.
     #[serde(default, skip_serializing_if = "is_false")]
     pub image: bool,
+    /// For an image: the part of this same message it shows (`cid:`), as
+    /// [`crate::mail::content_id_key`] makes it. A front end draws that attachment in its place
+    /// when it has the contents; nothing outside the message is ever named here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cid: Option<String>,
     /// Where the text links to: `http:`, `https:` or `mailto:` only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,
