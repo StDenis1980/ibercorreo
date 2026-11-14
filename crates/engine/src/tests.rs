@@ -94,6 +94,7 @@ fn a_draft_is_sent_only_while_it_says_what_its_hash_says() {
         name: "x.pdf".into(),
         mime_type: "application/pdf".into(),
         size: 1,
+        sha256: None,
     });
     assert!(t.run("message.send", &json!({"id": id, "contentHash": hash})).is_err(), "an attachment added");
     assert!(s.run("message.send", &json!({"id": id, "contentHash": 7})).is_err());

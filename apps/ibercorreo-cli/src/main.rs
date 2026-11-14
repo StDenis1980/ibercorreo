@@ -33,7 +33,7 @@
 //!                                                 signed in, or the JSON a GET of PATH (such as
 //!                                                 `me/calendars`) returns; read-only, and signs in
 //!                                                 like `sync`
-//! ibercorreo-cli mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N]
+//! ibercorreo-cli mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N] [--automation-write-root DIR]...
 //!                                                 MCP server on stdin/stdout for AI assistants
 //!                                                 (docs/mcp.md): mail, calendar and contacts, in
 //!                                                 the open window when there is one; sending only
@@ -54,6 +54,7 @@ use ibercorreo_store::Store;
 use serde_json::{Value, json};
 
 mod mcp;
+mod write_root;
 
 const MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -82,7 +83,7 @@ fn print(v: &Value) {
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | pst FILE [--store FILE] [--account ID] | ics FILE | export --store FILE DIR | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH] | mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N]"
+        "usage: ibercorreo-cli --version | commands | run [--store FILE | --sample] [--save] --cmd 'id={{json}}'... | eml FILE | msg FILE | pst FILE [--store FILE] [--account ID] | ics FILE | export --store FILE DIR | sync --store FILE [--account ID] [--ca CERT.der] | autoconfig EMAIL [--ca CERT.der] | oauth google|microsoft [EMAIL] [--ca CERT.der] | graph --store FILE [--account ID] [--ca CERT.der] [PATH] | mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE] [--max-messages N] [--automation-write-root DIR]..."
     );
     ExitCode::from(2)
 }

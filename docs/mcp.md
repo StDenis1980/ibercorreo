@@ -1,6 +1,6 @@
 # Tinta Correo MCP server
 
-Status: 2026-11-04 · first version (M6.1; Vilna OS request, tintaoffice-web#28)
+Status: 2026-11-13 · `save_attachment` and `--automation-write-root` (Vilna OS request tintaoffice-web#33, item 5)
 
 `ibercorreo-cli mcp` lets an AI assistant work with Tinta Correo's mail, calendar and contacts
 over the [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0
@@ -13,6 +13,7 @@ ibercorreo-cli mcp                       # the mailbox the app opens
 ibercorreo-cli mcp --store FILE          # another mailbox
 ibercorreo-cli mcp --sample              # the sample mailbox, in memory (never saved)
 ibercorreo-cli mcp --allow-send          # also lets it send drafts the person approved
+ibercorreo-cli mcp --automation-write-root ~/Documents   # also lets it save attachments there
 ```
 
 ```json
@@ -66,11 +67,34 @@ Send/Receive); without it, at the window's next Send/Receive or `ibercorreo-cli 
   `search_messages` answer; `more` says there are more, and `offset` pages through a folder.
   Contacts come at most 200 at a time, a message's text at most 100 000 characters (`maxChars`
   asks for less).
-- Files: Correo keeps attachments' names, types and sizes, not their contents, so no tool reads
-  or writes a file and there is no `--automation-write-root` yet; a tool that saves attachments
-  will take one.
+- `--automation-write-root DIR`: the folders `save_attachment` may write to, as in the other
+  Tinta apps. Without one the tool is not listed and no tool writes a file. The flag may be given
+  more than once (one folder each, `--flag DIR` or `--flag=DIR`); each folder must exist when the
+  server starts. A file is written only when the folder it goes in, its links followed, is inside
+  one of them (whole path components, case ignored on Windows): `..`, a link leading out and a
+  folder that does not exist are refused. A file (or link) already there is never replaced. The
+  file is written under a temporary name beside its place and linked into place in one step.
+- `--automation-read-root DIR` is accepted (and must name a folder) so a host can pass every Tinta
+  app the same flags; no Correo tool reads a file.
 
-Each flag may be given once.
+The other flags may each be given once.
+
+## Attachments
+
+Tinta Correo keeps the contents of the attachments of mail that arrives (Send/Receive, an `.eml`
+dropped in) in a folder beside the mailbox (`store.json` → `store.files/`), one file per content,
+named by its SHA-256, so an attachment sent twice is kept once. A file no message names is removed
+when the mailbox is opened, once it is a day old. Mail that arrived before this version has only
+the attachments' names, types and sizes; so does an attachment larger than 64 MiB.
+
+`read_message` lists each attachment with its `index`, `name`, `type`, `size` and `kept`.
+`save_attachment` (`id`, `attachment` as the index or the name, `path?`) writes a kept one to a
+new file: `path` may be a file or a folder (the attachment's name is used, made safe: no folders,
+no leading dot, no characters a file system refuses), absolute or relative to the first write
+root, by default the first write root itself. It reads the file the window keeps beside the
+mailbox, so it needs no network and works in a sandbox that sees only the mailbox's folder and
+the write roots. An attachment not kept is a tool error that says so. It runs `message.read` (for
+`--allow-commands`) and never sends, deletes or replaces anything.
 
 ## Tools
 
@@ -85,6 +109,7 @@ Each flag may be given once.
 | `forward_message` (`id`, `to?`, `body?`) | `message.forward` | no |
 | `update_draft` (`id`, `to?`, `cc?`, `bcc?`, `subject?`, `body?`) | `message.update` | no |
 | `send_draft` (`id`, `contentHash`) — only with `--allow-send` | `message.send` | no (destructive) |
+| `save_attachment` (`id`, `attachment`, `path?`) — only with `--automation-write-root` | `message.read`, then writes a new file | no |
 | `set_flag` (`id`, `flagged?`), `mark_read` (`id`, `read?`) | `message.flag`, `message.markRead` | no |
 | `archive_message` (`id`), `move_message` (`id`, `folder`) | `message.archive`, `message.move` | no |
 | `delete_message` (`id`) | `message.delete` (Trash; in Trash, for good) | no (destructive) |
@@ -118,12 +143,16 @@ should mark every `read_message` and `search_messages` result.
 
 ## Not yet
 
-- Saving attachments (Correo does not keep their contents yet).
+- Saving the attachments of mail that arrived before contents were kept: they are not downloaded
+  again yet.
 - Sending without the window right away: a closed window's Outbox goes out at its next
   Send/Receive.
 
 ## Revision history
 
+- 2026-11-13 — `save_attachment` and `--automation-write-root` (repeatable; `--automation-read-root`
+  accepted): attachment contents of arriving mail are kept beside the mailbox; `read_message`
+  lists `index` and `kept`.
 - 2026-11-04 — first version: tools for mail, calendar and contacts; commands run in the open
   window; `send_draft` behind `--allow-send` and the draft's content hash; `--allow-commands`,
   `--max-messages`.

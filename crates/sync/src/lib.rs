@@ -501,7 +501,7 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             if store.find_remote(folder, n.uid).is_some() {
                 continue;
             }
-            let mut m = match ibercorreo_mime::parse(&n.raw, MessageId(0), folder) {
+            let mut m = match store.parse_mail(&n.raw, folder) {
                 Ok(m) => m,
                 Err(e) => {
                     report.errors.push(format!("{} UID {}: {e}", f.path, n.uid));

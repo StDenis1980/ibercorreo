@@ -107,9 +107,17 @@ pub fn store(today: Date) -> Result<Store> {
         m.seen = mail.seen;
         m.flagged = mail.flagged;
         if let Some(name) = mail.attachment {
-            let mime_type =
-                if name.ends_with(".pdf") { "application/pdf" } else { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" };
-            m.attachments.push(Attachment { name: name.into(), mime_type: mime_type.into(), size: 48_213 });
+            // The PDF's contents are kept, as for mail that arrives, so it can be saved; the
+            // spreadsheet's are not, as for mail synced before contents were kept.
+            let attachment = if name.ends_with(".pdf") {
+                let bytes = sample_pdf();
+                let size = bytes.len();
+                Attachment { name: name.into(), mime_type: "application/pdf".into(), size, sha256: s.keep_file(bytes) }
+            } else {
+                let mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                Attachment { name: name.into(), mime_type: mime_type.into(), size: 48_213, sha256: None }
+            };
+            m.attachments.push(attachment);
         }
         s.add_message(m)?;
     }
@@ -222,6 +230,31 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
     s.set_favorite(inbox, true)?;
     s.set_favorite(sent, true)?;
     Ok(s)
+}
+
+/// A one-page PDF of our own: the October report attached to a sample message.
+pub fn sample_pdf() -> Vec<u8> {
+    let text = "BT /F1 18 Tf 72 760 Td (Zvit za zhovten 2026) Tj 0 -28 Td /F1 12 Tf (Tinta Correo sample attachment.) Tj ET";
+    let objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{text}\nendstream", text.len()),
+    ];
+    let mut pdf = String::from("%PDF-1.4\n");
+    let mut offsets = Vec::new();
+    for (i, object) in objects.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.push_str(&format!("{} 0 obj\n{object}\nendobj\n", i + 1));
+    }
+    let xref = pdf.len();
+    pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1));
+    for offset in offsets {
+        pdf.push_str(&format!("{offset:010} 00000 n \n"));
+    }
+    pdf.push_str(&format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1));
+    pdf.into_bytes()
 }
 
 /// Plain content saying `body`.

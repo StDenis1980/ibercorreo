@@ -122,6 +122,11 @@ impl Saved {
         state.written = headers_only.then(|| Written { path: path.to_path_buf(), shards: group(messages) });
     }
 
+    /// The store file this store was read from or last saved to.
+    pub(crate) fn home(&self) -> Option<PathBuf> {
+        self.lock().home.clone()
+    }
+
     /// The content of message `id`, read from its content file: `None` when it has none there.
     pub(crate) fn content(&self, id: MessageId) -> Result<Option<Arc<Content>>> {
         let home = {

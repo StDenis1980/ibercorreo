@@ -227,3 +227,130 @@ fn with_the_window_open_commands_run_there_and_the_file_is_left_alone() {
     assert_eq!(window.join().unwrap(), ["message.compose", "message.read"]);
     assert_eq!(std::fs::read(&path).unwrap(), before, "the window saves its mailbox; the server never wrote it");
 }
+
+/// The sample message with the October report (a kept PDF) and the one with the spreadsheet
+/// (not kept).
+fn sample_attachments(s: &mut Server) -> (u64, u64) {
+    let find = |s: &mut Server, q: &str| call(s, "search_messages", json!({ "query": q })).unwrap()["messages"][0]["id"].as_u64().unwrap();
+    (find(s, "attachment:zvit"), find(s, "attachment:presupuesto"))
+}
+
+fn saving(dir: &std::path::Path) -> Limits {
+    Limits { write_roots: vec![Root::open(dir, "--automation-write-root").unwrap()], ..Limits::default() }
+}
+
+#[test]
+fn save_attachment_is_off_without_a_write_root() {
+    let mut s = sample_server(Limits::default());
+    assert!(!tool_names(&mut s).contains(&"save_attachment".to_string()));
+    let (pdf, _) = sample_attachments(&mut s);
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0 })).unwrap_err();
+    assert!(e.contains("--automation-write-root"), "{e}");
+    assert!(!rpc(&mut s, "initialize", json!({}))["result"]["instructions"].as_str().unwrap().contains("save_attachment"));
+}
+
+#[test]
+fn save_attachment_writes_a_kept_file_inside_the_write_root_and_never_replaces_one() {
+    let dir = temp_dir("save");
+    let (out, other) = (dir.join("out"), dir.join("other"));
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let mut s = sample_server(saving(&out));
+    assert!(tool_names(&mut s).contains(&"save_attachment".to_string()));
+    assert!(rpc(&mut s, "initialize", json!({}))["result"]["instructions"].as_str().unwrap().contains("save_attachment"));
+    let (pdf, xlsx) = sample_attachments(&mut s);
+    let listed = &call(&mut s, "read_message", json!({ "id": pdf })).unwrap()["attachmentList"][0];
+    assert_eq!((listed["index"].clone(), listed["kept"].clone()), (json!(0), json!(true)), "{listed}");
+
+    // By name, into the root under its own name.
+    let r = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": "zvit-zhovten.pdf" })).unwrap();
+    let file = out.join("zvit-zhovten.pdf");
+    assert_eq!(std::fs::read(&file).unwrap(), ibercorreo_engine::sample::sample_pdf());
+    assert_eq!(r["size"], json!(ibercorreo_engine::sample::sample_pdf().len()));
+    assert_eq!(r["type"], "application/pdf");
+    // Never replaced, also through a link.
+    std::fs::write(&file, b"mine").unwrap();
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0 })).unwrap_err();
+    assert!(e.contains("never replaced"), "{e}");
+    assert_eq!(std::fs::read(&file).unwrap(), b"mine");
+    // By index, to a name of its own, relative to the root or absolute inside it.
+    call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": "factura.pdf" })).unwrap();
+    assert!(out.join("factura.pdf").is_file());
+    call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": out.join("abs.pdf").to_str().unwrap() })).unwrap();
+    assert!(out.join("abs.pdf").is_file());
+
+    // Outside the root: `..`, another folder, a missing folder.
+    for path in ["../other/x.pdf".to_string(), other.join("x.pdf").display().to_string(), "../x.pdf".into()] {
+        let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": path })).unwrap_err();
+        assert!(e.contains("outside the write root"), "{path}: {e}");
+    }
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": "missing/x.pdf" })).unwrap_err();
+    assert!(e.contains("must exist"), "{e}");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&other, out.join("away")).unwrap();
+        let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": "away/x.pdf" })).unwrap_err();
+        assert!(e.contains("outside the write root"), "{e}");
+        std::os::unix::fs::symlink(other.join("target.pdf"), out.join("dangling.pdf")).unwrap();
+        let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": "dangling.pdf" })).unwrap_err();
+        assert!(e.contains("never replaced"), "{e}");
+        assert!(!other.join("target.pdf").exists());
+    }
+    assert_eq!(std::fs::read_dir(&other).unwrap().count(), 0, "nothing written outside the root");
+
+    // Not kept, not there, wrong arguments: errors an assistant can act on.
+    let e = call(&mut s, "save_attachment", json!({ "id": xlsx, "attachment": 0 })).unwrap_err();
+    assert!(e.contains("does not have the contents"), "{e}");
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 3 })).unwrap_err();
+    assert!(e.contains("index from 0") && e.contains("zvit-zhovten.pdf"), "{e}");
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": "otro.pdf" })).unwrap_err();
+    assert!(e.contains("no attachment named"), "{e}");
+    assert!(call(&mut s, "save_attachment", json!({ "id": 999_999, "attachment": 0 })).is_err());
+    assert_eq!(rpc(&mut s, "tools/call", json!({ "name": "save_attachment", "arguments": { "id": pdf } }))["error"]["code"], INVALID_PARAMS);
+    // No temporary files left behind.
+    let names: Vec<String> = std::fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    assert!(names.iter().all(|n| !n.ends_with(".tmp")), "{names:?}");
+}
+
+#[test]
+fn save_attachment_follows_the_allow_list() {
+    let dir = temp_dir("save-allow");
+    let mut limits = saving(&dir);
+    limits.commands = Some(parse_allow_list("message.list").unwrap());
+    let mut s = sample_server(limits);
+    assert!(!tool_names(&mut s).contains(&"save_attachment".to_string()));
+    let e = call(&mut s, "save_attachment", json!({ "id": 1, "attachment": 0 })).unwrap_err();
+    assert!(e.contains("--allow-commands"), "{e}");
+}
+
+#[test]
+fn save_attachment_reads_the_file_kept_beside_the_mailbox() {
+    let dir = temp_dir("save-store");
+    let (path, out) = (dir.join("store.json"), dir.join("out"));
+    std::fs::create_dir_all(&out).unwrap();
+    let today = ibercorreo_core::Zone::utc().from_utc(now()).date;
+    ibercorreo_engine::sample::store(today).unwrap().save(&path).unwrap();
+    let hash = ibercorreo_store::files::hash(&ibercorreo_engine::sample::sample_pdf());
+    assert!(ibercorreo_store::files::dir(&path).join(&hash).is_file(), "the save wrote the attachment file");
+    let mut s = Server::new(Mailbox::Store { path: path.clone(), loaded: None }, saving(&out));
+    let (pdf, _) = sample_attachments(&mut s);
+    call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0 })).unwrap();
+    assert_eq!(std::fs::read(out.join("zvit-zhovten.pdf")).unwrap(), ibercorreo_engine::sample::sample_pdf());
+    // A file changed on disk is refused rather than saved.
+    std::fs::write(ibercorreo_store::files::dir(&path).join(&hash), b"changed").unwrap();
+    let e = call(&mut s, "save_attachment", json!({ "id": pdf, "attachment": 0, "path": "again.pdf" })).unwrap_err();
+    assert!(e.contains("changed on disk"), "{e}");
+}
+
+#[test]
+fn root_flags_may_repeat_and_must_name_folders() {
+    let dir = temp_dir("flags");
+    let a = dir.display().to_string();
+    let missing = dir.join("missing").display().to_string();
+    // Errors stop the server before it reads stdin.
+    assert!(main(&["--sample".into(), "--automation-write-root".into(), missing]).unwrap_err().contains("--automation-write-root"));
+    assert!(
+        main(&["--sample".into(), format!("--automation-write-root={a}"), "--automation-write-root".into()]).unwrap_err().contains("needs a folder")
+    );
+    assert!(main(&["--sample".into(), "--sample".into()]).unwrap_err().contains("given twice"));
+}

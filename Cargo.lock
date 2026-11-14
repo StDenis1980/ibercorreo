@@ -1791,6 +1791,7 @@ dependencies = [
  "ibercorreo-vcard",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

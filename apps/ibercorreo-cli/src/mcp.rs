@@ -9,8 +9,9 @@
 //! Sending is a tool of its own, off unless the server is started with `--allow-send`, and it
 //! sends only the draft whose `contentHash` (from `read_message`) still matches: what goes out is
 //! what was shown. No tool returns passwords or tokens (they are in the system credential store,
-//! never in the mailbox), and Correo keeps attachments' names and sizes only, so no tool writes
-//! a file.
+//! never in the mailbox). The one tool that writes a file, `save_attachment`, is off unless the
+//! server is started with `--automation-write-root`, writes only inside those folders and never
+//! replaces a file ([`crate::write_root`]).
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -20,6 +21,8 @@ use ibercorreo_engine::instance::{self, Answer};
 use ibercorreo_engine::{Session, commands};
 use ibercorreo_store::Store;
 use serde_json::{Map, Value, json};
+
+use crate::write_root::{self, Root};
 
 /// The MCP revision implemented; older clients get their own version back.
 const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -52,6 +55,9 @@ update_draft edits one. To send, show the person the draft (read_message: recipi
 approve, call send_draft with its id and the contentHash read_message gave: a draft changed since then is refused. \
 Calendar: list_calendars, list_events, add_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
 update_contact.";
+
+const SAVING: &str = " Files: save_attachment saves one of a message's attachments (read_message lists them, with `kept` \
+saying whether Tinta Correo has its contents) into the folders this server may write to; it never replaces a file.";
 
 /// One tool: the commands it runs (for `--allow-commands`), its hints and its arguments.
 struct Tool {
@@ -188,6 +194,24 @@ const TOOLS: &[Tool] = &[
         destructive: true,
         args: &[("id", "integer", "The draft's id."), ("contentHash", "string", "The draft's contentHash from read_message.")],
         required: &["id", "contentHash"],
+    },
+    Tool {
+        name: "save_attachment",
+        title: "Save attachment",
+        description: "Saves one of a message's attachments as a file, inside the folders this server may write to (--automation-write-root). An existing file is never replaced. Only attachments whose contents Tinta Correo keeps can be saved (`kept` in read_message): those of mail that arrived after it began keeping them.",
+        commands: &["message.read"],
+        read_only: false,
+        destructive: false,
+        args: &[
+            ID,
+            ("attachment", "integer|string", "Which attachment: its `index` in read_message's attachmentList (from 0), or its name."),
+            (
+                "path",
+                "string",
+                "Where to save it: a file, or a folder (the attachment's own name is used), absolute or relative to the first write root. Default: the first write root.",
+            ),
+        ],
+        required: &["id", "attachment"],
     },
     Tool {
         name: "set_flag",
@@ -373,11 +397,14 @@ pub struct Limits {
     pub commands: Option<Vec<String>>,
     /// `--max-messages`: most messages in one answer.
     pub max_messages: usize,
+    /// `--automation-write-root`: the folders `save_attachment` may write to; none, no tool
+    /// writes a file.
+    pub write_roots: Vec<Root>,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { send: false, commands: None, max_messages: DEFAULT_MAX_MESSAGES }
+        Limits { send: false, commands: None, max_messages: DEFAULT_MAX_MESSAGES, write_roots: Vec::new() }
     }
 }
 
@@ -387,7 +414,7 @@ impl Limits {
     }
 
     fn lists(&self, t: &Tool) -> bool {
-        t.commands.iter().any(|c| self.allows(c))
+        (t.name != "save_attachment" || !self.write_roots.is_empty()) && t.commands.iter().any(|c| self.allows(c))
     }
 }
 
@@ -479,7 +506,29 @@ fn window_open(path: &Path) -> bool {
     })
 }
 
+/// A number not given out before in this process, for temporary file names.
+pub fn unique() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 impl Mailbox {
+    /// The contents of the attachment file `sha256`: kept in the sample mailbox, or in the
+    /// mailbox's attachment folder on disk (which the open window writes when it saves).
+    pub fn file(&self, sha256: &str) -> Result<Vec<u8>, String> {
+        match self {
+            Mailbox::Sample(s) => s.store.file(sha256).map_err(|e| e.to_string()),
+            Mailbox::Store { path, loaded } => match ibercorreo_store::files::read(path, sha256) {
+                Ok(bytes) => Ok(bytes),
+                Err(ibercorreo_core::Error::NotFound { .. }) => match loaded {
+                    Some((_, s)) => s.store.file(sha256).map_err(|e| e.to_string()),
+                    None => Err("Tinta Correo has the attachment but has not saved it to disk yet: try again in a few seconds".into()),
+                },
+                Err(e) => Err(e.to_string()),
+            },
+        }
+    }
+
     /// Runs command `id`: in the open window, or here (saving what it changed).
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         match self {
@@ -673,11 +722,12 @@ impl Server {
                 let version = if SUPPORTED_VERSIONS.contains(&asked) { asked } else { PROTOCOL_VERSION };
                 let sending =
                     if self.limits.send { "" } else { " Sending is off on this server (no send_draft): drafts are left for the person to send." };
+                let saving = if self.limits.write_roots.is_empty() { "" } else { SAVING };
                 Ok(json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": "tinta-correo", "title": "Tinta Correo", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{INSTRUCTIONS}{sending}"),
+                    "instructions": format!("{INSTRUCTIONS}{sending}{saving}"),
                 }))
             }
             "ping" => Ok(json!({})),
@@ -746,6 +796,7 @@ impl Server {
                     .map_or(MAX_BODY_CHARS, |c| usize::try_from(c).unwrap_or(MAX_BODY_CHARS).min(MAX_BODY_CHARS));
                 self.run("message.read", Value::Object(params)).map(|v| readable(v, chars))
             }
+            "save_attachment" => self.save_attachment(&params),
             "reply_to_message" => {
                 let all = params.remove("all").and_then(|v| v.as_bool()).unwrap_or(false);
                 self.run(if all { "message.replyAll" } else { "message.reply" }, Value::Object(params))
@@ -766,6 +817,47 @@ impl Server {
             Ok(v) => text_result(&v, false),
             Err(e) => tool_error(&e),
         }
+    }
+}
+
+impl Server {
+    /// `save_attachment`: find the attachment through `message.read` (so it runs in the open
+    /// window when there is one, and `--allow-commands` applies), then write its kept contents
+    /// to a new file inside a write root.
+    fn save_attachment(&mut self, params: &Map<String, Value>) -> Result<Value, String> {
+        if self.limits.write_roots.is_empty() {
+            return Err("saving files is off on this server: start it with --automation-write-root FOLDER".into());
+        }
+        let id = params.get("id").cloned().unwrap_or(Value::Null);
+        let message = self.run("message.read", json!({ "id": id }))?;
+        let list = message.get("attachmentList").and_then(Value::as_array).cloned().unwrap_or_default();
+        let names = || list.iter().filter_map(|a| a.get("name").and_then(Value::as_str)).collect::<Vec<_>>().join(", ");
+        let found = match params.get("attachment") {
+            Some(Value::Number(n)) => {
+                let i = n.as_u64().and_then(|i| usize::try_from(i).ok());
+                i.and_then(|i| list.get(i))
+                    .ok_or_else(|| format!("message {id} has {} attachment(s); `attachment` is an index from 0: {}", list.len(), names()))?
+            }
+            Some(Value::String(name)) => list
+                .iter()
+                .find(|a| a.get("name").and_then(Value::as_str) == Some(name.as_str()))
+                .or_else(|| list.iter().find(|a| a.get("name").and_then(Value::as_str).is_some_and(|n| n.to_lowercase() == name.to_lowercase())))
+                .ok_or_else(|| {
+                    format!("message {id} has no attachment named {name:?}; it has: {}", if list.is_empty() { "none".into() } else { names() })
+                })?,
+            _ => return Err("`attachment` is required: an index from 0 or a name".into()),
+        };
+        let name = found.get("name").and_then(Value::as_str).unwrap_or("attachment").to_string();
+        let Some(sha256) = found.get("sha256").and_then(Value::as_str).filter(|_| found.get("kept") == Some(&json!(true))) else {
+            return Err(format!(
+                "Tinta Correo does not have the contents of {name:?}: it keeps those of mail that arrived after it began keeping attachments (and none larger than 64 MiB). Ask the person to save it from the Tinta Correo window instead."
+            ));
+        };
+        let bytes = self.mailbox.file(sha256)?;
+        let to = write_root::target(&self.limits.write_roots, params.get("path").and_then(Value::as_str), &name)?;
+        write_root::write_new(&to, &bytes)?;
+        let shown = write_root::shown(&to);
+        Ok(json!({ "saved": shown, "name": name, "type": found.get("type"), "size": bytes.len() }))
     }
 }
 
@@ -796,14 +888,27 @@ fn readable(mut v: Value, chars: usize) -> Value {
 }
 
 /// `ibercorreo-cli mcp [--store FILE | --sample] [--allow-send] [--allow-commands LIST|@FILE]
-/// [--max-messages N]`.
+/// [--max-messages N] [--automation-write-root DIR]...`.
 pub fn main(args: &[String]) -> Result<(), String> {
     let mut store_path: Option<PathBuf> = None;
     let mut sample = false;
     let mut limits = Limits::default();
+    let mut read_roots = 0usize;
     let mut seen = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
+        // Root flags may be given again, one folder each, as in the other Tinta apps.
+        if let Some((write, dir)) = write_root::consume(a, &mut it)? {
+            let flag = if write { "--automation-write-root" } else { "--automation-read-root" };
+            let root = Root::open(&dir, flag)?;
+            if write {
+                limits.write_roots.push(root);
+            } else {
+                // Taken so a host can pass every Tinta app the same flags; no Correo tool reads a file.
+                read_roots = read_roots.saturating_add(1);
+            }
+            continue;
+        }
         if seen.contains(a) {
             return Err(format!("{a} given twice"));
         }
@@ -834,6 +939,13 @@ pub fn main(args: &[String]) -> Result<(), String> {
         Mailbox::Store { path, loaded: None }
     };
     eprintln!("Tinta Correo MCP server{}", if limits.send { " (sending allowed)" } else { "" });
+    if !limits.write_roots.is_empty() {
+        let roots = limits.write_roots.iter().map(|r| r.shown().display().to_string()).collect::<Vec<_>>().join(", ");
+        eprintln!("files confined: save_attachment writes only in {roots}");
+    }
+    if read_roots > 0 {
+        eprintln!("--automation-read-root: accepted; no Tinta Correo tool reads files");
+    }
     let stdin = std::io::stdin();
     Server::new(mailbox, limits).serve(stdin.lock(), std::io::stdout().lock()).map_err(|e| e.to_string())
 }

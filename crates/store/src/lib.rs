@@ -8,6 +8,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod files;
 pub mod rules;
 pub mod search;
 pub mod shards;
@@ -160,6 +161,9 @@ pub struct Store {
     /// The shards the last save wrote, so the next one writes only what changed.
     #[serde(skip)]
     saved: shards::Saved,
+    /// Attachment files kept and not saved yet ([`files`]).
+    #[serde(skip)]
+    files: files::Files,
     /// Messages the last load left out ([`Store::repaired_on_load`]).
     #[serde(skip)]
     repaired: Repaired,
@@ -537,8 +541,41 @@ impl Store {
     /// Parse a raw `.eml` into `folder`.
     pub fn import_eml(&mut self, raw: &[u8], folder: FolderId) -> Result<MessageId> {
         self.folder(folder)?;
-        let m = ibercorreo_mime::parse(raw, MessageId(0), folder)?;
+        let m = self.parse_mail(raw, folder)?;
         self.add_message(m)
+    }
+
+    /// Read `raw` (RFC 5322) as a message for `folder`, keeping its attachments' contents
+    /// ([`Store::keep_file`]): what mail that arrives goes through. The message is not added.
+    pub fn parse_mail(&self, raw: &[u8], folder: FolderId) -> Result<Message> {
+        let (mut m, contents) = ibercorreo_mime::parse_with_files(raw, MessageId(0), folder)?;
+        for (a, bytes) in m.attachments.iter_mut().zip(contents) {
+            a.sha256 = self.keep_file(bytes);
+        }
+        Ok(m)
+    }
+
+    /// Keep an attachment's contents with the store (written beside it at the next save,
+    /// [`files`]); returns the name to put in [`Attachment::sha256`]. `None` for one larger than
+    /// [`files::MAX_FILE_BYTES`], which is not kept.
+    pub fn keep_file(&self, bytes: Vec<u8>) -> Option<String> {
+        (bytes.len() <= files::MAX_FILE_BYTES).then(|| self.files.keep(bytes))
+    }
+
+    /// The contents of the attachment file `sha256`: kept here, or saved beside the store file.
+    pub fn file(&self, sha256: &str) -> Result<Vec<u8>> {
+        if let Some(bytes) = self.files.pending(sha256) {
+            return Ok(bytes.to_vec());
+        }
+        match self.saved.home() {
+            Some(home) => files::read(&home, sha256),
+            None => Err(Error::not_found("attachment file", sha256.to_string())),
+        }
+    }
+
+    /// Every attachment file a message names.
+    fn wanted_files(&self) -> std::collections::HashSet<&str> {
+        self.messages.iter().flat_map(|m| m.attachments.iter()).filter_map(|a| a.sha256.as_deref()).collect()
     }
 
     /// Every message, in no particular order (for sync).
@@ -1177,6 +1214,8 @@ impl Store {
 
     /// Write the store to `path`: the messages that changed to their shards, then the rest.
     pub fn save(&self, path: &Path) -> Result<()> {
+        // Attachment files first: the shards written next may name them.
+        self.files.write(path, self.saved.home().as_deref(), &self.wanted_files())?;
         let pending = shards::write(&self.saved, path, &self.messages)?;
         let mut rest = self.clone();
         rest.messages = Vec::new();
@@ -1212,6 +1251,7 @@ impl Store {
         s.repaired.left_out = s.drop_strays();
         let s = s.finish_load()?;
         s.saved.remember(path, &s.messages, headers_only);
+        files::prune(path, &s.wanted_files());
         Ok(s)
     }
 
@@ -1232,6 +1272,10 @@ impl Store {
         let dir = shards::dir(path);
         if dir.exists() {
             std::fs::rename(&dir, shards::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
+        }
+        let dir = files::dir(path);
+        if dir.exists() {
+            std::fs::rename(&dir, files::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
         }
         Ok(aside)
     }
@@ -1446,7 +1490,7 @@ mod tests {
         let mut m = msg(&s, "Factura de octubre", 3);
         m.content_mut().unwrap().body = "El camión llega el lunes. Prou col·lecció!".into();
         m.to = vec![Address::parse("Олена Коваль <olena@example.com>").unwrap()];
-        m.attachments.push(Attachment { name: "presupuesto-2026.pdf".into(), mime_type: "application/pdf".into(), size: 10 });
+        m.attachments.push(Attachment { name: "presupuesto-2026.pdf".into(), mime_type: "application/pdf".into(), size: 10, sha256: None });
         let a = s.add_message(m).unwrap();
         let mut other = msg(&s, "Weekly report", 4);
         other.from = Some(Address::parse("Luis <luis@example.net>").unwrap());

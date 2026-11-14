@@ -321,5 +321,5 @@ fn attachment(a: &RawAttachment, codepage: u32) -> Attachment {
             a.props.size(tag::ATTACH_DATA, PT_BINARY).unwrap_or(0),
         )
     };
-    Attachment { name: clamp_text(&name, 1024).to_string(), mime_type: clamp_text(&mime_type, 255).to_string(), size }
+    Attachment { name: clamp_text(&name, 1024).to_string(), mime_type: clamp_text(&mime_type, 255).to_string(), size, sha256: None }
 }
