@@ -99,35 +99,7 @@ fn same_component(a: Component, b: Component) -> bool {
     }
 }
 
-/// A Windows device name (`CON`, `NUL`, `COM1`… also with an extension), which names no file.
-fn is_device_name(name: &str) -> bool {
-    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ').to_ascii_uppercase();
-    let numbered = |prefix: &str| stem.strip_prefix(prefix).is_some_and(|n| n.len() == 1 && n.bytes().all(|b| (b'1'..=b'9').contains(&b)));
-    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$") || numbered("COM") || numbered("LPT")
-}
-
-/// Most bytes of a file name made from an attachment's name.
-const MAX_NAME_BYTES: usize = 200;
-
-/// A file name for an attachment called `name`: its last path part, without characters no file
-/// system takes or a leading dot (a hidden file), cut at [`MAX_NAME_BYTES`]; `attachment` when
-/// nothing is left. Never `.`, `..` or a Windows device name.
-pub fn file_name(name: &str) -> String {
-    let last = name.rsplit(['/', '\\']).next().unwrap_or(name);
-    let mut out = String::new();
-    for c in last.chars() {
-        let c = if c.is_control() || matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c };
-        if out.len().saturating_add(c.len_utf8()) > MAX_NAME_BYTES {
-            break;
-        }
-        out.push(c);
-    }
-    let out = out.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
-    if out.is_empty() {
-        return "attachment".into();
-    }
-    if is_device_name(&out) { format!("_{out}") } else { out }
-}
+use ibercorreo_engine::attachments::{file_name, is_device_name};
 
 /// Where `path` (absolute, or relative to the first root) would be written, after checking that it
 /// lies in one of `roots` and is free. A folder inside a root takes `name` ([`file_name`]).
@@ -200,24 +172,6 @@ pub fn write_new(to: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn attachment_names_become_safe_file_names() {
-        assert_eq!(file_name("factura 12.pdf"), "factura 12.pdf");
-        assert_eq!(file_name("../../.ssh/id_rsa"), "id_rsa");
-        assert_eq!(file_name("C:\\Windows\\evil.exe"), "evil.exe");
-        assert_eq!(file_name(".bashrc"), "bashrc");
-        assert_eq!(file_name(".."), "attachment");
-        assert_eq!(file_name(""), "attachment");
-        assert_eq!(file_name("a:b*c?.txt"), "a_b_c_.txt");
-        assert_eq!(file_name("line\nbreak.txt"), "line_break.txt");
-        assert_eq!(file_name("NUL.txt"), "_NUL.txt");
-        assert_eq!(file_name("com1"), "_com1");
-        assert_eq!(file_name("COM10.txt"), "COM10.txt");
-        let long = "я".repeat(300);
-        let cut = file_name(&long);
-        assert!(cut.len() <= MAX_NAME_BYTES && cut.chars().all(|c| c == 'я'));
-    }
 
     #[test]
     fn root_flags_take_both_spellings_and_refuse_bad_operands() {

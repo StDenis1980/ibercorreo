@@ -41,6 +41,10 @@ finish-args:
   - --talk-name=org.gnome.evolution.dataserver.Calendar8
   # ... and Correo's contacts in an EDS address book, for GNOME Contacts and the other GNOME apps.
   - --talk-name=org.gnome.evolution.dataserver.AddressBook10
+  # Save on an attachment in the reading pane writes it to the Downloads folder (XDG_DOWNLOAD_DIR),
+  # never replacing a file there. Open writes a copy in the app's own data folder and hands it to
+  # the OpenURI portal.
+  - --filesystem=xdg-download
   # Deliberately not granted: any other filesystem access. Mail is stored in the app's own data
   # folder (~/.var/app/io.github.stdenis1980.ibercorreo/data/ibercorreo), and the OAuth sign-in
   # opens the browser through xdg-open, which inside the sandbox goes through the OpenURI portal.

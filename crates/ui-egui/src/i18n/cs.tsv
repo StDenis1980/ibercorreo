@@ -369,7 +369,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (volitelné)
 	Export everything	Exportovat vše
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Veškerá pošta (jeden soubor .mbox pro každou složku), kalendáře (.ics) a kontakty (.vcf) se uloží do nové složky v Dokumentech. Thunderbird, Apple Mail, Outlook a Google je umí importovat. Nic, co tam už je, se nepřepíše.
-	Attachment files are not included: Tinta Correo keeps only their names.	Soubory příloh nejsou zahrnuty: Tinta Correo uchovává jen jejich názvy.
 	Export	Exportovat
 	Exporting…	Exportuje se…
 	Open the exported folder	Otevřít exportovanou složku
+# Attachments: Open and Save (Tinta)
+	Open	Otevřít
+	Open it with the program this kind of file opens with	Otevřít v programu, který otevírá tento typ souborů
+	Save a copy in the Downloads folder	Uložit kopii do složky Stažené soubory
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Tato příloha přišla dříve, než Tinta Correo začal přílohy uchovávat, takže ji tu nelze otevřít ani uložit.
+	This file could run a program: save it and check it before you open it.	Tento soubor by mohl spustit program: uložte ho a zkontrolujte, než ho otevřete.
+	Saved {name} in {folder}	{name} uloženo do {folder}
+	Opening {name}…	Otevírám {name}…
+	Could not save {name}: {error}	{name} se nepodařilo uložit: {error}
+	Attachment files are not included: save them from each message.	Soubory příloh nejsou zahrnuty: uložte je z každé zprávy.

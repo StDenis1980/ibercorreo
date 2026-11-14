@@ -15,7 +15,7 @@ use crate::icons::{self, Icon};
 
 pub(crate) const TITLE: &str = "Export everything";
 pub(crate) const WHAT: &str = "All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.";
-pub(crate) const ATTACHMENTS: &str = "Attachment files are not included: Tinta Correo keeps only their names.";
+pub(crate) const ATTACHMENTS: &str = "Attachment files are not included: save them from each message.";
 pub(crate) const EXPORT: &str = "Export";
 pub(crate) const RUNNING: &str = "Exporting…";
 pub(crate) const OPEN: &str = "Open the exported folder";

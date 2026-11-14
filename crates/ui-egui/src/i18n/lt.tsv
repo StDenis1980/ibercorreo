@@ -369,7 +369,16 @@
 	https://dav.example.org (optional)	https://dav.example.org (neprivaloma)
 	Export everything	Eksportuoti viską
 	All mail (one .mbox file per folder), calendars (.ics) and contacts (.vcf) go to a new folder in Documents. Thunderbird, Apple Mail, Outlook and Google can import them. Nothing already there is overwritten.	Visas paštas (po vieną .mbox failą kiekvienam aplankui), kalendoriai (.ics) ir kontaktai (.vcf) įrašomi į naują aplanką Dokumentuose. Juos gali importuoti Thunderbird, Apple Mail, Outlook ir Google. Niekas, kas ten jau yra, neperrašoma.
-	Attachment files are not included: Tinta Correo keeps only their names.	Priedų failai neįtraukiami: Tinta Correo saugo tik jų pavadinimus.
 	Export	Eksportuoti
 	Exporting…	Eksportuojama…
 	Open the exported folder	Atverti eksportuotą aplanką
+# Attachments: Open and Save (Tinta)
+	Open	Atverti
+	Open it with the program this kind of file opens with	Atverti programa, kuria atveriami tokie failai
+	Save a copy in the Downloads folder	Įrašyti kopiją į aplanką Atsisiuntimai
+	This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.	Šis priedas atėjo prieš Tinta Correo pradedant saugoti priedus, todėl čia jo negalima atverti ar įrašyti.
+	This file could run a program: save it and check it before you open it.	Šis failas gali paleisti programą: įrašykite jį ir patikrinkite prieš atverdami.
+	Saved {name} in {folder}	{name} įrašytas į {folder}
+	Opening {name}…	Atveriama {name}…
+	Could not save {name}: {error}	Nepavyko įrašyti {name}: {error}
+	Attachment files are not included: save them from each message.	Priedų failai neįtraukti: įrašykite juos iš kiekvieno laiško.
