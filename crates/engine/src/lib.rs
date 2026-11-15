@@ -7,6 +7,7 @@
 
 pub mod attachments;
 pub mod commands;
+pub mod conversations;
 pub mod export;
 pub mod instance;
 pub mod mailto;

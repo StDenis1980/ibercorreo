@@ -164,6 +164,14 @@ Status: 2026-11-15 · Pick from the top.
     Exchange and Microsoft 365 categories) so other devices see them, importing Outlook's
     categories from `.pst` and `.msg`, a rule action that categorizes, a quick-click category,
     and categories on appointments and contacts.
+19. **Conversations (M6.2g).** View › Conversations (the button beside the folder's name,
+    `view.conversations`) groups a folder's mail by subject once `Re:`, `Fwd:` and their
+    translations are taken off, as Outlook does: one row per conversation with its newest
+    message and a count, opened with its arrow or a click; `message.conversation` (MCP
+    `get_conversation`) lists a conversation across the account's folders. Missing: grouping by
+    `Message-ID`/`References` (headers not kept yet), the account's Sent mail shown inside a
+    folder's conversations, a reading pane that shows the whole conversation, and actions on a
+    whole conversation (delete, move, categorize).
 
 ## Revision history
 - 2026-10-22 — created with M0.

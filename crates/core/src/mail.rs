@@ -742,3 +742,86 @@ mod tests {
         assert_eq!(back.preview(20), "Bom dia");
     }
 }
+
+/// Tinta: the topic of a conversation, as mail programs group mail: the subject without the
+/// `Re:`, `Fwd:` and the like that replies and forwards put before it (in the languages Correo
+/// speaks and those mail programs commonly write), lowercased, spaces collapsed. `None` for a
+/// subject that is empty once they are gone: such mail is never grouped.
+pub fn conversation_topic(subject: &str) -> Option<String> {
+    const PREFIXES: &[&str] = &[
+        "re",
+        "fw",
+        "fwd",
+        "aw",
+        "wg",
+        "sv",
+        "vs",
+        "rv",
+        "tr",
+        "rif",
+        "r",
+        "i",
+        "odp",
+        "pd",
+        "res",
+        "enc",
+        "antw",
+        "doorst",
+        "ynt",
+        "vá",
+        "vl",
+        "fs",
+        "отв",
+        "ответ",
+        "пер",
+        "переслано",
+        "відп",
+        "відповідь",
+        "пересл",
+        "ats",
+        "per",
+        "re[2]",
+    ];
+    let mut rest = subject.trim().to_lowercase();
+    // Bounded: each pass removes at least one character.
+    for _ in 0..32 {
+        let trimmed = rest.trim_start();
+        let Some(colon) = trimmed.find([':', '：']) else { break };
+        let head = trimmed.get(..colon).unwrap_or("").trim();
+        // `Re[2]:`, `RE(3):` count as one reply prefix.
+        let base = head.split(['[', '(']).next().unwrap_or("").trim();
+        if !PREFIXES.contains(&base) {
+            break;
+        }
+        let after = trimmed.get(colon..).and_then(|t| t.chars().next().map(|c| colon + c.len_utf8())).unwrap_or(trimmed.len());
+        rest = trimmed.get(after..).unwrap_or("").to_string();
+    }
+    let topic = rest.split_whitespace().collect::<Vec<_>>().join(" ");
+    (!topic.is_empty()).then_some(topic)
+}
+
+#[cfg(test)]
+mod conversation_tests {
+    use super::conversation_topic;
+
+    #[test]
+    fn replies_and_forwards_share_their_topic() {
+        let t = |s: &str| conversation_topic(s);
+        let base = t("Presupuesto del segundo trimestre");
+        for s in [
+            "Re: Presupuesto del segundo trimestre",
+            "RE: RE: Fwd:  presupuesto   del segundo trimestre",
+            "AW: WG: Presupuesto del segundo trimestre",
+            "Re[2]: Presupuesto del segundo trimestre",
+            "Відп: Presupuesto del segundo trimestre",
+            "RV: Presupuesto del segundo trimestre ",
+        ] {
+            assert_eq!(t(s), base, "{s}");
+        }
+        assert_eq!(t("Meeting: Monday").as_deref(), Some("meeting: monday"), "a colon inside the subject stays");
+        assert_eq!(t("Re:"), None);
+        assert_eq!(t("   "), None);
+        assert!(t(&"Re: ".repeat(1000)).is_some(), "bounded: past 32 prefixes the rest is the topic");
+        assert_eq!(t("Re: Ünïcödé ✓").as_deref(), Some("ünïcödé ✓"));
+    }
+}

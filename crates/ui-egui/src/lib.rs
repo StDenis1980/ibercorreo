@@ -12,6 +12,7 @@ pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod body_text;
 mod categories_ui;
 mod chrome;
+mod conversations_ui;
 mod delete_ui;
 mod export_ui;
 pub mod i18n;
@@ -560,6 +561,8 @@ pub struct App {
     confirm_delete: Option<MessageId>,
     /// Tinta: the Categories window.
     categories_form: categories_ui::CategoriesForm,
+    /// Tinta: the message list's conversations.
+    conversations: conversations_ui::Conversations,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -807,6 +810,7 @@ impl App {
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
             categories_form: categories_ui::CategoriesForm::default(),
+            conversations: conversations_ui::Conversations::default(),
             last_calendar: None,
             invite: None,
             content: None,
@@ -2485,8 +2489,21 @@ impl App {
         } else {
             tf("Results for “{query}”", &[("query", &self.search)])
         };
+        let grouped = self.session.store.conversations && self.search.is_empty();
+        let mut toggle_grouping = false;
         Frame::NONE.inner_margin(Margin { left: 18, right: 16, top: 14, bottom: 10 }).show(ui, |ui| {
-            ui.label(RichText::new(title).heading().color(t.text));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(title).heading().color(t.text));
+                // Tinta: conversations on or off, for a folder (search results stay single).
+                if self.search.is_empty() {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let tip = if grouped { conversations_ui::HIDE } else { conversations_ui::SHOW };
+                        if self.icon_button(ui, Icon::Thread, tip, grouped).clicked() {
+                            toggle_grouping = true;
+                        }
+                    });
+                }
+            });
             if !self.search.is_empty() {
                 // Where to look, as Outlook's scope list; shown while searching.
                 let scope = self.session.search_scope;
@@ -2502,14 +2519,23 @@ impl App {
                 }
             }
         });
+        if toggle_grouping {
+            self.run("view.conversations", json!({}));
+        }
         if ids.is_empty() {
             ui.add_space(24.0);
             ui.vertical_centered(|ui| ui.label(RichText::new(tl("Nothing here")).color(t.text_weak)));
             return;
         }
+        let rows: Vec<conversations_ui::Row> = if grouped {
+            self.conversations.rows(&self.session, &ids).to_vec()
+        } else {
+            ids.iter().map(|&id| conversations_ui::Row { id, kind: conversations_ui::Kind::One }).collect()
+        };
         // Only the rows in view are laid out: a folder can hold tens of thousands of messages.
-        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_HEIGHT, ids.len(), |ui, rows| {
-            for &id in ids.get(rows).unwrap_or_default() {
+        egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
+            for row in rows.get(range).unwrap_or_default() {
+                let id = row.id;
                 let Ok(m) = self.session.store.message(id) else { continue };
                 let selected = self.session.message == Some(id);
                 let role = self.session.store.folder(m.folder).map(|f| f.role).ok();
@@ -2530,13 +2556,36 @@ impl App {
                 } else if resp.hovered() {
                     painter.rect_filled(rect, 0.0, t.accent_soft.gamma_multiply(0.5));
                 }
+                // Tinta: a conversation is unread while any of its messages is.
+                let seen = match row.kind {
+                    conversations_ui::Kind::Head { unread, open: false, .. } => seen && !unread,
+                    _ => seen,
+                };
                 if !seen {
                     painter.rect_filled(egui::Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, t.unread);
                 }
-                let x = rect.left() + 18.0;
+                let child = row.kind == conversations_ui::Kind::Child;
+                let x = rect.left() + if child { 36.0 } else { 18.0 };
                 let font = |size: f32| egui::FontId::proportional(size);
                 let strong = if seen { t.text } else { t.unread };
-                painter.text(egui::pos2(x, rect.top() + 12.0), egui::Align2::LEFT_TOP, &who, font(15.0), strong);
+                let name = painter.text(egui::pos2(x, rect.top() + 12.0), egui::Align2::LEFT_TOP, &who, font(15.0), strong);
+                if let conversations_ui::Kind::Head { count, open, .. } = row.kind {
+                    // A small arrow, right when closed and down when open, drawn (the font has none).
+                    let c = egui::pos2(rect.left() + 10.0, rect.top() + 22.0);
+                    let arrow = if open {
+                        vec![c + vec2(-4.0, -2.0), c + vec2(0.0, 2.5), c + vec2(4.0, -2.0)]
+                    } else {
+                        vec![c + vec2(-2.0, -4.0), c + vec2(2.5, 0.0), c + vec2(-2.0, 4.0)]
+                    };
+                    painter.add(egui::Shape::line(arrow, Stroke::new(1.6, t.text_weak)));
+                    painter.text(
+                        egui::pos2(name.right() + 8.0, rect.top() + 14.0),
+                        egui::Align2::LEFT_TOP,
+                        count.to_string(),
+                        font(theme::CAPTION),
+                        t.text_weak,
+                    );
+                }
                 painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 13.0), egui::Align2::RIGHT_TOP, &when, font(theme::CAPTION), t.text_weak);
                 let mut subj = subject;
                 if attachment {
@@ -2559,6 +2608,16 @@ impl App {
                 }
                 painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.border.gamma_multiply(0.6)));
                 if resp.clicked() {
+                    // Tinta: the arrow opens or closes a conversation; the row opens it and shows
+                    // its newest message.
+                    if let conversations_ui::Kind::Head { key, .. } = row.kind {
+                        let on_arrow = resp.interact_pointer_pos().is_some_and(|p| p.x < rect.left() + 18.0);
+                        if on_arrow {
+                            self.conversations.toggle(key);
+                        } else {
+                            self.conversations.open(key);
+                        }
+                    }
                     self.run("message.select", json!({ "id": id.0 }));
                 }
                 resp.context_menu(|ui| {
