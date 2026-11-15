@@ -14,6 +14,8 @@ use ibercorreo_store::rules::{Rule, RuleAction};
 
 use crate::{CalendarMode, Session, View};
 
+mod categories;
+
 pub struct CommandSpec {
     pub id: &'static str,
     pub label: &'static str,
@@ -76,6 +78,43 @@ pub static REGISTRY: &[CommandSpec] = &[
         params: "id?: number (default: the open message); always?: bool — true: always for its sender, false: never again for its sender (default: this message, until Tinta Correo closes)",
         edits: true,
         run: message_load_pictures,
+    },
+    CommandSpec {
+        id: "message.categorize",
+        label: "Categorize",
+        group: "Home/Tags",
+        shortcut: None,
+        params: "id?: number (default: the open message)\ncategory: string — its name; a new name makes a new category\non?: bool — default: toggle",
+        edits: true,
+        run: categories::categorize,
+    },
+    CommandSpec { id: "category.list", label: "Categories", group: "Home/Tags", shortcut: None, params: "", edits: false, run: categories::list },
+    CommandSpec {
+        id: "category.create",
+        label: "New category",
+        group: "Home/Tags",
+        shortcut: None,
+        params: "name: string\ncolor?: red | orange | yellow | green | teal | blue | purple | grey (or 0–7) — default: one not used yet",
+        edits: true,
+        run: categories::create,
+    },
+    CommandSpec {
+        id: "category.edit",
+        label: "Edit category",
+        group: "Home/Tags",
+        shortcut: None,
+        params: "name: string\nto?: string — a new name (mail keeps the category)\ncolor?: as for category.create",
+        edits: true,
+        run: categories::edit,
+    },
+    CommandSpec {
+        id: "category.delete",
+        label: "Delete category",
+        group: "Home/Tags",
+        shortcut: None,
+        params: "name: string — it is taken off every message too",
+        edits: true,
+        run: categories::delete,
     },
     CommandSpec { id: "folder.list", label: "List folders", group: "Folder/Folders", shortcut: None, params: "", edits: false, run: folder_list },
     CommandSpec {
@@ -290,7 +329,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Search",
         group: "Home/Find",
         shortcut: Some("Ctrl+E"),
-        params: "limit?: number — at most this many results, 500 at most and by default\nquery: string — words (all must match, each from its start, accents ignored), \"a phrase\", -word, OR, from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:read, is:flagged, after: before: on: YYYY-MM-DD\nscope?: \"all\" | \"mailbox\" | \"folder\" — every account, the selected folder's account or the selected folder; default: the last scope set (all at first)",
+        params: "limit?: number — at most this many results, 500 at most and by default\nquery: string — words (all must match, each from its start, accents ignored), \"a phrase\", -word, OR, from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:read, is:flagged, category:, after: before: on: YYYY-MM-DD\nscope?: \"all\" | \"mailbox\" | \"folder\" — every account, the selected folder's account or the selected folder; default: the last scope set (all at first)",
         edits: false,
         run: search,
     },
@@ -987,6 +1026,7 @@ fn summary(m: &Message) -> Value {
         "date": m.date.map(|d| format!("{d}Z")),
         "seen": m.seen,
         "flagged": m.flagged,
+        "categories": m.categories,
         "attachments": m.attachments.len(),
         "html": m.is_html(),
         "invite": m.has_invite(),

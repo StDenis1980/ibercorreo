@@ -495,9 +495,45 @@ pub struct Message {
     /// The server copy, for a synced message; `None` for one that only exists here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote: Option<RemoteRef>,
+    /// Tinta: the colour categories given to it, by name ([`Category`]), at most
+    /// [`MAX_MESSAGE_CATEGORIES`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<String>,
+}
+
+/// Tinta: a colour category, as mail programs offer them: a name and one of [`CATEGORY_COLORS`].
+/// Categories are kept on this computer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Category {
+    pub name: String,
+    /// An index into [`CATEGORY_COLORS`].
+    pub color: u8,
+}
+
+/// The colours a category can have, by name (front ends draw them in their own shades).
+pub const CATEGORY_COLORS: [&str; 8] = ["red", "orange", "yellow", "green", "teal", "blue", "purple", "grey"];
+/// Most categories kept.
+pub const MAX_CATEGORIES: usize = 100;
+/// Most categories one message can have.
+pub const MAX_MESSAGE_CATEGORIES: usize = 16;
+/// Longest category name, in bytes.
+pub const MAX_CATEGORY_NAME: usize = 64;
+
+/// A category name as kept: one line, spaces collapsed, at most [`MAX_CATEGORY_NAME`] bytes;
+/// `None` when nothing is left.
+pub fn category_name(raw: &str) -> Option<String> {
+    let joined = raw.split_whitespace().filter(|w| !w.chars().all(char::is_control)).collect::<Vec<_>>().join(" ");
+    let clean: String = joined.chars().filter(|c| !c.is_control()).collect();
+    let name = clamp_text(&clean, MAX_CATEGORY_NAME).trim().to_string();
+    (!name.is_empty()).then_some(name)
 }
 
 impl Message {
+    /// Tinta: whether it has the category `name` (names compare without regard to case).
+    pub fn has_category(&self, name: &str) -> bool {
+        self.categories.iter().any(|c| c.to_lowercase() == name.to_lowercase())
+    }
+
     /// A blank message in `folder`; callers fill the rest.
     pub fn new(id: MessageId, folder: FolderId) -> Message {
         Message {
@@ -517,6 +553,7 @@ impl Message {
             seen: false,
             flagged: false,
             remote: None,
+            categories: Vec::new(),
         }
     }
 

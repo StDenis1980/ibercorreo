@@ -10,6 +10,7 @@ mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod body_text;
+mod categories_ui;
 mod chrome;
 mod delete_ui;
 mod export_ui;
@@ -557,6 +558,8 @@ pub struct App {
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
     confirm_delete: Option<MessageId>,
+    /// Tinta: the Categories window.
+    categories_form: categories_ui::CategoriesForm,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -803,6 +806,7 @@ impl App {
             attachment_requests: Vec::new(),
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
+            categories_form: categories_ui::CategoriesForm::default(),
             last_calendar: None,
             invite: None,
             content: None,
@@ -1363,6 +1367,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         self.delete_window(ui);
+        self.categories_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
         self.take_open_requests(ui.ctx());
@@ -1778,7 +1783,7 @@ impl App {
         let sync_label = if self.syncing { "Sending and receiving…" } else { "Send/Receive" };
         // When the labels do not fit, the message's own buttons give theirs up first, then
         // replying, Send/Receive and Rules too.
-        let own = ["Delete", "Archive", "Move", "Flag", read_label];
+        let own = ["Delete", "Archive", "Move", "Flag", categories_ui::CATEGORIZE, read_label];
         let rest = ["Reply", "Reply All", "Forward", sync_label, "Rules…"];
         let head = if self.folder_pane_collapsed() { 96.0 } else { 0.0 };
         let fixed = head + 2.0 * 15.0 + 115.0 + 4.0 * (own.len() + rest.len()) as f32;
@@ -1814,6 +1819,10 @@ impl App {
             }
             if self.tool(ui, Icon::Flag, "Flag", has_message).clicked() {
                 self.run("message.flag", json!({}));
+            }
+            let categorize = self.tool(ui, Icon::Tag, categories_ui::CATEGORIZE, has_message);
+            if let Some(id) = self.session.message.filter(|_| has_message) {
+                egui::Popup::menu(&categorize).show(|ui| self.categorize_menu(ui, id));
             }
             if self.tool(ui, Icon::Unread, read_label, has_message).clicked() {
                 self.run("message.markRead", json!({ "read": !seen }));
@@ -2513,6 +2522,7 @@ impl App {
                 let when = m.date.map(|d| short_when(self.session.zone().from_utc(d), self.session.today())).unwrap_or_default();
                 let (seen, flagged, attachment, preview) = (m.seen, m.flagged, !m.attachments.is_empty(), m.preview(80));
                 let sender = m.from.as_ref().map(|a| a.email.clone());
+                let category_colors = categories_ui::colors_of(&self.session.store.categories, &m.categories);
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), Sense::click());
                 let painter = ui.painter_at(rect);
                 if selected {
@@ -2533,7 +2543,17 @@ impl App {
                     subj = format!("📎 {subj}");
                 }
                 painter.text(egui::pos2(x, rect.top() + 35.0), egui::Align2::LEFT_TOP, &subj, font(theme::BODY), if seen { t.text } else { strong });
-                painter.text(egui::pos2(x, rect.top() + 57.0), egui::Align2::LEFT_TOP, &preview, font(13.0), t.text_weak);
+                // Tinta: the preview stops short of the category dots.
+                let dots_room = if category_colors.is_empty() { 0.0 } else { 14.0 + 13.0 * category_colors.len().min(6) as f32 };
+                let preview_clip = Rect::from_min_max(rect.min, egui::pos2(rect.right() - dots_room, rect.bottom()));
+                painter.with_clip_rect(preview_clip).text(
+                    egui::pos2(x, rect.top() + 57.0),
+                    egui::Align2::LEFT_TOP,
+                    &preview,
+                    font(13.0),
+                    t.text_weak,
+                );
+                categories_ui::dots(&painter, egui::pos2(rect.right() - 14.0, rect.top() + 65.0), &category_colors);
                 if flagged {
                     painter.text(egui::pos2(rect.right() - 14.0, rect.top() + 35.0), egui::Align2::RIGHT_TOP, "⚑", font(14.0), t.flag);
                 }
@@ -2542,6 +2562,7 @@ impl App {
                     self.run("message.select", json!({ "id": id.0 }));
                 }
                 resp.context_menu(|ui| {
+                    ui.menu_button(tl(categories_ui::CATEGORIZE), |ui| self.categorize_menu(ui, id));
                     if ui.button(tl("Create rule…")).clicked() {
                         let query = sender.as_deref().map(|e| format!("from:{e}")).unwrap_or_default();
                         self.rule_form.start(&query);
@@ -2599,6 +2620,10 @@ impl App {
                 let names = list.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
                 ui.label(RichText::new(format!("{}: {names}", tl(label))).small().color(t.text_weak));
             }
+        }
+        if !m.categories.is_empty() {
+            ui.add_space(6.0);
+            categories_ui::pills(ui, &self.session.store.categories, &m.categories);
         }
         let rich_now = match &content {
             Some(Ok(c)) => c.rich.as_ref(),

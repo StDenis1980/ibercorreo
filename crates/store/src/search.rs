@@ -17,6 +17,7 @@
 //!   quoted phrase (`subject:"weekly report"`). Ukrainian and Spanish names work too: `від:`,
 //!   `кому:`, `тема:`, `текст:`, `вкладення:`, `de:`, `para:`, `asunto:`, `cuerpo:`, `adjunto:`.
 //! - `has:attachment`, `is:unread`, `is:read`, `is:flagged`.
+//! - Tinta: `category:name` (in quotes when it has spaces): mail with that colour category.
 //! - Dates (`YYYY-MM-DD`, UTC): `after:` (that day or later), `before:` (earlier than that day),
 //!   `on:` (that day).
 //!
@@ -485,6 +486,8 @@ enum Cond {
     Unread,
     Read,
     Flagged,
+    /// Tinta: has a colour category whose name is this (folded).
+    Category(String),
     /// Sent on this day or later.
     After(Date),
     /// Sent before this day.
@@ -537,7 +540,9 @@ fn lex(text: &str) -> Vec<Item> {
                 value.push(c);
                 if c == ':' && name.is_none() {
                     let key = value.trim_end_matches(':').to_lowercase();
-                    if !key.is_empty() && (Field::named(&key).is_some() || matches!(key.as_str(), "has" | "is" | "after" | "before" | "on")) {
+                    if !key.is_empty()
+                        && (Field::named(&key).is_some() || matches!(key.as_str(), "has" | "is" | "after" | "before" | "on" | "category"))
+                    {
                         name = Some(key);
                         value.clear();
                         if chars.next_if_eq(&'"').is_some() {
@@ -602,6 +607,7 @@ impl Query {
                 "flagged" => Some(Cond::Flagged),
                 _ => None,
             },
+            "category" => Some(fold(value)).filter(|v| !v.is_empty()).map(Cond::Category),
             "after" => Date::parse(value).ok().map(Cond::After),
             "before" => Date::parse(value).ok().map(Cond::Before),
             "on" => Date::parse(value).ok().map(Cond::On),
@@ -672,6 +678,7 @@ fn matches(cond: &Cond, m: &Message, content: Option<&Content>, has: &dyn Fn(&[F
         Cond::Unread => !m.seen,
         Cond::Read => m.seen,
         Cond::Flagged => m.flagged,
+        Cond::Category(name) => m.categories.iter().any(|c| fold(c) == *name),
         Cond::After(d) => m.date.is_some_and(|t| t.date >= *d),
         Cond::Before(d) => m.date.is_some_and(|t| t.date < *d),
         Cond::On(d) => m.date.is_some_and(|t| t.date == *d),
