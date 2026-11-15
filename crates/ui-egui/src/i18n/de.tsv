@@ -423,7 +423,7 @@
 	Conversations	Unterhaltungen
 # Tinta: mail downloaded header first
 	Download whole messages	Nachrichten vollständig herunterladen
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Ältere Mails kommen nur mit ihrem Kopf, ihr Text wird beim Öffnen heruntergeladen. Für IMAP-Konten.
+	Older mail comes as its header, and its text is downloaded when you open it.	Ältere Mails kommen nur mit ihrem Kopf, ihr Text wird beim Öffnen heruntergeladen.
 	Only the header of this message was downloaded. Its text is on the server.	Von dieser Nachricht wurde nur der Kopf heruntergeladen. Ihr Text liegt auf dem Server.
 	Downloading the message…	Nachricht wird heruntergeladen…
 	Download message	Nachricht herunterladen

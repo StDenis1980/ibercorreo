@@ -423,7 +423,7 @@
 	Conversations	Conversazioni
 # Tinta: mail downloaded header first
 	Download whole messages	Scarica i messaggi interi
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	La posta più vecchia arriva solo con l'intestazione, e il testo viene scaricato quando la apri. Per gli account IMAP.
+	Older mail comes as its header, and its text is downloaded when you open it.	La posta più vecchia arriva solo con l'intestazione, e il testo viene scaricato quando la apri.
 	Only the header of this message was downloaded. Its text is on the server.	È stata scaricata solo l'intestazione di questo messaggio. Il testo è sul server.
 	Downloading the message…	Download del messaggio…
 	Download message	Scarica messaggio

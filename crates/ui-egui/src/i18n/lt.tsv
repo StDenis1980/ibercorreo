@@ -422,7 +422,7 @@
 	Conversations	Pokalbiai
 # Tinta: mail downloaded header first
 	Download whole messages	Atsisiųsti visus laiškus
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Senesni laiškai gaunami tik su antrašte, o tekstas atsisiunčiamas juos atidarius. IMAP paskyroms.
+	Older mail comes as its header, and its text is downloaded when you open it.	Senesni laiškai gaunami tik su antrašte, o tekstas atsisiunčiamas juos atidarius.
 	Only the header of this message was downloaded. Its text is on the server.	Šio laiško atsisiųsta tik antraštė. Jo tekstas yra serveryje.
 	Downloading the message…	Laiškas atsisiunčiamas…
 	Download message	Atsisiųsti laišką

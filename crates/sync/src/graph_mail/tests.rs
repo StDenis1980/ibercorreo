@@ -226,3 +226,46 @@ fn the_outbox_goes_out_with_send_mail() {
     assert!(sent.iter().all(|s| matches!(s.outcome, Outcome::Later(_))), "{sent:?}");
     assert_eq!(g.http().asked.len(), 4, "the first tried with its retries, the second not at all");
 }
+
+#[test]
+fn old_mail_comes_as_its_header_and_its_text_on_request() {
+    let mut store = Store::new();
+    let limits = Limits { full_since: Some(ibercorreo_core::Date::new(2026, 6, 1).unwrap()), ..Limits::default() };
+    let dated = |id: &str, when: &str| {
+        let mut m = message(id, false, false);
+        m["receivedDateTime"] = json!(when);
+        m
+    };
+    let inbox = [dated("new", "2026-10-22T09:00:00Z"), dated("old", "2025-03-11T09:20:00Z")];
+    let fields = json!({
+        "subject": "Presupuesto de 2025",
+        "from": { "emailAddress": { "name": "Marta Ruiz", "address": "marta@example.org" } },
+        "toRecipients": [{ "emailAddress": { "address": "you@example.org" } }, { "emailAddress": { "name": "no address" } }],
+        "sentDateTime": "2025-03-11T09:19:00Z",
+        "internetMessageId": "<old1@example.org>",
+    });
+    let fake = with(Fake::default().on("GET", "me/messages/old", 200, &fields.to_string()), mailbox(&inbox));
+    let mut g = graph(fake);
+    let batch = run(&mut g, &state(&store, A), &limits).unwrap();
+    assert!(batch.errors.is_empty(), "{:?}", batch.errors);
+    assert!(asked(&g, "GET", "me/messages/old/$value").is_empty(), "the old one's text is not downloaded");
+    assert_eq!(asked(&g, "GET", "me/messages/new/$value").len(), 1);
+    apply(&mut store, A, batch);
+    let old = store.message(find(&store, "Presupuesto de 2025")).unwrap().clone();
+    assert!(old.partial && !store.message(find(&store, "subject new")).unwrap().partial);
+    assert_eq!(old.from.as_ref().map(|a| a.email.as_str()), Some("marta@example.org"));
+    assert_eq!(old.to.len(), 1, "a recipient without an address is left out");
+    assert_eq!(old.date.map(|d| d.to_string()).as_deref(), Some("2025-03-11T09:19"), "the time it was sent");
+
+    // Opened: its text comes at the next sync.
+    let mut s = state(&store, A);
+    let uid = old.remote.as_ref().unwrap().uid;
+    s.bodies.push(("IN".into(), uid));
+    let mut g = graph(with(Fake::default().on("GET", "me/messages/old/$value", 200, &mime("Presupuesto de 2025")), mailbox(&inbox)));
+    let batch = run(&mut g, &s, &limits).unwrap();
+    assert_eq!(batch.folders.iter().find(|f| f.path == "IN").unwrap().bodies.len(), 1);
+    apply(&mut store, A, batch);
+    let old = store.message(old.id).unwrap();
+    assert!(!old.partial && !old.seen);
+    assert!(old.preview(40).contains("body of Presupuesto de 2025"), "{:?}", old.preview(40));
+}
