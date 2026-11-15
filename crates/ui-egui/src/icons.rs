@@ -55,6 +55,8 @@ pub enum Icon {
     Close,
     /// A tick: the chosen item of a menu, an accepted invitation.
     Check,
+    /// Tinta: a luggage tag (colour categories).
+    Tag,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -151,6 +153,10 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Flag => {
             p.line_segment([at(-0.24, -0.34), at(-0.24, 0.36)], w);
             p.add(egui::Shape::line(vec![at(-0.24, -0.3), at(0.3, -0.3), at(0.18, -0.12), at(0.3, 0.06), at(-0.24, 0.06)], w));
+        }
+        Icon::Tag => {
+            p.add(egui::Shape::closed_line(vec![at(-0.32, -0.2), at(0.1, -0.2), at(0.32, 0.0), at(0.1, 0.2), at(-0.32, 0.2)], w));
+            p.circle_stroke(at(0.08, 0.0), s * 0.05, w);
         }
         Icon::Unread => {
             p.add(egui::Shape::line(vec![at(-0.34, -0.06), at(0.0, -0.32), at(0.34, -0.06), at(0.34, 0.3), at(-0.34, 0.3), at(-0.34, -0.06)], w));

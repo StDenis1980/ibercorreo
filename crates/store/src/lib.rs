@@ -134,6 +134,10 @@ pub struct Store {
     /// asking; [`MAX_PICTURE_SENDERS`] at most.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pictures_from: Vec<String>,
+    /// Tinta: the colour categories mail can be given ([`ibercorreo_core::mail::MAX_CATEGORIES`]
+    /// at most); messages name theirs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub categories: Vec<ibercorreo_core::Category>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,

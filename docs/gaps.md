@@ -156,6 +156,14 @@ Status: 2026-11-15 · Pick from the top.
     files, the formatting of mail written as RTF (its text is shown), contacts, appointments and
     tasks saved as `.msg`, opening an attached message, Outlook rules (`.rwz`), a File > Open
     dialog, a Linux file type for `.pst`, and writing `.pst`.
+18. **Colour categories (M6.2f).** Categories with a name and one of eight colours are made,
+    renamed, recoloured and deleted in the Categories window or with `category.*`; Categorize
+    (toolbar, a message's context menu, `message.categorize`, the MCP tool `categorize_message`)
+    gives them to mail, the list shows a dot per category and the reading pane their names, and
+    search finds them with `category:`. Missing: keeping them on the server (IMAP keywords,
+    Exchange and Microsoft 365 categories) so other devices see them, importing Outlook's
+    categories from `.pst` and `.msg`, a rule action that categorizes, a quick-click category,
+    and categories on appointments and contacts.
 
 ## Revision history
 - 2026-10-22 — created with M0.

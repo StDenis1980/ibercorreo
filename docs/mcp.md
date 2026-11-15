@@ -112,6 +112,7 @@ the write roots. An attachment not kept is a tool error that says so. It runs `m
 | `send_draft` (`id`, `contentHash`) — only with `--allow-send` | `message.send` | no (destructive) |
 | `save_attachment` (`id`, `attachment`, `path?`) — only with `--automation-write-root` | `message.read`, then writes a new file | no |
 | `set_flag` (`id`, `flagged?`), `mark_read` (`id`, `read?`) | `message.flag`, `message.markRead` | no |
+| `list_categories`, `categorize_message` (`id`, `category`, `on?`) | `category.list`, `message.categorize` | yes, no |
 | `archive_message` (`id`), `move_message` (`id`, `folder`) | `message.archive`, `message.move` | no |
 | `delete_message` (`id`) | `message.delete` (Trash; in Trash, for good) | no (destructive) |
 | `list_calendars`, `list_events` (`date?` or `from`+`to`) | `calendar.list`, `event.list` | yes |
