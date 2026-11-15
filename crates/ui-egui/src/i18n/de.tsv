@@ -393,3 +393,9 @@
 	I am an administrator: open the approval page	Ich bin Administrator: Genehmigungsseite öffnen
 	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft verlangt, dass ein Administrator Ihrer Organisation Tinta Correo zuerst genehmigt. Melden Sie sich danach erneut an.
 	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Hallo,\n\nbitte genehmigen Sie das Mailprogramm Tinta Correo für unsere Organisation in Microsoft Entra, damit wir darin unsere E-Mails, unseren Kalender und unsere Kontakte nutzen können. Ein Administrator öffnet diese Seite einmal und stimmt zu:\n{link}\n\nTinta Correo ist frei und quelloffen (https://tintaoffice.com). Seine Anwendungs-ID ist {id}.\n\nVielen Dank.
+# Tinta: pictures on the web, on request
+	Pictures on other servers can tell the sender that you opened the message, so Tinta Correo downloads them only when you ask.	Bilder auf anderen Servern können dem Absender verraten, dass Sie die Nachricht geöffnet haben, deshalb lädt Tinta Correo sie nur herunter, wenn Sie es möchten.
+	Download pictures	Bilder herunterladen
+	Always for this sender	Immer für diesen Absender
+	Pictures from the web are shown	Bilder aus dem Web werden angezeigt
+	Stop for this sender	Nicht mehr für diesen Absender

@@ -43,7 +43,10 @@ Status: 2026-11-15 · Pick from the top.
    Pictures the message carries itself (`cid:`, RFC 2392) are drawn in their place, no wider than
    the pane, and get no attachment chip (their context menu saves them); mail that arrived before
    attachment contents were kept still shows their placeholders.
-   Missing: a "load remote images from this sender" choice, tables laid
+   Pictures on the web are downloaded only when the person asks: for one message, or always for
+   its sender (`message.loadPictures`), over HTTPS only, never from this computer or its local
+   network, and never tracking pixels (M6.2d).
+   Missing: tables laid
    out as tables (cells show as paragraphs), colours and fonts, a confirmation before opening a
    deceptive link, and a true bold weight (the interface font has one weight, so bold is shown in
    the strong text colour).

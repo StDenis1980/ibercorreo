@@ -139,7 +139,12 @@ struct Shell {
     pst: Option<PstImport>,
     /// Export everything, being written on another thread.
     export: Option<Receiver<ExportEvent>>,
+    /// Tinta: pictures on the web the person chose to see, coming from the download thread.
+    pictures: Vec<Receiver<PictureArrived>>,
 }
+
+/// Tinta: a picture on the web, downloaded for a message (or why not).
+type PictureArrived = (ibercorreo_core::MessageId, String, Result<Vec<u8>, String>);
 
 /// What the export thread reports.
 enum ExportEvent {
@@ -786,6 +791,54 @@ impl Shell {
     /// Open or save the attachments the window asked for (`ibercorreo_engine::attachments`): Save
     /// writes to the Downloads folder under a free name, Open writes a copy to Correo's `Opened`
     /// folder and hands it to the system's opener. Programs and scripts are never opened.
+    /// Tinta: download the pictures on the web the person chose to see, one at a time on a
+    /// thread of their own ([`ibercorreo_net::pictures`]), and hand each to the window.
+    fn pictures(&mut self) {
+        let mut arrived = Vec::new();
+        self.pictures.retain(|rx| {
+            loop {
+                match rx.try_recv() {
+                    Ok(got) => arrived.push(got),
+                    Err(TryRecvError::Empty) => break true,
+                    Err(TryRecvError::Disconnected) => break false,
+                }
+            }
+        });
+        for (id, url, result) in arrived {
+            self.app.picture_loaded(id, url, result);
+        }
+        let wanted = self.app.take_picture_requests();
+        if wanted.is_empty() {
+            return;
+        }
+        let tls = match tls() {
+            Ok(t) => t,
+            Err(e) => {
+                for (id, url) in wanted {
+                    self.app.picture_loaded(id, url, Err(e.clone()));
+                }
+                return;
+            }
+        };
+        let (tx, rx) = mpsc::channel();
+        let ctx = self.ctx.clone();
+        let spawned = std::thread::Builder::new().name("pictures".into()).spawn(move || {
+            for (id, url) in wanted {
+                let result = ibercorreo_net::pictures::fetch(&url, &tls);
+                if tx.send((id, url, result)).is_err() {
+                    return;
+                }
+                if let Some(ctx) = &ctx {
+                    ctx.request_repaint();
+                }
+            }
+        });
+        match spawned {
+            Ok(_) => self.pictures.push(rx),
+            Err(e) => self.app.session.status = format!("Could not start downloading pictures: {e}"),
+        }
+    }
+
     fn attachments(&mut self) {
         use ibercorreo_engine::attachments;
         use ibercorreo_ui_egui::AttachmentAction;
@@ -1088,6 +1141,7 @@ impl eframe::App for Shell {
             }
         }
         self.attachments();
+        self.pictures();
         if let Some(g) = &mut self.gnome {
             g.tick(&mut self.app.session, self.worker.is_some());
         }
@@ -1364,6 +1418,7 @@ fn main() -> eframe::Result {
                 pst_queue,
                 pst: None,
                 export: None,
+                pictures: Vec::new(),
             }))
         }),
     )

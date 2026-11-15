@@ -104,6 +104,9 @@ pub struct Session {
     pub sync_requested: bool,
     /// Show HTML mail as its plain text (`view.plainText`).
     pub plain_text: bool,
+    /// Tinta: messages whose pictures on the web the person asked to load in this session
+    /// (`message.loadPictures`).
+    pub pictures_shown: std::collections::HashSet<MessageId>,
     /// The current time in UTC, set by the front end (the engine never reads the clock, so it runs
     /// the same in tests, scripts and wasm).
     now: DateTime,
@@ -135,6 +138,7 @@ impl Session {
             status: String::new(),
             sync_requested: false,
             plain_text: false,
+            pictures_shown: std::collections::HashSet::new(),
             now: DateTime::midnight(today),
             system_zone: Zone::utc(),
             zone: Zone::utc(),
@@ -192,6 +196,16 @@ impl Session {
 
     /// What message `id`'s meeting invitation (or reply, or cancellation) says, if it has one
     /// that can be read.
+    /// Tinta: whether message `id` may load its pictures from the web: the person asked for it
+    /// in this session, or always for its sender (`message.loadPictures`).
+    pub fn pictures_allowed(&self, id: MessageId) -> bool {
+        if self.pictures_shown.contains(&id) {
+            return true;
+        }
+        let sender = self.store.message(id).ok().and_then(|m| m.from.as_ref()).map(|a| a.email.to_lowercase());
+        sender.is_some_and(|s| self.store.pictures_from.contains(&s))
+    }
+
     pub fn invite_info(&self, id: MessageId) -> Option<commands::InviteInfo> {
         let m = self.store.message(id).ok()?;
         // Read from disk only for a message that has one.
