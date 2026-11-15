@@ -52,8 +52,8 @@ fn first_sync() -> Batch {
                 path: "INBOX".into(),
                 uid_validity: 7,
                 new: vec![
-                    NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("one"), id: None, arrived: true },
-                    NewMessage { uid: 2, flags: vec![], raw: raw("two"), id: None, arrived: true },
+                    NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("one"), id: None, arrived: true, partial: false },
+                    NewMessage { uid: 2, flags: vec![], raw: raw("two"), id: None, arrived: true, partial: false },
                 ],
                 remaining: 3,
                 ..FolderSync::default()
@@ -61,7 +61,7 @@ fn first_sync() -> Batch {
             FolderSync {
                 path: "Sent Items".into(),
                 uid_validity: 9,
-                new: vec![NewMessage { uid: 5, flags: vec!["\\Seen".into()], raw: raw("sent"), id: None, arrived: true }],
+                new: vec![NewMessage { uid: 5, flags: vec!["\\Seen".into()], raw: raw("sent"), id: None, arrived: true, partial: false }],
                 ..FolderSync::default()
             },
             FolderSync { path: "Work/2026".into(), uid_validity: 1, ..FolderSync::default() },
@@ -164,7 +164,7 @@ fn uidvalidity_change_voids_held_messages() {
             path: "INBOX".into(),
             uid_validity: 8,
             reset: true,
-            new: vec![NewMessage { uid: 1, flags: vec![], raw: raw("renumbered"), id: None, arrived: true }],
+            new: vec![NewMessage { uid: 1, flags: vec![], raw: raw("renumbered"), id: None, arrived: true, partial: false }],
             ..FolderSync::default()
         }],
         ..Batch::default()
@@ -387,13 +387,16 @@ fn only_mail_newer_than_an_inbox_already_synced_counts_as_arrived() {
             FolderSync {
                 path: "INBOX".into(),
                 uid_validity: 7,
-                new: uids.iter().map(|&uid| NewMessage { uid, flags: vec![], raw: raw(&format!("uid {uid}")), id: None, arrived: uid > 2 }).collect(),
+                new: uids
+                    .iter()
+                    .map(|&uid| NewMessage { uid, flags: vec![], raw: raw(&format!("uid {uid}")), id: None, arrived: uid > 2, partial: false })
+                    .collect(),
                 ..FolderSync::default()
             },
             FolderSync {
                 path: "Sent Items".into(),
                 uid_validity: 9,
-                new: vec![NewMessage { uid: 6, flags: vec![], raw: raw("sent 6"), id: None, arrived: true }],
+                new: vec![NewMessage { uid: 6, flags: vec![], raw: raw("sent 6"), id: None, arrived: true, partial: false }],
                 ..FolderSync::default()
             },
         ],
@@ -422,7 +425,7 @@ fn gmail_sync() -> Batch {
             FolderSync {
                 path: "[Gmail]/Enviados".into(),
                 uid_validity: 2,
-                new: vec![NewMessage { uid: 4, flags: vec!["\\Seen".into()], raw: raw("from gmail"), id: None, arrived: true }],
+                new: vec![NewMessage { uid: 4, flags: vec!["\\Seen".into()], raw: raw("from gmail"), id: None, arrived: true, partial: false }],
                 ..FolderSync::default()
             },
             FolderSync { path: "[Gmail]/Borradores".into(), uid_validity: 3, ..FolderSync::default() },
@@ -441,7 +444,7 @@ fn outlook_sync(listed_all: bool) -> Batch {
             FolderSync {
                 path: "Надіслані".into(),
                 uid_validity: 12,
-                new: vec![NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("from outlook"), id: None, arrived: true }],
+                new: vec![NewMessage { uid: 1, flags: vec!["\\Seen".into()], raw: raw("from outlook"), id: None, arrived: true, partial: false }],
                 ..FolderSync::default()
             },
             FolderSync { path: "Deleted".into(), uid_validity: 13, ..FolderSync::default() },
@@ -550,4 +553,81 @@ fn sent_copies_go_only_to_a_mailbox_the_server_lists() {
     assert_eq!(sent_mailbox(&marked, Some("Gone")).as_deref(), Some("Elementos enviados"), "the special-use mark wins over a name");
     assert_eq!(sent_mailbox(&[mailbox("INBOX", &[])], Some("[Gmail]/Enviados")), None);
     assert_eq!(sent_mailbox(&[mailbox("Sent", &["\\Noselect"])], Some("Sent")), None);
+}
+
+/// Tinta: mail older than the window comes as its header; the text of a held header-only
+/// message is fetched when asked for, and fills the message in, keeping what was set here.
+#[test]
+fn old_mail_comes_as_its_header_and_its_text_on_request() {
+    let s = State {
+        known: vec![Known { path: "INBOX".into(), uid_validity: 3, uids: [2].into(), ids: BTreeMap::new() }],
+        pushes: Vec::new(),
+        bodies: vec![("INBOX".into(), 2), ("Elsewhere".into(), 2)],
+    };
+    let mut c = client(
+        "* OK [CAPABILITY IMAP4rev1] hi
+* LIST () \"/\" INBOX
+a1 OK listed
+* 3 EXISTS
+* OK [UIDVALIDITY 3] ok
+a2 OK examined
+* SEARCH 2 5 9
+a3 OK searched
+* 1 FETCH (UID 2 FLAGS ())
+a4 OK fetched
+* SEARCH 9
+a5 OK searched
+* 3 FETCH (UID 9 FLAGS () BODY[] {4}
+nine)
+a6 OK fetched
+* 2 FETCH (UID 5 FLAGS (\\Seen) BODY[HEADER] {4}
+five)
+a7 OK fetched
+* 1 FETCH (UID 2 FLAGS () BODY[] {3}
+two)
+a8 OK fetched
+",
+    );
+    let limits = Limits { full_since: Some(ibercorreo_core::Date::new(2026, 8, 15).unwrap()), ..Limits::default() };
+    let batch = run(&mut c, &s, &limits).unwrap();
+    let inbox = batch.folders.first().unwrap();
+    let new: Vec<_> = inbox.new.iter().map(|n| (n.uid, n.partial, n.raw.clone())).collect();
+    assert_eq!(new, [(9, false, b"nine".to_vec()), (5, true, b"five".to_vec())]);
+    assert_eq!(inbox.bodies, [(2, b"two".to_vec())], "only this mailbox's");
+    let asked = sent(c);
+    assert!(asked.contains("a5 UID SEARCH SINCE 15-Aug-2026\n"), "{asked}");
+    assert!(asked.contains("a7 UID FETCH 5 (UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])\n"), "{asked}");
+    assert!(asked.contains("a8 UID FETCH 2 (UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[])\n"), "{asked}");
+
+    // Applied: the header-only message is marked, then filled in by its text.
+    let mut store = Store::new();
+    let head = b"From: Ana <ana@example.org>\r\nSubject: Old news\r\nDate: Thu, 22 Jan 2026 09:00:00 +0000\r\n\r\n".to_vec();
+    let first = Batch {
+        mailboxes: vec![mailbox("INBOX", &[])],
+        folders: vec![FolderSync {
+            path: "INBOX".into(),
+            uid_validity: 3,
+            new: vec![NewMessage { uid: 2, flags: vec![], raw: head, id: None, arrived: false, partial: true }],
+            ..FolderSync::default()
+        }],
+        ..Batch::default()
+    };
+    apply(&mut store, A, first);
+    let held = by_subject(&store, "Old news");
+    assert!(held.partial && held.preview(40).is_empty());
+    store.message_mut(held.id).unwrap().categories = vec!["Kept".into()];
+    let state = state(&store, A);
+    assert!(state.bodies.is_empty(), "nothing is asked for by itself");
+    let whole = [&raw("Old news")[..]].concat();
+    let second = Batch {
+        mailboxes: vec![mailbox("INBOX", &[])],
+        folders: vec![FolderSync { path: "INBOX".into(), uid_validity: 3, bodies: vec![(2, whole)], ..FolderSync::default() }],
+        ..Batch::default()
+    };
+    apply(&mut store, A, second);
+    let filled = store.message(held.id).unwrap();
+    assert!(!filled.partial);
+    assert!(filled.preview(40).contains("body of Old news"));
+    assert_eq!(filled.categories, ["Kept"], "what was set here stays");
+    assert!(filled.remote.as_ref().is_some_and(|r| r.uid == 2));
 }

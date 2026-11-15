@@ -415,6 +415,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: sync_interval,
     },
     CommandSpec {
+        id: "account.fullMail",
+        label: "Download whole messages",
+        group: "Send-Receive/Send & Receive",
+        shortcut: None,
+        params: "months?: number — download whole only the mail of the last this many months (1 to 120); older mail comes as its header, and its text when it is opened; 0 for all mail whole (the default) — leave it out to just say which is chosen. IMAP accounts only.",
+        edits: true,
+        run: full_mail,
+    },
+    CommandSpec {
+        id: "message.download",
+        label: "Download message",
+        group: "Message/Download",
+        shortcut: None,
+        params: "id?: number (default: the open message) — fetch the text of a message that came as its header only, at a Send/Receive started now",
+        edits: false,
+        run: message_download,
+    },
+    CommandSpec {
         id: "app.language",
         label: "Interface language",
         group: "File/Options",
@@ -1045,6 +1063,7 @@ fn summary(m: &Message) -> Value {
         "seen": m.seen,
         "flagged": m.flagged,
         "categories": m.categories,
+        "partial": m.partial,
         "attachments": m.attachments.len(),
         "html": m.is_html(),
         "invite": m.has_invite(),
@@ -1861,6 +1880,34 @@ fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
 /// Show or choose the interface language. The front end decides which languages it can show and
 /// falls back to the computer's for a code it has no translation for; here a code is only checked
 /// for shape and reduced to its primary subtag (`uk-UA`, `uk_UA.UTF-8` → `uk`).
+/// Tinta: how many months of mail are downloaded whole (`Store::full_months`).
+fn full_mail(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(m) = u64_param(p, "months")? {
+        let m = u32::try_from(m).ok().filter(|m| *m <= 120).ok_or_else(|| Error::invalid("months", "from 0 (all mail whole) to 120"))?;
+        s.store.full_months = (m > 0).then_some(m);
+        s.status =
+            if m == 0 { "All mail is downloaded whole".into() } else { "Older mail is downloaded as its header, and its text when opened".into() };
+    }
+    let months = s.store.full_months.unwrap_or(0);
+    Ok(json!({ "months": months, "since": s.full_since().map(|d| d.to_string()) }))
+}
+
+/// Tinta: ask for the text of a message that came as its header only.
+fn message_download(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_message(s, p)?;
+    let m = s.store.message(id)?;
+    if !m.partial {
+        return Ok(json!({ "id": id.0, "requested": false, "note": "the whole message is already here" }));
+    }
+    if m.remote.is_none() {
+        return Err(Error::invalid("id", "the message is not on a server"));
+    }
+    s.bodies_wanted.insert(id);
+    s.sync_requested = true;
+    s.status = "Downloading the message…".into();
+    Ok(json!({ "id": id.0, "requested": true }))
+}
+
 /// How often the window sends and receives on its own (`Store::sync_minutes`).
 fn sync_interval(s: &mut Session, p: &Value) -> Result<Value> {
     use ibercorreo_store::{DEFAULT_SYNC_MINUTES, MAX_SYNC_MINUTES};

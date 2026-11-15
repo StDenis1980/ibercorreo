@@ -499,6 +499,10 @@ pub struct Message {
     /// [`MAX_MESSAGE_CATEGORIES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub categories: Vec<String>,
+    /// Tinta: only the header came from the server (mail older than the account's window); the
+    /// text is downloaded when the person opens it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 /// Tinta: a colour category, as mail programs offer them: a name and one of [`CATEGORY_COLORS`].
@@ -554,6 +558,7 @@ impl Message {
             flagged: false,
             remote: None,
             categories: Vec::new(),
+            partial: false,
         }
     }
 
@@ -574,6 +579,15 @@ impl Message {
     /// The content to change, if it is here (copied first if it is shared).
     pub fn content_mut(&mut self) -> Option<&mut Content> {
         self.content.as_mut().map(Arc::make_mut)
+    }
+
+    /// Tinta: take what `full` (the whole message, as the server sent it) says, keeping what is
+    /// this program's: id, folder, read and flag state, server copy and categories.
+    pub fn fill_from(&mut self, full: Message) {
+        let keep = (self.id, self.folder, self.seen, self.flagged, self.remote.take(), std::mem::take(&mut self.categories));
+        *self = full;
+        (self.id, self.folder, self.seen, self.flagged, self.remote, self.categories) = keep;
+        self.partial = false;
     }
 
     /// Give the message its content (one read back from disk, or new).

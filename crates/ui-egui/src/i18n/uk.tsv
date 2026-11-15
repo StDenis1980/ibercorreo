@@ -415,3 +415,17 @@
 	Show as conversations	Показувати як розмови
 	Show as single messages	Показувати окремими листами
 	Conversations	Розмови
+# Tinta: mail downloaded header first
+	Download whole messages	Завантажувати листи повністю
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Старіші листи приходять лише із заголовком, а текст завантажується, коли ви їх відкриваєте. Для облікових записів IMAP.
+	Only the header of this message was downloaded. Its text is on the server.	Цей лист завантажено лише із заголовком. Його текст на сервері.
+	Downloading the message…	Завантаження листа…
+	Download message	Завантажити лист
+	All mail	Уся пошта
+	Last month	Останній місяць
+	Last 3 months	Останні 3 місяці
+	Last 6 months	Останні 6 місяців
+	Last year	Останній рік
+	Last 2 years	Останні 2 роки
+	All mail is downloaded whole	Уся пошта завантажується повністю
+	Older mail is downloaded as its header, and its text when opened	Старіші листи завантажуються із заголовком, а текст — коли їх відкрити

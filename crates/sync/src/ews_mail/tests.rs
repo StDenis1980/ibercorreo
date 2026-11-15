@@ -373,6 +373,7 @@ fn a_change_without_an_exchange_id_is_reported_not_sent() {
     let s = State {
         known: vec![crate::Known { path: "IN".into(), uid_validity: UID_VALIDITY, uids: [7].into(), ids: BTreeMap::new() }],
         pushes: vec![Push::Flags { path: "IN".into(), uid: 7, seen: true, flagged: false }],
+        bodies: Vec::new(),
     };
     let mut e = ews(mailbox());
     let batch = run(&mut e, &s, &Limits::default()).unwrap();

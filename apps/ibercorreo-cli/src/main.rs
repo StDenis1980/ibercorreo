@@ -364,7 +364,7 @@ fn sync(args: &[String]) -> Result<(), String> {
         state: s.sync_state(id),
         outbox: s.outbox(id),
         sent_path: s.sent_path(id),
-        limits: ibercorreo_sync::Limits::default(),
+        limits: s.sync_limits(),
         calendar: s.calendar_sync_state(),
         contacts: s.contacts_sync_state(),
     };

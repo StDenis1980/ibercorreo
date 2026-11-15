@@ -493,7 +493,7 @@ impl Shell {
                 account,
                 credential,
                 tls: tls.clone(),
-                limits: ibercorreo_sync::Limits::default(),
+                limits: s.sync_limits(),
                 calendar: s.calendar_sync_state(),
                 contacts: s.contacts_sync_state(),
             });

@@ -18,6 +18,7 @@ mod export_ui;
 pub mod i18n;
 pub mod icons;
 mod inline_images;
+mod partial_ui;
 mod pictures_ui;
 mod rich_table;
 pub mod theme;
@@ -563,6 +564,8 @@ pub struct App {
     categories_form: categories_ui::CategoriesForm,
     /// Tinta: the message list's conversations.
     conversations: conversations_ui::Conversations,
+    /// Tinta: the header-only message whose text was last asked for on opening it.
+    body_asked: Option<MessageId>,
 }
 
 /// Whether an address may go to the system's opener: the web, and the folders we open ourselves.
@@ -811,6 +814,7 @@ impl App {
             confirm_delete: None,
             categories_form: categories_ui::CategoriesForm::default(),
             conversations: conversations_ui::Conversations::default(),
+            body_asked: None,
             last_calendar: None,
             invite: None,
             content: None,
@@ -958,6 +962,8 @@ impl App {
         // Another account already syncs calendars and contacts: this one can't take GNOME's.
         let editing = self.account_form.id;
         let dav_free = !self.session.store.accounts.iter().any(|a| !a.caldav.is_empty() && Some(a.id) != editing);
+        let full_now = self.session.store.full_months.unwrap_or(0);
+        let mut full_chosen = None;
         chrome::dialog(ui.ctx(), &t, "account-settings", title, 640.0, &mut open, |ui, part| {
             use chrome::{Kind, Part, form_row, section};
             let f = &mut self.account_form;
@@ -1187,6 +1193,19 @@ impl App {
                 });
             }
 
+            if !other_server {
+                section(ui, &t, partial_ui::SECTION, Some(partial_ui::HOVER), false);
+                form_row(ui, &t, "", None, |ui| {
+                    full_chosen = partial_ui::choice(ui, full_now);
+                    let note = if full_now == 0 {
+                        "All mail is downloaded whole"
+                    } else {
+                        "Older mail is downloaded as its header, and its text when opened"
+                    };
+                    ui.add(egui::Label::new(RichText::new(tl(note)).small().color(t.text_weak)).truncate());
+                });
+            }
+
             section(ui, &t, "Calendars and contacts", Some("A CalDAV and CardDAV server, such as Nextcloud, Radicale or Fastmail"), false);
             form_row(ui, &t, "Address", None, |ui| {
                 theme::field(ui, wide(egui::TextEdit::singleline(&mut f.caldav).hint_text(tl("https://dav.example.org (optional)"))));
@@ -1212,6 +1231,9 @@ impl App {
             theme::field(ui, wide(egui::TextEdit::multiline(&mut f.signature).hint_text(tl("Your name\nCompany · phone")).desired_rows(3)));
             f.follow_provider(&oauth_was, &email_was, &self.oauth_ready);
         });
+        if let Some(months) = full_chosen {
+            self.run("account.fullMail", json!({ "months": months }));
+        }
         if cancel {
             open = false;
         }
@@ -2683,6 +2705,14 @@ impl App {
         if !m.categories.is_empty() {
             ui.add_space(6.0);
             categories_ui::pills(ui, &self.session.store.categories, &m.categories);
+        }
+        // Tinta: a message that came as its header only gets its text.
+        if m.partial {
+            let m = m.clone();
+            if self.partial_note(ui, &t, &m) {
+                self.download_body(m.id);
+            }
+            return;
         }
         let rich_now = match &content {
             Some(Ok(c)) => c.rich.as_ref(),

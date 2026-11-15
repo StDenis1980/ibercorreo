@@ -1200,6 +1200,7 @@ fn rules_run_on_mail_that_arrives_by_sync_only() {
                     raw: raw("Promo <promo@spam.test>", subject),
                     id: None,
                     arrived: true,
+                    partial: false,
                 })
                 .collect(),
             ..FolderSync::default()
@@ -1336,4 +1337,53 @@ fn conversations_gather_replies_across_folders() {
     assert_eq!(s.run("view.conversations", &json!({})).unwrap()["on"], true);
     assert!(s.store.conversations);
     assert_eq!(s.run("view.conversations", &json!({ "on": false })).unwrap()["on"], false);
+}
+
+/// Tinta: opening a header-only message asks for its text at the next Send/Receive, and the
+/// window of months sets which mail comes whole.
+#[test]
+fn header_only_mail_gets_its_text_on_request() {
+    use ibercorreo_sync::{Batch, FolderSync, NewMessage};
+    let mut s = session();
+    let account = s.current_account();
+    let head = b"From: Ana <ana@example.org>\r\nSubject: Old report\r\nDate: Thu, 22 Jan 2026 09:00:00 +0000\r\n\r\n".to_vec();
+    let mailbox = ibercorreo_imap::Mailbox { raw: "INBOX".into(), name: "INBOX".into(), delimiter: Some('/'), attributes: Vec::new() };
+    s.apply_sync(
+        account,
+        Batch {
+            mailboxes: vec![mailbox.clone()],
+            folders: vec![FolderSync {
+                path: "INBOX".into(),
+                uid_validity: 1,
+                new: vec![NewMessage { uid: 7, flags: Vec::new(), raw: head, id: None, arrived: false, partial: true }],
+                ..FolderSync::default()
+            }],
+            ..Batch::default()
+        },
+    );
+    let id = s.store.all_messages().find(|m| m.subject == "Old report").map(|m| m.id).unwrap();
+    let other = s.store.all_messages().find(|m| !m.partial).map(|m| m.id).unwrap();
+    assert_eq!(s.run("message.download", &json!({ "id": other.0 })).unwrap()["requested"], false);
+    assert!(s.sync_state(account).bodies.is_empty());
+    assert_eq!(s.run("message.download", &json!({ "id": id.0 })).unwrap()["requested"], true);
+    assert!(s.sync_requested);
+    assert_eq!(s.sync_state(account).bodies, [("INBOX".to_string(), 7)]);
+    let whole = b"From: Ana <ana@example.org>\r\nSubject: Old report\r\nDate: Thu, 22 Jan 2026 09:00:00 +0000\r\n\r\nThe numbers.\r\n".to_vec();
+    s.apply_sync(
+        account,
+        Batch {
+            mailboxes: vec![mailbox],
+            folders: vec![FolderSync { path: "INBOX".into(), uid_validity: 1, bodies: vec![(7, whole)], ..FolderSync::default() }],
+            ..Batch::default()
+        },
+    );
+    assert!(!s.store.message(id).unwrap().partial);
+    assert!(s.bodies_wanted.is_empty(), "nothing left to ask for");
+
+    assert!(s.full_since().is_none(), "all mail whole by default");
+    assert_eq!(s.run("account.fullMail", &json!({ "months": 3 })).unwrap()["since"], "2026-07-22");
+    assert_eq!(s.sync_limits().full_since.map(|d| d.to_string()).as_deref(), Some("2026-07-22"), "the sync is told");
+    assert!(s.run("account.fullMail", &json!({ "months": 500 })).is_err());
+    s.run("account.fullMail", &json!({ "months": 0 })).unwrap();
+    assert!(s.full_since().is_none());
 }

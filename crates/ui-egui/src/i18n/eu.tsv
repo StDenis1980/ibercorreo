@@ -419,3 +419,17 @@
 	Show as conversations	Erakutsi elkarrizketa gisa
 	Show as single messages	Erakutsi mezu bakar gisa
 	Conversations	Elkarrizketak
+# Tinta: mail downloaded header first
+	Download whole messages	Deskargatu mezu osoak
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Posta zaharrena goiburuarekin bakarrik iristen da, eta testua irekitzean deskargatzen da. IMAP kontuetarako.
+	Only the header of this message was downloaded. Its text is on the server.	Mezu honen goiburua bakarrik deskargatu da. Testua zerbitzarian dago.
+	Downloading the message…	Mezua deskargatzen…
+	Download message	Deskargatu mezua
+	All mail	Posta guztia
+	Last month	Azken hilabetea
+	Last 3 months	Azken 3 hilabeteak
+	Last 6 months	Azken 6 hilabeteak
+	Last year	Azken urtea
+	Last 2 years	Azken 2 urteak
+	All mail is downloaded whole	Posta guztia osorik deskargatzen da
+	Older mail is downloaded as its header, and its text when opened	Posta zaharrena goiburuarekin deskargatzen da, eta testua irekitzean

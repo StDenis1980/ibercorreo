@@ -119,6 +119,10 @@ pub struct Store {
     /// The My Day pane (the coming days' events, beside mail and the calendar) is hidden.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_my_day: bool,
+    /// Tinta: only mail of the last this many months is downloaded whole; older mail comes as
+    /// its header, and its text when it is opened. `None` or 0: all mail whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_months: Option<u32>,
     /// Tinta: the message list shows mail grouped by conversation (View › Conversations).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub conversations: bool,

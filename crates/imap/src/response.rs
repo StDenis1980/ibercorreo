@@ -73,6 +73,8 @@ pub struct Fetch {
     pub internal_date: Option<String>,
     /// The whole message (`BODY[]` or `RFC822`).
     pub body: Option<Vec<u8>>,
+    /// Tinta: the message's header only (`BODY[HEADER]` or `RFC822.HEADER`).
+    pub header: Option<Vec<u8>>,
 }
 
 /// An untagged (`*`) response.
@@ -235,6 +237,11 @@ fn fetch(seq: u32, c: &mut Cursor) -> Result<Fetch> {
             "BODY[]" | "RFC822" => {
                 if let Value::Str(bytes) = value {
                     out.body = Some(bytes);
+                }
+            }
+            "BODY[HEADER]" | "RFC822.HEADER" => {
+                if let Value::Str(bytes) = value {
+                    out.header = Some(bytes);
                 }
             }
             _ => {}

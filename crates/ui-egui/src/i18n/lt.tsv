@@ -420,3 +420,17 @@
 	Show as conversations	Rodyti kaip pokalbius
 	Show as single messages	Rodyti kaip atskirus laiškus
 	Conversations	Pokalbiai
+# Tinta: mail downloaded header first
+	Download whole messages	Atsisiųsti visus laiškus
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Senesni laiškai gaunami tik su antrašte, o tekstas atsisiunčiamas juos atidarius. IMAP paskyroms.
+	Only the header of this message was downloaded. Its text is on the server.	Šio laiško atsisiųsta tik antraštė. Jo tekstas yra serveryje.
+	Downloading the message…	Laiškas atsisiunčiamas…
+	Download message	Atsisiųsti laišką
+	All mail	Visi laiškai
+	Last month	Paskutinis mėnuo
+	Last 3 months	Paskutiniai 3 mėnesiai
+	Last 6 months	Paskutiniai 6 mėnesiai
+	Last year	Paskutiniai metai
+	Last 2 years	Paskutiniai 2 metai
+	All mail is downloaded whole	Visi laiškai atsisiunčiami pilnai
+	Older mail is downloaded as its header, and its text when opened	Senesni laiškai atsisiunčiami su antrašte, o tekstas juos atidarius
