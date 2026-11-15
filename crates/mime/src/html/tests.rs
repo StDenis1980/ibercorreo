@@ -164,3 +164,88 @@ fn hostile_input_is_bounded() {
         [BlockKind::Numbered { depth: 1, number: u32::MAX }, BlockKind::Numbered { depth: 1, number: u32::MAX }]
     );
 }
+
+/// Tinta: a table of data keeps its rows and cells; tables that only lay a message out do not.
+#[test]
+fn tables_of_data_keep_their_cells_and_layout_tables_flow() {
+    let r = to_rich(
+        "<p>Your order</p><table border=1><tr><th>Item</th><th>Price</th></tr>\
+         <tr><td>Tea</td><td>3 €</td></tr><tr><td><p>Cake</p><p>(slice)</p></td><td>4 €</td></tr></table><p>Thanks</p>",
+    );
+    let cells: Vec<_> = r.blocks.iter().map(|b| b.cell.map(|c| (c.row, c.col, c.header))).collect();
+    assert_eq!(
+        cells,
+        [
+            None,
+            Some((0, 0, true)),
+            Some((0, 1, true)),
+            Some((1, 0, false)),
+            Some((1, 1, false)),
+            Some((2, 0, false)),
+            Some((2, 0, false)),
+            Some((2, 1, false)),
+            None
+        ]
+    );
+    assert_eq!(r.to_text(), "Your order\n\nItem\tPrice\nTea\t3 €\nCake\n(slice)\t4 €\n\nThanks");
+
+    // A one-column layout, a table that holds another, and a single row are no tables of data.
+    let layout = to_rich("<table><tr><td>Logo</td></tr><tr><td>Hello</td></tr></table>");
+    assert!(layout.blocks.iter().all(|b| b.cell.is_none()));
+    let row = to_rich("<table><tr><td>Left</td><td>Right</td></tr></table>");
+    assert!(row.blocks.iter().all(|b| b.cell.is_none()));
+    let nested = to_rich(
+        "<table><tr><td>Head</td><td>x</td></tr><tr><td>\
+         <table><tr><td>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>\
+         </td><td>y</td></tr></table>",
+    );
+    let kept: Vec<_> =
+        nested.blocks.iter().filter_map(|b| b.cell.map(|c| (b.spans.first().map(|s| s.text.clone()).unwrap_or_default(), c.table))).collect();
+    let inner = kept.first().map(|k| k.1);
+    assert_eq!(kept.iter().map(|k| k.0.as_str()).collect::<Vec<_>>(), ["a", "b", "c", "d"], "only the inner table holds data");
+    assert!(kept.iter().all(|k| Some(k.1) == inner));
+
+    // Unclosed and stray tags end the table as browsers would, and nothing panics.
+    for html in ["<table><tr><td>a<td>b<tr><td>c<td>d", "</td></tr><td>x</table><table>", "<div><table><tr><td>a<td>b</div><tr><td>c<td>d"] {
+        let r = to_rich(html);
+        assert!(r.blocks.len() <= 4, "{html}");
+    }
+    let wide: String = format!("<table><tr>{}</tr><tr>{}</tr></table>", "<td>a</td>".repeat(40), "<td>b</td>".repeat(40));
+    assert!(to_rich(&wide).blocks.iter().all(|b| b.cell.is_none()), "too wide to be a table");
+}
+
+/// Tinta: colours, highlights and clearly different sizes are kept; near-normal sizes and the
+/// backgrounds of blocks are not.
+#[test]
+fn colours_and_sizes_are_kept() {
+    let r = to_rich(
+        "<p><span style=\"color:#c00\">red</span> <font color=\"navy\">navy</font> \
+         <span style=\"color: rgb(0, 128, 0)\">green</span> <mark>marked</mark> \
+         <span style=\"background-color:#ffff00\">yellow</span> \
+         <span style=\"font-size:30px\">big</span> <span style=\"font-size:14px\">normal</span> \
+         <font size=\"1\">tiny</font> <span style=\"font-family: 'Courier New', monospace\">code</span></p>\
+         <div style=\"background:#ffffff;color:#333333\">plain</div>",
+    );
+    let span = |t: &str| r.blocks.iter().flat_map(|b| &b.spans).find(|s| s.text.trim() == t).cloned().unwrap_or_default();
+    assert_eq!(span("red").color, Some(0xcc0000));
+    assert_eq!(span("navy").color, Some(0x000080));
+    assert_eq!(span("green").color, Some(0x008000));
+    assert!(span("marked").highlight.is_some());
+    assert_eq!(span("yellow").highlight, Some(0xffff00));
+    assert_eq!(span("big").size, Some(200));
+    assert_eq!(span("normal").size, None);
+    assert_eq!(span("tiny").size, Some(60));
+    assert!(span("code").code);
+    assert_eq!(span("plain").highlight, None, "a block's background is not a highlight");
+    assert_eq!(span("plain").color, Some(0x333333));
+
+    for bad in ["#12", "rgb(1,2)", "rgba(0,0,0,0)", "transparent", "url(x)", "#zzzzzz", "rgb(nan, 1e99, -5)"] {
+        let r = to_rich(&format!("<span style=\"color:{bad};font-size:{bad}\">x</span>"));
+        let s = r.blocks.first().and_then(|b| b.spans.first()).cloned().unwrap_or_default();
+        assert!(s.size.is_none(), "{bad}");
+        if bad != "rgb(nan, 1e99, -5)" {
+            assert!(s.color.is_none(), "{bad}");
+        }
+    }
+    assert_eq!(css_color("rgb(nan, 1e99, -5)"), Some(0x00ff00), "clamped, never a panic");
+}

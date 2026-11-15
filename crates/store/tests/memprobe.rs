@@ -67,7 +67,7 @@ fn memprobe() {
                 });
             }
             text.push('\n');
-            blocks.push(Block { kind: BlockKind::Paragraph, quote: 0, spans });
+            blocks.push(Block { kind: BlockKind::Paragraph, quote: 0, spans, cell: None });
         }
         let c = m.content_mut().unwrap();
         c.body = text;

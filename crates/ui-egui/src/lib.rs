@@ -17,6 +17,7 @@ pub mod i18n;
 pub mod icons;
 mod inline_images;
 mod pictures_ui;
+mod rich_table;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
@@ -3994,63 +3995,87 @@ struct Pictures<'a> {
 
 fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyText, mut pictures: Pictures<'_>) {
     ui.spacing_mut().item_spacing.y = 8.0;
-    for block in &rich.blocks {
-        let quote = f32::from(block.quote) * 14.0;
-        if block.kind == BlockKind::Rule {
-            ui.horizontal(|ui| {
-                ui.add_space(quote);
-                ui.add(egui::Separator::default().horizontal());
-            });
+    let mut i = 0;
+    while let Some(block) = rich.blocks.get(i) {
+        // Tinta: the blocks of one table of data are drawn as a grid.
+        if let Some(cell) = block.cell {
+            let len = rich.blocks.get(i..).map_or(0, |rest| rest.iter().take_while(|b| b.cell.is_some_and(|c| c.table == cell.table)).count()).max(1);
+            if let Some(table) = rich.blocks.get(i..i + len) {
+                rich_table::table(ui, t, table, i, body, &mut pictures);
+            }
+            i += len;
             continue;
         }
-        let (size, marker, list) = match block.kind {
-            BlockKind::Heading(1) => (22.0, None, 0.0),
-            BlockKind::Heading(2) => (19.0, None, 0.0),
-            BlockKind::Heading(_) => (16.5, None, 0.0),
-            BlockKind::Bullet { depth } => (15.0, Some("•".to_string()), f32::from(depth) * 18.0),
-            BlockKind::Numbered { depth, number } => (15.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
-            _ => (15.0, None, 0.0),
-        };
-        let pre = block.kind == BlockKind::Pre;
-        if matches!(block.kind, BlockKind::Heading(_)) {
-            ui.add_space(4.0);
-        }
-        let rect = ui
-            .horizontal_top(|ui| {
-                ui.add_space(quote + (list - 14.0).max(0.0));
-                if let Some(marker) = &marker {
-                    ui.add_sized(vec2(14.0, size), egui::Label::new(RichText::new(marker).size(size).color(t.text_weak)).selectable(false));
-                    body.mark_next(marker.clone());
-                }
-                ui.vertical(|ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing.x = 0.0;
-                        // Between items a line break, between paragraphs an empty line; nothing
-                        // between the runs of one paragraph.
-                        let mut before = if marker.is_some() { "\n" } else { "\n\n" };
-                        for span in &block.spans {
-                            if let Some(texture) = span.cid.as_deref().filter(|_| span.image).and_then(|c| pictures.images.get(c)) {
-                                inline_picture(ui, t, span, texture, &mut pictures);
-                                continue;
-                            }
-                            // Tinta: a picture on the web the person chose to download.
-                            if let Some(texture) = span.src.as_deref().filter(|_| span.image).and_then(|u| pictures.images.web(u)) {
-                                inline_picture(ui, t, span, texture, &mut pictures);
-                                continue;
-                            }
-                            rich_span(ui, t, span, size, pre, body, before);
-                            before = "";
+        rich_block(ui, t, block, body, &mut pictures, None);
+        i += 1;
+    }
+}
+
+/// One block of a formatted message. `lead` is what goes before it when copied, when not the
+/// usual line break or empty line (in a table: a tab between cells).
+fn rich_block(
+    ui: &mut Ui,
+    t: &Tokens,
+    block: &ibercorreo_core::rich::Block,
+    body: &mut body_text::BodyText,
+    pictures: &mut Pictures<'_>,
+    lead: Option<&'static str>,
+) {
+    let quote = f32::from(block.quote) * 14.0;
+    if block.kind == BlockKind::Rule {
+        ui.horizontal(|ui| {
+            ui.add_space(quote);
+            ui.add(egui::Separator::default().horizontal());
+        });
+        return;
+    }
+    let (size, marker, list) = match block.kind {
+        BlockKind::Heading(1) => (22.0, None, 0.0),
+        BlockKind::Heading(2) => (19.0, None, 0.0),
+        BlockKind::Heading(_) => (16.5, None, 0.0),
+        BlockKind::Bullet { depth } => (15.0, Some("•".to_string()), f32::from(depth) * 18.0),
+        BlockKind::Numbered { depth, number } => (15.0, Some(format!("{number}.")), f32::from(depth) * 18.0),
+        _ => (15.0, None, 0.0),
+    };
+    let pre = block.kind == BlockKind::Pre;
+    if matches!(block.kind, BlockKind::Heading(_)) {
+        ui.add_space(4.0);
+    }
+    let rect = ui
+        .horizontal_top(|ui| {
+            ui.add_space(quote + (list - 14.0).max(0.0));
+            if let Some(marker) = &marker {
+                ui.add_sized(vec2(14.0, size), egui::Label::new(RichText::new(marker).size(size).color(t.text_weak)).selectable(false));
+                body.mark_next(marker.clone());
+            }
+            ui.vertical(|ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    // Between items a line break, between paragraphs an empty line; nothing
+                    // between the runs of one paragraph.
+                    let mut before = lead.unwrap_or(if marker.is_some() { "\n" } else { "\n\n" });
+                    for span in &block.spans {
+                        if let Some(texture) = span.cid.as_deref().filter(|_| span.image).and_then(|c| pictures.images.get(c)) {
+                            inline_picture(ui, t, span, texture, pictures);
+                            continue;
                         }
-                    });
+                        // Tinta: a picture on the web the person chose to download.
+                        if let Some(texture) = span.src.as_deref().filter(|_| span.image).and_then(|u| pictures.images.web(u)) {
+                            inline_picture(ui, t, span, texture, pictures);
+                            continue;
+                        }
+                        rich_span(ui, t, span, size, pre, body, before);
+                        before = "";
+                    }
                 });
-            })
-            .response
-            .rect;
-        // A bar per quotation level, as mail readers draw quoted text.
-        for level in 0..block.quote {
-            let x = rect.left() + f32::from(level) * 14.0 + 3.0;
-            ui.painter().vline(x, rect.y_range(), Stroke::new(2.0, t.border));
-        }
+            });
+        })
+        .response
+        .rect;
+    // A bar per quotation level, as mail readers draw quoted text.
+    for level in 0..block.quote {
+        let x = rect.left() + f32::from(level) * 14.0 + 3.0;
+        ui.painter().vline(x, rect.y_range(), Stroke::new(2.0, t.border));
     }
 }
 
@@ -4125,7 +4150,15 @@ fn inline_picture(ui: &mut Ui, t: &Tokens, span: &Span, texture: &egui::TextureH
 
 fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &mut body_text::BodyText, before: &'static str) {
     let mut text = if span.image { RichText::new(format!("🖼 {}", span.text)).italics() } else { RichText::new(&span.text) };
+    // Tinta: the sender's size, within limits.
+    let size = span.size.map_or(size, |p| (size * f32::from(p) / 100.0).clamp(9.0, 40.0));
     text = text.size(size);
+    // Tinta: the sender's highlight, and their colour where it reads well on what is behind it.
+    let highlight = span.highlight.map(rich_table::rgb);
+    if let Some(h) = highlight {
+        text = text.background_color(h);
+    }
+    let behind = highlight.unwrap_or(t.card);
     if pre || span.code {
         text = text.monospace();
     }
@@ -4143,13 +4176,14 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &
             text = text.underline();
         }
         // The interface font has one weight, so bold shows as the strong text colour.
-        let color = if span.image {
+        let usual = if span.image {
             t.text_weak
         } else if span.bold {
             ui.visuals().strong_text_color()
         } else {
             t.text
         };
+        let color = rich_table::text_color(span.color, usual, behind);
         body.add(ui, egui::Label::new(text.color(color)), color, before);
         return;
     };

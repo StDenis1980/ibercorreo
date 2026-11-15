@@ -9,7 +9,7 @@
 //! [`crate::MAX_BODY_BYTES`], the element stack at [`MAX_DEPTH`], and the output at [`MAX_BLOCKS`].
 
 use ibercorreo_core::clamp_text;
-use ibercorreo_core::rich::{Block, BlockKind, Rich, Span, web_host};
+use ibercorreo_core::rich::{Block, BlockKind, Cell, Rich, SIZE_RANGE, Span, web_host};
 
 /// Deepest element nesting tracked; deeper tags still give their text, without their style.
 pub const MAX_DEPTH: usize = 256;
@@ -20,6 +20,9 @@ const MAX_LINK: usize = 2_048;
 const MAX_ALT: usize = 300;
 const MAX_ATTRS: usize = 64;
 const MAX_LEVEL: u8 = 8;
+/// Tinta: most rows and columns of a table shown as a table; a bigger one flows as paragraphs.
+const MAX_TABLE_ROWS: u16 = 1_000;
+const MAX_TABLE_COLS: u16 = 24;
 
 /// The safe, formatted content of an HTML document.
 pub fn to_rich(html: &str) -> Rich {
@@ -37,6 +40,9 @@ pub fn to_rich(html: &str) -> Rich {
         i = b.tag(html, i);
     }
     b.flush();
+    while let Some(t) = b.tables.pop() {
+        b.finish_table(&t);
+    }
     b.out
 }
 
@@ -53,6 +59,10 @@ struct Tag {
     value: Option<String>,
     width: Option<String>,
     height: Option<String>,
+    /// `<font color>`, `<font size>`, `<font face>`.
+    color: Option<String>,
+    size: Option<String>,
+    face: Option<String>,
     hidden: bool,
 }
 
@@ -70,6 +80,30 @@ struct Open {
     link: Option<String>,
     /// The next number, for an `<ol>`.
     next: u32,
+    /// Tinta: the text colour, highlight and size set here; `size: Some(None)` is normal size again.
+    color: Option<u32>,
+    highlight: Option<u32>,
+    size: Option<Option<u16>>,
+    mono: bool,
+}
+
+/// Tinta: a table being read. Whether it holds data or only lays the message out is known at its
+/// end ([`Builder::finish_table`]).
+#[derive(Default)]
+struct Table {
+    id: u16,
+    /// Where its element is on the stack.
+    depth: usize,
+    /// The first block read inside it.
+    start: usize,
+    row: Option<u16>,
+    col: Option<u16>,
+    header: bool,
+    /// Rows with two cells or more.
+    wide_rows: u16,
+    last_wide: Option<u16>,
+    /// It holds another table, or is too big: a layout table.
+    layout: bool,
 }
 
 #[derive(Default)]
@@ -82,6 +116,10 @@ struct Builder {
     text_len: usize,
     stack: Vec<Open>,
     full: bool,
+    /// Tinta: the cell of the block being read, and the tables open around it.
+    cell: Option<Cell>,
+    tables: Vec<Table>,
+    next_table: u16,
 }
 
 const VOID: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"];
@@ -156,7 +194,12 @@ impl Builder {
             s.italic |= o.italic;
             s.underline |= o.underline;
             s.strike |= o.strike;
-            s.code |= matches!(o.name.as_str(), "code" | "tt" | "kbd" | "samp");
+            s.code |= o.mono || matches!(o.name.as_str(), "code" | "tt" | "kbd" | "samp");
+            s.color = o.color.or(s.color);
+            s.highlight = o.highlight.or(s.highlight);
+            if let Some(size) = o.size {
+                s.size = size;
+            }
             if o.name == "a" {
                 // The innermost link wins; a nested `<a>` without a safe target unlinks its text.
                 s.link.clone_from(&o.link);
@@ -218,6 +261,7 @@ impl Builder {
         }
         if self.spans.is_empty() {
             self.quote = self.levels("blockquote");
+            self.cell = self.current_cell();
         }
         self.text_len += text.len();
         let mut text = text;
@@ -244,6 +288,7 @@ impl Builder {
                 if self.spans.len() >= MAX_SPANS {
                     self.flush();
                     self.quote = self.levels("blockquote");
+                    self.cell = self.current_cell();
                 }
                 self.spans.push(Span { text, ..style });
             }
@@ -272,6 +317,7 @@ impl Builder {
             }
         }
         spans.retain(|s| !s.text.is_empty() || s.image);
+        let cell = self.cell.take();
         if spans.is_empty() {
             return false;
         }
@@ -279,7 +325,7 @@ impl Builder {
             s.deceptive = deceptive(s);
         }
         let kind = self.kind.take().unwrap_or(if self.in_pre() { BlockKind::Pre } else { BlockKind::Paragraph });
-        self.add(Block { kind, quote: self.quote, spans });
+        self.add(Block { kind, quote: self.quote, spans, cell });
         if self.in_pre() {
             self.kind = Some(BlockKind::Pre);
         }
@@ -292,6 +338,69 @@ impl Builder {
             return;
         }
         self.out.blocks.push(block);
+    }
+
+    /// Tinta: the table cell text read now goes in, if any.
+    fn current_cell(&self) -> Option<Cell> {
+        let t = self.tables.last()?;
+        let in_cell = self.stack.iter().skip(t.depth.saturating_add(1)).any(|o| o.name == "td" || o.name == "th");
+        if !in_cell || t.layout {
+            return None;
+        }
+        Some(Cell { table: t.id, row: t.row.unwrap_or(0), col: t.col?, header: t.header })
+    }
+
+    /// Tinta: tables whose element is no longer open are finished.
+    fn settle_tables(&mut self) {
+        while let Some(t) = self.tables.last() {
+            if self.stack.get(t.depth).is_some_and(|o| o.name == "table") {
+                break;
+            }
+            if let Some(t) = self.tables.pop() {
+                self.finish_table(&t);
+            }
+        }
+    }
+
+    /// Tinta: a table of data (two rows of two cells or more, no table inside, not too big) keeps
+    /// its cells; any other table only laid the message out, and its text flows as paragraphs.
+    fn finish_table(&mut self, t: &Table) {
+        if !t.layout && t.wide_rows >= 2 {
+            return;
+        }
+        for b in self.out.blocks.iter_mut().skip(t.start) {
+            if b.cell.is_some_and(|c| c.table == t.id) {
+                b.cell = None;
+            }
+        }
+        if self.cell.is_some_and(|c| c.table == t.id) {
+            self.cell = None;
+        }
+    }
+
+    /// Tinta: count the rows and cells of the innermost table.
+    fn table_tag(&mut self, name: &str) {
+        let Some(t) = self.tables.last_mut() else { return };
+        match name {
+            "tr" => {
+                t.row = Some(t.row.map_or(0, |r| r.saturating_add(1)));
+                t.col = None;
+            }
+            "td" | "th" => {
+                let row = *t.row.get_or_insert(0);
+                let col = t.col.map_or(0, |c| c.saturating_add(1));
+                t.col = Some(col);
+                t.header = name == "th";
+                if col >= 1 && t.last_wide != Some(row) {
+                    t.last_wide = Some(row);
+                    t.wide_rows = t.wide_rows.saturating_add(1);
+                }
+            }
+            _ => return,
+        }
+        if t.row.is_some_and(|r| r >= MAX_TABLE_ROWS) || t.col.is_some_and(|c| c >= MAX_TABLE_COLS) {
+            t.layout = true;
+        }
     }
 
     /// Start a block of `kind`, after ending the current one.
@@ -358,12 +467,32 @@ impl Builder {
                 && self.stack.get(i).is_some_and(|o| closes.contains(&o.name.as_str()))
             {
                 self.stack.truncate(i);
+                self.settle_tables();
             }
         }
         if name == "body" {
             self.stack.retain(|o| o.name != "head");
+            self.settle_tables();
         }
-        let css = tag.style.as_deref().map(Css::parse).unwrap_or_default();
+        let mut css = tag.style.as_deref().map(Css::parse).unwrap_or_default();
+        if name == "font" {
+            css.color = css.color.or_else(|| tag.color.as_deref().and_then(css_color));
+            css.size = css.size.or_else(|| tag.size.as_deref().and_then(font_size_attr));
+            css.mono |= tag.face.as_deref().is_some_and(monospace);
+        }
+        // Tinta: a highlight is an inline element's; the backgrounds of blocks and cells lay the
+        // message out (often white), and are not drawn.
+        if !INLINE.contains(&name) {
+            css.highlight = None;
+        }
+        if name == "mark" {
+            css.highlight = css.highlight.or(Some(0x00ff_e86b));
+        }
+        match name {
+            "big" => css.size = css.size.or(Some(relative(120))),
+            "small" => css.size = css.size.or(Some(relative(85))),
+            _ => {}
+        }
         let hidden = tag.hidden || css.hidden || UNSHOWN.contains(&name);
         if BLOCKS.contains(&name) && !self.hidden() {
             match name {
@@ -404,7 +533,8 @@ impl Builder {
             "hr" if !self.hidden() => {
                 self.flush();
                 let quote = self.levels("blockquote");
-                self.add(Block { kind: BlockKind::Rule, quote, spans: Vec::new() });
+                let cell = self.current_cell();
+                self.add(Block { kind: BlockKind::Rule, quote, spans: Vec::new(), cell });
             }
             "img" if !self.hidden() && !hidden => self.image(&tag),
             _ => {}
@@ -422,6 +552,10 @@ impl Builder {
             strike: css.strike || matches!(name, "s" | "strike" | "del"),
             link: None,
             next: 1,
+            color: css.color,
+            highlight: css.highlight,
+            size: css.size,
+            mono: css.mono,
         };
         if name == "a" {
             o.link = tag.href.as_deref().and_then(safe_link);
@@ -429,6 +563,14 @@ impl Builder {
         if name == "ol" {
             o.next = tag.start.as_deref().and_then(number).unwrap_or(1);
         }
+        if name == "table" {
+            if let Some(outer) = self.tables.last_mut() {
+                outer.layout = true;
+            }
+            self.tables.push(Table { id: self.next_table, depth: self.stack.len(), start: self.out.blocks.len(), ..Table::default() });
+            self.next_table = self.next_table.saturating_add(1);
+        }
+        self.table_tag(name);
         self.stack.push(o);
     }
 
@@ -446,6 +588,7 @@ impl Builder {
             self.kind = None;
         }
         self.stack.truncate(i);
+        self.settle_tables();
     }
 
     fn image(&mut self, tag: &Tag) {
@@ -557,6 +700,9 @@ fn parse_tag(s: &str) -> (Tag, usize) {
             "value" => &mut tag.value,
             "width" => &mut tag.width,
             "height" => &mut tag.height,
+            "color" => &mut tag.color,
+            "size" => &mut tag.size,
+            "face" => &mut tag.face,
             "hidden" => {
                 tag.hidden = true;
                 continue;
@@ -594,6 +740,12 @@ struct Css {
     italic: bool,
     underline: bool,
     strike: bool,
+    /// Tinta: `color`, `background-color`, `font-size` (`Some(None)`: about normal), a fixed-width
+    /// `font-family`.
+    color: Option<u32>,
+    highlight: Option<u32>,
+    size: Option<Option<u16>>,
+    mono: bool,
 }
 
 impl Css {
@@ -615,11 +767,147 @@ impl Css {
                     css.underline |= value.contains("underline");
                     css.strike |= value.contains("line-through");
                 }
+                "color" => css.color = css_color(&value).or(css.color),
+                "background-color" => css.highlight = css_color(&value).or(css.highlight),
+                "background" => css.highlight = value.split_whitespace().find_map(css_color).or(css.highlight),
+                "font-family" => css.mono = monospace(&value),
                 _ => {}
+            }
+            if prop == "font-size"
+                && let Some(size) = css_size(&value)
+            {
+                css.size = Some(size);
             }
         }
         css
     }
+}
+
+/// Tinta: inline elements, whose background is a highlight of their text.
+const INLINE: &[&str] = &["span", "font", "mark", "b", "strong", "i", "em", "u", "s", "a", "code", "small", "big", "sup", "sub"];
+
+/// Tinta: a CSS colour as `0xRRGGBB`: `#rgb`, `#rrggbb` (an alpha part is ignored), `rgb()`,
+/// `rgba()` or a common name. `transparent` and anything else give `None`.
+fn css_color(value: &str) -> Option<u32> {
+    let v = value.trim().to_ascii_lowercase();
+    if let Some(hex) = v.strip_prefix('#') {
+        let digits: Vec<u32> = hex.chars().map(|c| c.to_digit(16)).collect::<Option<_>>()?;
+        return match digits.as_slice() {
+            [r, g, b] | [r, g, b, _] => Some((r * 17) << 16 | (g * 17) << 8 | (b * 17)),
+            [r1, r2, g1, g2, b1, b2] | [r1, r2, g1, g2, b1, b2, _, _] => Some((r1 * 16 + r2) << 16 | (g1 * 16 + g2) << 8 | (b1 * 16 + b2)),
+            _ => None,
+        };
+    }
+    if let Some(args) = v.strip_prefix("rgba(").or_else(|| v.strip_prefix("rgb(")) {
+        let args = args.strip_suffix(')')?;
+        let parts: Vec<&str> = args.split([',', ' ', '/']).filter(|p| !p.is_empty()).collect();
+        if let Some(alpha) = parts.get(3) {
+            let a = alpha.trim_end_matches('%').parse::<f32>().ok()?;
+            if a <= 0.0 {
+                return None;
+            }
+        }
+        let channel = |p: &str| -> Option<u32> {
+            let n = if let Some(pc) = p.strip_suffix('%') { pc.parse::<f32>().ok()? * 2.55 } else { p.parse::<f32>().ok()? };
+            // A NaN gives 0 and anything out of range is clamped, so the cast always fits.
+            Some(if n.is_nan() { 0 } else { n.clamp(0.0, 255.0).round() as u32 })
+        };
+        let (r, g, b) = (channel(parts.first()?)?, channel(parts.get(1)?)?, channel(parts.get(2)?)?);
+        return Some(r << 16 | g << 8 | b);
+    }
+    let named = [
+        ("black", 0x000000),
+        ("white", 0xffffff),
+        ("red", 0xff0000),
+        ("green", 0x008000),
+        ("blue", 0x0000ff),
+        ("navy", 0x000080),
+        ("gray", 0x808080),
+        ("grey", 0x808080),
+        ("silver", 0xc0c0c0),
+        ("maroon", 0x800000),
+        ("purple", 0x800080),
+        ("teal", 0x008080),
+        ("olive", 0x808000),
+        ("orange", 0xffa500),
+        ("yellow", 0xffff00),
+        ("lime", 0x00ff00),
+        ("aqua", 0x00ffff),
+        ("cyan", 0x00ffff),
+        ("fuchsia", 0xff00ff),
+        ("magenta", 0xff00ff),
+        ("darkred", 0x8b0000),
+        ("darkgreen", 0x006400),
+        ("darkblue", 0x00008b),
+        ("darkgray", 0xa9a9a9),
+        ("darkgrey", 0xa9a9a9),
+        ("lightgray", 0xd3d3d3),
+        ("lightgrey", 0xd3d3d3),
+        ("crimson", 0xdc143c),
+        ("brown", 0xa52a2a),
+        ("gold", 0xffd700),
+        ("pink", 0xffc0cb),
+    ];
+    named.iter().find(|(n, _)| *n == v).map(|(_, c)| *c)
+}
+
+/// Tinta: a size in percent of normal text as kept: near normal (85–118 %) is `None`, the rest is
+/// clamped to [`SIZE_RANGE`].
+fn relative(percent: u16) -> Option<u16> {
+    (!(85..=118).contains(&percent)).then(|| percent.clamp(SIZE_RANGE.0, SIZE_RANGE.1))
+}
+
+/// Tinta: a CSS `font-size` as [`relative`] keeps it, taking 15 px as normal; `None` when it
+/// cannot be read (or is zero, which hides the text instead).
+fn css_size(value: &str) -> Option<Option<u16>> {
+    let keyword = match value {
+        "xx-small" => Some(60),
+        "x-small" => Some(70),
+        "small" | "smaller" => Some(85),
+        "medium" => Some(100),
+        "large" | "larger" => Some(120),
+        "x-large" => Some(150),
+        "xx-large" => Some(200),
+        "xxx-large" => Some(250),
+        _ => None,
+    };
+    if let Some(k) = keyword {
+        return Some(relative(k));
+    }
+    let unit_at = value.find(|c: char| !(c.is_ascii_digit() || c == '.'))?;
+    let n: f32 = value.get(..unit_at)?.parse().ok()?;
+    let percent = match value.get(unit_at..)?.trim() {
+        "px" => n / 15.0 * 100.0,
+        "pt" => n * 4.0 / 3.0 / 15.0 * 100.0,
+        "em" | "rem" => n * 100.0,
+        "%" => n,
+        _ => return None,
+    };
+    if !percent.is_finite() || percent <= 0.0 {
+        return None;
+    }
+    // Clamped before the cast, so it always fits.
+    Some(relative(percent.clamp(1.0, 1_000.0).round() as u16))
+}
+
+/// Tinta: `<font size="1">`…`7`, or `+n`/`-n` from 3.
+fn font_size_attr(value: &str) -> Option<Option<u16>> {
+    let v = value.trim();
+    let n: i32 = if let Some(up) = v.strip_prefix('+') {
+        3 + up.parse::<i32>().ok()?
+    } else if v.starts_with('-') {
+        3 + v.parse::<i32>().ok()?
+    } else {
+        v.parse().ok()?
+    };
+    let percent = [60, 82, 100, 113, 150, 200, 250].get(usize::try_from(n.clamp(1, 7) - 1).ok()?).copied()?;
+    Some(relative(percent))
+}
+
+/// Tinta: a `font-family` (or `<font face>`) whose first choice is a fixed-width font.
+fn monospace(value: &str) -> bool {
+    let first = value.split(',').next().unwrap_or("").trim().trim_matches(['"', '\'']).to_ascii_lowercase();
+    ["monospace", "courier", "consolas", "menlo", "monaco", "lucida console"].iter().any(|m| first.contains(m)) || first.ends_with(" mono")
 }
 
 /// A link target that is safe to offer: `http:`, `https:` or `mailto:`, without control

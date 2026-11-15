@@ -46,8 +46,10 @@ Status: 2026-11-15 · Pick from the top.
    Pictures on the web are downloaded only when the person asks: for one message, or always for
    its sender (`message.loadPictures`), over HTTPS only, never from this computer or its local
    network, and never tracking pixels (M6.2d).
-   Missing: tables laid
-   out as tables (cells show as paragraphs), colours and fonts, a confirmation before opening a
+   Tables of data are drawn as tables (layout tables flow as paragraphs); the sender's text
+   colours, highlights and clearly larger or smaller sizes are kept where they stay readable on
+   the theme (M6.2e). Missing: merged cells (`colspan`, `rowspan`), cell backgrounds, the
+   sender's font families, a confirmation before opening a
    deceptive link, and a true bold weight (the interface font has one weight, so bold is shown in
    the strong text colour).
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux

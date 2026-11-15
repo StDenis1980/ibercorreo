@@ -1,8 +1,9 @@
 //! Formatted mail, kept safe: what an HTML message says (paragraphs, headings, lists, quotes, bold,
-//! links), and nothing it could do. `ibercorreo-mime` builds it from HTML; there is no script, no
+//! links, Tinta: tables of data, text colours and sizes), and nothing it could do. `ibercorreo-mime` builds it from HTML; there is no script, no
 //! style sheet, no form and no remote address in it except link targets, which are `http`,
 //! `https` or `mailto` only, and the addresses of pictures on the web ([`Span::src`]), which a
-//! front end loads only when the person asks. Front ends draw it with their own fonts and colours.
+//! front end loads only when the person asks. Front ends draw it with their own fonts; a sender's colours are shown only where they stay
+//! readable.
 
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +28,26 @@ pub struct Block {
     #[serde(default, skip_serializing_if = "is_zero")]
     pub quote: u8,
     pub spans: Vec<Span>,
+    /// Tinta: the cell of a table of data the block is in. Tables that only lay a message out
+    /// (one column, or tables inside tables) give none: their text flows as paragraphs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell: Option<Cell>,
 }
+
+/// Tinta: where a block sits in a table: blocks with the same `table` that follow each other make
+/// one table; `row` and `col` count from 0.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Cell {
+    pub table: u16,
+    pub row: u16,
+    pub col: u16,
+    /// A heading cell (`<th>`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub header: bool,
+}
+
+/// Smallest and largest text size kept ([`Span::size`]), in percent of normal text.
+pub const SIZE_RANGE: (u16, u16) = (60, 250);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -83,13 +103,34 @@ pub struct Span {
     /// shape of a phishing link.
     #[serde(default, skip_serializing_if = "is_false")]
     pub deceptive: bool,
+    /// Tinta: the colour the sender gave the text, `0xRRGGBB`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<u32>,
+    /// Tinta: the colour behind the text (a highlight), `0xRRGGBB`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<u32>,
+    /// Tinta: a text size clearly larger or smaller than normal, in percent of it, within
+    /// [`SIZE_RANGE`]. Sizes near normal are left out, so mail does not shrink by a pixel or two.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u16>,
 }
 
 impl Span {
     /// Whether two spans can be one (the same style and link).
     pub fn same_style(&self, other: &Span) -> bool {
-        (self.bold, self.italic, self.underline, self.strike, self.code, self.image, &self.link)
-            == (other.bold, other.italic, other.underline, other.strike, other.code, other.image, &other.link)
+        (self.bold, self.italic, self.underline, self.strike, self.code, self.image, &self.link, self.color, self.highlight, self.size)
+            == (
+                other.bold,
+                other.italic,
+                other.underline,
+                other.strike,
+                other.code,
+                other.image,
+                &other.link,
+                other.color,
+                other.highlight,
+                other.size,
+            )
     }
 }
 
@@ -107,7 +148,14 @@ impl Rich {
             }
             if let Some(p) = previous {
                 // List items follow each other line by line; everything else is a paragraph apart.
-                out.push_str(if item(p) && item(b) { "\n" } else { "\n\n" });
+                // Tinta: the cells of a row are a tab apart, the rows of a table a line.
+                let gap = match (p.cell, b.cell) {
+                    (Some(a), Some(c)) if a.table == c.table && a.row == c.row && a.col != c.col => "\t",
+                    (Some(a), Some(c)) if a.table == c.table => "\n",
+                    _ if item(p) && item(b) => "\n",
+                    _ => "\n\n",
+                };
+                out.push_str(gap);
             }
             previous = Some(b);
             for _ in 0..b.quote {
@@ -297,14 +345,26 @@ mod tests {
         let span = |t: &str| Span { text: t.into(), ..Span::default() };
         let r = Rich {
             blocks: vec![
-                Block { kind: BlockKind::Heading(1), quote: 0, spans: vec![span("Agenda")] },
-                Block { kind: BlockKind::Numbered { depth: 1, number: 1 }, quote: 0, spans: vec![span("Budget")] },
-                Block { kind: BlockKind::Bullet { depth: 2 }, quote: 0, spans: vec![span("Q3")] },
-                Block { kind: BlockKind::Paragraph, quote: 1, spans: vec![span("Earlier")] },
-                Block { kind: BlockKind::Paragraph, quote: 0, spans: vec![Span { image: true, ..span("Logo") }] },
+                Block { kind: BlockKind::Heading(1), quote: 0, spans: vec![span("Agenda")], cell: None },
+                Block { kind: BlockKind::Numbered { depth: 1, number: 1 }, quote: 0, spans: vec![span("Budget")], cell: None },
+                Block { kind: BlockKind::Bullet { depth: 2 }, quote: 0, spans: vec![span("Q3")], cell: None },
+                Block { kind: BlockKind::Paragraph, quote: 1, spans: vec![span("Earlier")], cell: None },
+                Block { kind: BlockKind::Paragraph, quote: 0, spans: vec![Span { image: true, ..span("Logo") }], cell: None },
             ],
             remote_images: 0,
         };
         assert_eq!(r.to_text(), "Agenda\n\n1. Budget\n  • Q3\n\n> Earlier");
+    }
+
+    #[test]
+    fn plain_text_keeps_table_rows_and_cells() {
+        let cell = |row, col, t: &str| Block {
+            kind: BlockKind::Paragraph,
+            quote: 0,
+            spans: vec![Span { text: t.into(), ..Span::default() }],
+            cell: Some(Cell { table: 0, row, col, header: row == 0 }),
+        };
+        let r = Rich { blocks: vec![cell(0, 0, "Item"), cell(0, 1, "Price"), cell(1, 0, "Tea"), cell(1, 1, "3 €")], remote_images: 0 };
+        assert_eq!(r.to_text(), "Item\tPrice\nTea\t3 €");
     }
 }
