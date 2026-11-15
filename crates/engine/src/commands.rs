@@ -62,6 +62,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: |s, _| set_view(s, View::Contacts),
     },
     CommandSpec {
+        id: "view.conversations",
+        label: "Conversations",
+        group: "View/Messages",
+        shortcut: None,
+        params: "on?: bool — group the message list by conversation (default: toggle); saved, not undone",
+        edits: false,
+        run: view_conversations,
+    },
+    CommandSpec {
+        id: "message.conversation",
+        label: "Show conversation",
+        group: "Message/Conversation",
+        shortcut: None,
+        params: "id?: number (default: the open message) — the messages of its account with the same subject once Re:, Fwd: and the like are taken off, newest first, at most 500",
+        edits: false,
+        run: message_conversation,
+    },
+    CommandSpec {
         id: "view.plainText",
         label: "Plain text",
         group: "View/Message",
@@ -1483,6 +1501,35 @@ fn message_load_pictures(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     Ok(json!({ "id": id.0, "sender": sender, "allowed": s.pictures_allowed(id) }))
+}
+
+/// Tinta: group the message list by conversation, or not.
+fn view_conversations(s: &mut Session, p: &Value) -> Result<Value> {
+    let was = s.store.conversations;
+    s.store.conversations = bool_param(p, "on")?.unwrap_or(!was);
+    if s.store.conversations != was {
+        s.dirty = true;
+    }
+    Ok(json!({ "on": s.store.conversations }))
+}
+
+/// Tinta: the messages of a conversation, in every folder of the message's account.
+fn message_conversation(s: &mut Session, p: &Value) -> Result<Value> {
+    const MAX: usize = 500;
+    let id = target_message(s, p)?;
+    let account = account_of_message(s, id)?;
+    let Some(topic) = ibercorreo_core::mail::conversation_topic(&s.store.message(id)?.subject) else {
+        return Ok(json!({ "id": id.0, "topic": null, "messages": [summary(s.store.message(id)?)] }));
+    };
+    let folders: std::collections::HashSet<FolderId> = s.store.folders_of(account).iter().map(|f| f.id).collect();
+    let mut found: Vec<&Message> = s
+        .store
+        .all_messages()
+        .filter(|m| folders.contains(&m.folder) && ibercorreo_core::mail::conversation_topic(&m.subject).as_deref() == Some(topic.as_str()))
+        .collect();
+    found.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
+    found.truncate(MAX);
+    Ok(json!({ "id": id.0, "topic": topic, "messages": found.into_iter().map(summary).collect::<Vec<_>>() }))
 }
 
 fn view_plain_text(s: &mut Session, p: &Value) -> Result<Value> {

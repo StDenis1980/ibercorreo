@@ -234,6 +234,16 @@ const TOOLS: &[Tool] = &[
         required: &["id"],
     },
     Tool {
+        name: "get_conversation",
+        title: "Get conversation",
+        description: "Lists the messages of a message's conversation, newest first: those of its account, in any folder, whose subject is the same once Re:, Fwd: and the like are taken off.",
+        commands: &["message.conversation"],
+        read_only: true,
+        destructive: false,
+        args: &[ID],
+        required: &["id"],
+    },
+    Tool {
         name: "list_categories",
         title: "List categories",
         description: "Lists the colour categories mail can be given: name, colour and how many messages have each.",

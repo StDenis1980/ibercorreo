@@ -1319,3 +1319,21 @@ fn an_outlook_msg_imports_into_the_inbox_and_undoes() {
     assert!(s.run("message.importMsg", &json!({ "data": "not base64!" })).is_err());
     assert!(s.run("message.importMsg", &json!({ "data": ibercorreo_mime::base64(b"From: a@b.c\r\n\r\nx") })).is_err(), "not a .msg");
 }
+
+/// Tinta: a reply, also one in Sent, is in its message's conversation; the list setting toggles.
+#[test]
+fn conversations_gather_replies_across_folders() {
+    let mut s = session();
+    let first = s.store.all_messages().find(|m| !m.subject.is_empty()).map(|m| (m.id, m.folder, m.subject.clone())).unwrap();
+    let account = s.store.account_of(first.1).unwrap();
+    let sent = s.store.folder_by_role(account, FolderRole::Sent).unwrap();
+    let mut reply = Message::new(MessageId(0), sent);
+    reply.set_subject(&format!("RE: {}", first.2));
+    let reply = s.store.add_message(reply).unwrap();
+    let v = s.run("message.conversation", &json!({ "id": first.0 .0 })).unwrap();
+    let ids: Vec<u64> = v["messages"].as_array().unwrap().iter().filter_map(|m| m["id"].as_u64()).collect();
+    assert!(ids.contains(&reply.0) && ids.contains(&first.0.0), "{v}");
+    assert_eq!(s.run("view.conversations", &json!({})).unwrap()["on"], true);
+    assert!(s.store.conversations);
+    assert_eq!(s.run("view.conversations", &json!({ "on": false })).unwrap()["on"], false);
+}

@@ -119,6 +119,9 @@ pub struct Store {
     /// The My Day pane (the coming days' events, beside mail and the calendar) is hidden.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hide_my_day: bool,
+    /// Tinta: the message list shows mail grouped by conversation (View › Conversations).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub conversations: bool,
     /// The interface's size in percent (View › Size); `None` is [`DEFAULT_ZOOM`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub zoom: Option<u16>,
@@ -1428,7 +1431,7 @@ mod tests {
     /// round-trips. Unknown fields are not refused, so an older Correo opens a newer store too.
     #[test]
     fn view_settings_are_optional_in_the_store_file() {
-        const KEYS: [&str; 7] = ["theme", "appearance", "hide_folder_pane", "hide_my_day", "zoom", "folded", "hidden_calendars"];
+        const KEYS: [&str; 8] = ["theme", "appearance", "hide_folder_pane", "hide_my_day", "zoom", "folded", "hidden_calendars", "conversations"];
         let plain = serde_json::to_value(Store::new()).unwrap();
         for k in KEYS {
             assert!(plain.get(k).is_none(), "{k} is written although it is the default");
@@ -1442,6 +1445,7 @@ mod tests {
         set.appearance = Some("dark".into());
         set.hide_folder_pane = true;
         set.hide_my_day = true;
+        set.conversations = true;
         set.zoom = Some(130);
         set.folded = Some(vec!["h:0".into()]);
         set.hidden_calendars = vec![0];
