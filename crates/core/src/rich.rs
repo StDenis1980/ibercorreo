@@ -1,9 +1,13 @@
 //! Formatted mail, kept safe: what an HTML message says (paragraphs, headings, lists, quotes, bold,
 //! links), and nothing it could do. `ibercorreo-mime` builds it from HTML; there is no script, no
 //! style sheet, no form and no remote address in it except link targets, which are `http`,
-//! `https` or `mailto` only. Front ends draw it with their own fonts and colours.
+//! `https` or `mailto` only, and the addresses of pictures on the web ([`Span::src`]), which a
+//! front end loads only when the person asks. Front ends draw it with their own fonts and colours.
 
 use serde::{Deserialize, Serialize};
+
+/// Most bytes of a picture's web address kept ([`Span::src`]).
+pub const MAX_PICTURE_URL: usize = 2048;
 
 /// A formatted body.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +71,11 @@ pub struct Span {
     /// when it has the contents; nothing outside the message is ever named here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cid: Option<String>,
+    /// Tinta: for an image on the web, its address (`http:` or `https:`, at most
+    /// [`MAX_PICTURE_URL`] bytes). It is never loaded unless the person asks (for this message or
+    /// for its sender). Tracking pixels get no span, so they are never loaded at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub src: Option<String>,
     /// Where the text links to: `http:`, `https:` or `mailto:` only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<String>,

@@ -37,6 +37,13 @@ pub(crate) struct InlineImages {
     shown: HashSet<usize>,
     /// Where each content id is among the message's attachments.
     index: HashMap<String, usize>,
+    /// Tinta: pictures on the web by address: `None` while being downloaded or when one could not
+    /// be shown, the picture once it is.
+    web: HashMap<String, Option<TextureHandle>>,
+    /// Addresses to download, for the shell.
+    requests: Vec<String>,
+    /// What the shell downloaded, decoded on the next frame.
+    arrived: Vec<(MessageId, String, Result<Vec<u8>, String>)>,
 }
 
 impl InlineImages {
@@ -46,6 +53,7 @@ impl InlineImages {
             *self = InlineImages { message: Some(m.id), ..InlineImages::default() };
         }
         let Some(rich) = rich else { return };
+        self.prepare_web(ctx, session.pictures_allowed(m.id), m.id, rich);
         for cid in rich.blocks.iter().flat_map(|b| &b.spans).filter(|s| s.image).filter_map(|s| s.cid.as_deref()) {
             if self.by_cid.contains_key(cid) || self.by_cid.len() >= MAX_PICTURES {
                 continue;
@@ -68,6 +76,49 @@ impl InlineImages {
             }
             self.by_cid.insert(cid.to_string(), texture);
         }
+    }
+
+    /// Tinta: ask for the pictures on the web `rich` names, when the person allowed them, and
+    /// decode what arrived.
+    fn prepare_web(&mut self, ctx: &Context, allowed: bool, id: MessageId, rich: &Rich) {
+        for (message, url, result) in std::mem::take(&mut self.arrived) {
+            if message != id || !self.web.contains_key(&url) {
+                continue;
+            }
+            let texture = result
+                .ok()
+                .and_then(|bytes| decode(&bytes))
+                .map(|image| ctx.load_texture(format!("web:{}:{url}", id.0), image, TextureOptions::LINEAR));
+            self.web.insert(url, texture);
+        }
+        if !allowed {
+            return;
+        }
+        for url in rich.blocks.iter().flat_map(|b| &b.spans).filter(|s| s.image).filter_map(|s| s.src.as_deref()) {
+            if self.web.contains_key(url) || self.web.len() >= MAX_PICTURES {
+                continue;
+            }
+            self.web.insert(url.to_string(), None);
+            self.requests.push(url.to_string());
+        }
+    }
+
+    /// Addresses of pictures to download, taken once.
+    pub(crate) fn take_requests(&mut self) -> Vec<(MessageId, String)> {
+        let Some(id) = self.message else { return Vec::new() };
+        std::mem::take(&mut self.requests).into_iter().map(|url| (id, url)).collect()
+    }
+
+    /// The shell downloaded the picture at `url` for message `id` (or could not).
+    pub(crate) fn arrived(&mut self, id: MessageId, url: String, result: Result<Vec<u8>, String>) {
+        if self.message == Some(id) && self.arrived.len() < MAX_PICTURES {
+            self.arrived.push((id, url, result));
+        }
+    }
+
+    /// The picture on the web at `url`, when it was downloaded and could be shown.
+    pub(crate) fn web(&self, url: &str) -> Option<&TextureHandle> {
+        self.web.get(url).and_then(Option::as_ref)
     }
 
     /// The picture for `cid`, when it could be shown.

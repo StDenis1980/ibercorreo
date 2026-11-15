@@ -63,6 +63,8 @@ pub const THEMES: &[&str] = &["teal", "terracotta", "sea", "lavender", "olive", 
 pub const DEFAULT_ZOOM: u16 = 110;
 /// The most folded things in the folder pane the mailbox keeps, and the longest name of one.
 pub const MAX_FOLDED: usize = 2000;
+/// Most senders in [`Store::pictures_from`].
+pub const MAX_PICTURE_SENDERS: usize = 5000;
 pub const MAX_FOLDED_LEN: usize = 1024;
 
 /// The smallest and largest interface sizes, in percent.
@@ -128,6 +130,10 @@ pub struct Store {
     /// still come).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_calendars: Vec<u32>,
+    /// Tinta: senders (lowercase addresses) whose mail loads its pictures from the web without
+    /// asking; [`MAX_PICTURE_SENDERS`] at most.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pictures_from: Vec<String>,
     /// Reminders dismissed or snoozed, so they do not come back after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     reminder_marks: Vec<ReminderMark>,

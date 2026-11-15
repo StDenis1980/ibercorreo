@@ -23,6 +23,7 @@ pub mod autodiscover;
 pub mod idle;
 pub mod job;
 pub mod oauth;
+pub mod pictures;
 
 pub use ibercorreo_dav as dav;
 pub use ibercorreo_imap as imap;

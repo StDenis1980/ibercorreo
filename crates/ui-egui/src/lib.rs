@@ -16,6 +16,7 @@ mod export_ui;
 pub mod i18n;
 pub mod icons;
 mod inline_images;
+mod pictures_ui;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
@@ -2619,10 +2620,15 @@ impl App {
             Some(Ok(c)) => c.rich.as_ref(),
             _ => None,
         };
+        let mut pictures_choice: Option<Value> = None;
         if let Some(rich) = rich {
             ui.add_space(6.0);
+            let allowed = self.session.pictures_allowed(m.id);
+            let sender_allowed = m.from.as_ref().is_some_and(|a| self.session.store.pictures_from.contains(&a.email.to_lowercase()));
+            let web_pictures = rich.blocks.iter().flat_map(|b| &b.spans).any(|s| s.src.is_some());
+            let blocked = rich.remote_images > 0 && !(allowed && web_pictures);
             ui.horizontal(|ui| {
-                if rich.remote_images > 0 {
+                if blocked {
                     let n = rich.remote_images;
                     ui.label(
                         RichText::new(format!(
@@ -2632,13 +2638,33 @@ impl App {
                         .small()
                         .color(t.text_weak),
                     )
-                    .on_hover_text(tl("Images on other servers can tell the sender that you opened the message, so Tinta Correo never loads them."));
+                    .on_hover_text(tl(pictures_ui::WHY));
+                } else if allowed && web_pictures {
+                    ui.label(RichText::new(format!("🖼 {}", tl(pictures_ui::SHOWN))).small().color(t.text_weak));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     let label = if self.session.plain_text { "Show formatted" } else { "Show as plain text" };
                     toggle_plain = chrome::button(ui, &t, chrome::Kind::Quiet, None, label, true).clicked();
                 });
             });
+            // Tinta: tracking pixels are never loaded, so only real pictures offer a choice.
+            let stop = allowed && web_pictures && sender_allowed;
+            if (blocked && web_pictures) || stop {
+                ui.horizontal_wrapped(|ui| {
+                    if stop {
+                        if chrome::button(ui, &t, chrome::Kind::Quiet, None, pictures_ui::STOP, true).clicked() {
+                            pictures_choice = Some(json!({ "id": m.id.0, "always": false }));
+                        }
+                        return;
+                    }
+                    if chrome::button(ui, &t, chrome::Kind::Quiet, None, pictures_ui::DOWNLOAD, true).clicked() {
+                        pictures_choice = Some(json!({ "id": m.id.0 }));
+                    }
+                    if m.from.is_some() && chrome::button(ui, &t, chrome::Kind::Quiet, None, pictures_ui::ALWAYS, true).clicked() {
+                        pictures_choice = Some(json!({ "id": m.id.0, "always": true }));
+                    }
+                });
+            }
         }
         ui.add_space(14.0);
         ui.separator();
@@ -2655,6 +2681,9 @@ impl App {
         });
         if toggle_plain {
             self.run("view.plainText", json!({}));
+        }
+        if let Some(p) = pictures_choice {
+            self.run("message.loadPictures", p);
         }
         if let Some(p) = answer {
             let id = if p.get("response").is_some() { "invite.respond" } else { "invite.remove" };
@@ -4004,6 +4033,11 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyTex
                                 inline_picture(ui, t, span, texture, &mut pictures);
                                 continue;
                             }
+                            // Tinta: a picture on the web the person chose to download.
+                            if let Some(texture) = span.src.as_deref().filter(|_| span.image).and_then(|u| pictures.images.web(u)) {
+                                inline_picture(ui, t, span, texture, &mut pictures);
+                                continue;
+                            }
                             rich_span(ui, t, span, size, pre, body, before);
                             before = "";
                         }
@@ -4071,6 +4105,10 @@ fn inline_picture(ui: &mut Ui, t: &Tokens, span: &Span, texture: &egui::TextureH
     let image = egui::Image::new((texture.id(), size)).sense(Sense::click()).alt_text(span.text.clone());
     let resp = ui.add(image);
     let resp = if span.text.is_empty() || span.text == "image" { resp } else { resp.on_hover_text(&span.text) };
+    // A picture on the web is no attachment: nothing to save from the mailbox.
+    if span.cid.is_none() {
+        return;
+    }
     resp.context_menu(|ui| {
         if ui.button(RichText::new(tl(attachments_ui::SAVE)).color(t.text)).clicked() {
             if let Some(index) = span.cid.as_deref().and_then(|c| pictures.images.attachment(c)) {

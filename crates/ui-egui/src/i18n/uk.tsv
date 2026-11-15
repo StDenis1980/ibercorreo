@@ -387,3 +387,9 @@
 	I am an administrator: open the approval page	Я адміністратор: відкрити сторінку схвалення
 	Microsoft needs an administrator of your organisation to approve Tinta Correo first. Then sign in again.	Microsoft вимагає, щоб адміністратор вашої організації спершу схвалив Tinta Correo. Потім увійдіть знову.
 	Hello,\n\nPlease approve the mail program Tinta Correo for our organisation in Microsoft Entra, so that we can use our mail, calendar and contacts in it. An administrator opens this page once and accepts:\n{link}\n\nTinta Correo is free and open source (https://tintaoffice.com). Its application ID is {id}.\n\nThank you.	Добрий день!\n\nПрошу схвалити поштову програму Tinta Correo для нашої організації в Microsoft Entra, щоб ми могли користуватися в ній поштою, календарем і контактами. Адміністратору потрібно один раз відкрити цю сторінку й погодитися:\n{link}\n\nTinta Correo — безкоштовна програма з відкритим кодом (https://tintaoffice.com). Її ідентифікатор застосунку: {id}.\n\nДякую.
+# Tinta: pictures on the web, on request
+	Pictures on other servers can tell the sender that you opened the message, so Tinta Correo downloads them only when you ask.	Картинки на інших серверах можуть повідомити відправнику, що ви відкрили лист, тому Tinta Correo завантажує їх лише на ваше прохання.
+	Download pictures	Завантажити картинки
+	Always for this sender	Завжди від цього відправника
+	Pictures from the web are shown	Показано картинки з інтернету
+	Stop for this sender	Більше не для цього відправника

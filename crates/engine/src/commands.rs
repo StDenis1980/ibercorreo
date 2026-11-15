@@ -68,6 +68,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         edits: false,
         run: view_plain_text,
     },
+    CommandSpec {
+        id: "message.loadPictures",
+        label: "Download pictures",
+        group: "Message/Pictures",
+        shortcut: None,
+        params: "id?: number (default: the open message); always?: bool — true: always for its sender, false: never again for its sender (default: this message, until Tinta Correo closes)",
+        edits: true,
+        run: message_load_pictures,
+    },
     CommandSpec { id: "folder.list", label: "List folders", group: "Folder/Folders", shortcut: None, params: "", edits: false, run: folder_list },
     CommandSpec {
         id: "folder.select",
@@ -1394,6 +1403,46 @@ fn attachment_json(index: usize, a: &ibercorreo_core::mail::Attachment) -> Value
         o.insert("contentId".into(), json!(c));
     }
     v
+}
+
+/// Tinta: let a message load its pictures from the web, now or always for its sender. Loading is
+/// the front end's job; this only records the person's choice.
+fn message_load_pictures(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_message(s, p)?;
+    let always = match p.get("always") {
+        None | Some(Value::Null) => None,
+        Some(Value::Bool(b)) => Some(*b),
+        Some(_) => return Err(Error::invalid("always", "expected true or false")),
+    };
+    let sender = s
+        .store
+        .message(id)?
+        .from
+        .as_ref()
+        .map(|a| a.email.trim().to_lowercase())
+        .filter(|e| !e.is_empty() && e.len() <= ibercorreo_core::MAX_FIELD_LEN);
+    match always {
+        None => {
+            s.pictures_shown.insert(id);
+            s.status = "Pictures downloaded for this message".into();
+        }
+        Some(on) => {
+            let sender = sender.clone().ok_or_else(|| Error::invalid("always", "the message has no sender to remember"))?;
+            s.store.pictures_from.retain(|e| *e != sender);
+            if on {
+                if s.store.pictures_from.len() >= ibercorreo_store::MAX_PICTURE_SENDERS {
+                    return Err(Error::invalid("always", format!("at most {} senders can be remembered", ibercorreo_store::MAX_PICTURE_SENDERS)));
+                }
+                s.store.pictures_from.push(sender);
+                s.pictures_shown.insert(id);
+                s.status = "Pictures from this sender are downloaded from now on".into();
+            } else {
+                s.pictures_shown.remove(&id);
+                s.status = "Pictures from this sender are no longer downloaded".into();
+            }
+        }
+    }
+    Ok(json!({ "id": id.0, "sender": sender, "allowed": s.pictures_allowed(id) }))
 }
 
 fn view_plain_text(s: &mut Session, p: &Value) -> Result<Value> {

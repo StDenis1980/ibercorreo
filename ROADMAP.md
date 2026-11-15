@@ -6,7 +6,7 @@ Status: 2026-11-15 · M6.2c pictures inside HTML mail, two-step delete, Microsof
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 76 |
+| Commands in the registry | 77 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -398,3 +398,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-14 — M6.2b Open and Save on attachments in the reading pane.
 - 2026-11-15 — M6.2c Pictures inside HTML mail (`cid:`), deleting for good asks first, help for
   Microsoft's "Need admin approval".
+- 2026-11-15 — M6.2d Pictures on the web on request: for one message or always for its sender.

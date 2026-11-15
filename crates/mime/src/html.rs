@@ -229,7 +229,7 @@ impl Builder {
         {
             if last.link.is_some() {
                 // Not inside the link either: a run of its own.
-                self.spans.push(Span { text: " ".into(), link: None, image: false, cid: None, ..style.clone() });
+                self.spans.push(Span { text: " ".into(), link: None, image: false, cid: None, src: None, ..style.clone() });
             } else {
                 last.text.push(' ');
             }
@@ -473,8 +473,21 @@ impl Builder {
         self.space = false;
         let style = self.style();
         let cid = if src.starts_with("cid:") { tag.src.as_deref().and_then(ibercorreo_core::mail::content_id_key) } else { None };
-        self.push(text, Span { image: true, cid, ..style });
+        let src = if remote { tag.src.as_deref().and_then(picture_url) } else { None };
+        self.push(text, Span { image: true, cid, src, ..style });
     }
+}
+
+/// Tinta: the web address of a picture as it may be kept ([`Span::src`]): entities decoded,
+/// `//host` taken as `https:`, only `http:` and `https:`, no spaces or control characters, at most
+/// [`ibercorreo_core::rich::MAX_PICTURE_URL`] bytes.
+fn picture_url(raw: &str) -> Option<String> {
+    let url = decode_entities(raw.trim());
+    let url = if url.starts_with("//") { format!("https:{url}") } else { url.to_string() };
+    let lower = url.get(..8).unwrap_or("").to_ascii_lowercase();
+    let scheme = lower.starts_with("https://") || lower.starts_with("http://");
+    let clean = url.chars().all(|c| !c.is_control() && !c.is_whitespace());
+    (scheme && clean && url.len() <= ibercorreo_core::rich::MAX_PICTURE_URL && url.len() > 8).then_some(url)
 }
 
 /// Parse a start or end tag after `<` (and `/`): its name and attributes, and the bytes used up
