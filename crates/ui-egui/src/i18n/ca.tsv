@@ -419,3 +419,17 @@
 	Show as conversations	Mostra com a converses
 	Show as single messages	Mostra com a missatges solts
 	Conversations	Converses
+# Tinta: mail downloaded header first
+	Download whole messages	Baixa els missatges sencers
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	El correu més antic arriba només amb la capçalera, i el text es baixa quan l'obres. Per a comptes IMAP.
+	Only the header of this message was downloaded. Its text is on the server.	Només s'ha baixat la capçalera d'aquest missatge. El text és al servidor.
+	Downloading the message…	S'està baixant el missatge…
+	Download message	Baixa el missatge
+	All mail	Tot el correu
+	Last month	L'últim mes
+	Last 3 months	Els últims 3 mesos
+	Last 6 months	Els últims 6 mesos
+	Last year	L'últim any
+	Last 2 years	Els últims 2 anys
+	All mail is downloaded whole	Tot el correu es baixa sencer
+	Older mail is downloaded as its header, and its text when opened	El correu més antic es baixa amb la capçalera, i el text quan l'obres

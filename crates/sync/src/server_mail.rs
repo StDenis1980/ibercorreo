@@ -101,7 +101,7 @@ fn folder(s: &mut dyn MailServer, mailbox: &Mailbox, state: &State, limits: &Lim
         };
         let Some(uid) = next_uid else { return Err(Error::TooLarge { what: "the message numbers of the folder", limit: u32::MAX as usize }) };
         next_uid = uid.checked_add(1);
-        f.new.push(NewMessage { uid, flags: flags.to_vec(), raw, id: Some(Arc::from(*id)), arrived: *arrived });
+        f.new.push(NewMessage { uid, flags: flags.to_vec(), raw, id: Some(Arc::from(*id)), arrived: *arrived, partial: false });
     }
     if !newest.is_empty() {
         step(fetched, newest.len());

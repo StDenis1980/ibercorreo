@@ -420,3 +420,17 @@
 	Show as conversations	Zobrazit jako konverzace
 	Show as single messages	Zobrazit jako jednotlivé zprávy
 	Conversations	Konverzace
+# Tinta: mail downloaded header first
+	Download whole messages	Stahovat celé zprávy
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Starší pošta přichází jen se záhlavím a její text se stáhne při otevření. Pro účty IMAP.
+	Only the header of this message was downloaded. Its text is on the server.	U této zprávy bylo staženo jen záhlaví. Její text je na serveru.
+	Downloading the message…	Stahování zprávy…
+	Download message	Stáhnout zprávu
+	All mail	Veškerá pošta
+	Last month	Poslední měsíc
+	Last 3 months	Poslední 3 měsíce
+	Last 6 months	Posledních 6 měsíců
+	Last year	Poslední rok
+	Last 2 years	Poslední 2 roky
+	All mail is downloaded whole	Veškerá pošta se stahuje celá
+	Older mail is downloaded as its header, and its text when opened	Starší pošta se stahuje se záhlavím a text při otevření

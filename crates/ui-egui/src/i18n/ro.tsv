@@ -420,3 +420,17 @@
 	Show as conversations	Afișează ca conversații
 	Show as single messages	Afișează ca mesaje separate
 	Conversations	Conversații
+# Tinta: mail downloaded header first
+	Download whole messages	Descarcă mesajele întregi
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Corespondența mai veche vine doar cu antetul, iar textul se descarcă la deschidere. Pentru conturile IMAP.
+	Only the header of this message was downloaded. Its text is on the server.	S-a descărcat doar antetul acestui mesaj. Textul este pe server.
+	Downloading the message…	Se descarcă mesajul…
+	Download message	Descarcă mesajul
+	All mail	Toată corespondența
+	Last month	Ultima lună
+	Last 3 months	Ultimele 3 luni
+	Last 6 months	Ultimele 6 luni
+	Last year	Ultimul an
+	Last 2 years	Ultimii 2 ani
+	All mail is downloaded whole	Toată corespondența se descarcă întreagă
+	Older mail is downloaded as its header, and its text when opened	Corespondența mai veche se descarcă cu antetul, iar textul la deschidere

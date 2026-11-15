@@ -113,6 +113,9 @@ the write roots. An attachment not kept is a tool error that says so. It runs `m
 | `save_attachment` (`id`, `attachment`, `path?`) — only with `--automation-write-root` | `message.read`, then writes a new file | no |
 | `set_flag` (`id`, `flagged?`), `mark_read` (`id`, `read?`) | `message.flag`, `message.markRead` | no |
 | `get_conversation` (`id`) | `message.conversation` | yes |
+
+A message that came as its header only (Account settings › Download whole messages) is listed
+with `"partial": true` and has no text yet; `message.download` asks for it at the next sync.
 | `list_categories`, `categorize_message` (`id`, `category`, `on?`) | `category.list`, `message.categorize` | yes, no |
 | `archive_message` (`id`), `move_message` (`id`, `folder`) | `message.archive`, `message.move` | no |
 | `delete_message` (`id`) | `message.delete` (Trash; in Trash, for good) | no (destructive) |

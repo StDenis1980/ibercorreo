@@ -38,6 +38,9 @@ pub mod server_mail;
 #[cfg(test)]
 mod tests;
 
+/// Tinta: most texts of header-only messages fetched in one sync.
+pub const MAX_BODIES: usize = 50;
+
 /// How much one sync may do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -50,11 +53,14 @@ pub struct Limits {
     pub flag_batch: usize,
     /// The most mailboxes synced.
     pub folders: usize,
+    /// Tinta: mail that arrived before this day comes as its header only (over IMAP); its text is
+    /// downloaded when the person opens it ([`State::bodies`]). `None`: every message whole.
+    pub full_since: Option<ibercorreo_core::Date>,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { new_per_folder: 500, fetch_batch: 25, flag_batch: 1000, folders: 500 }
+        Limits { new_per_folder: 500, fetch_batch: 25, flag_batch: 1000, folders: 500, full_since: None }
     }
 }
 
@@ -93,6 +99,9 @@ pub struct Known {
 pub struct State {
     pub known: Vec<Known>,
     pub pushes: Vec<Push>,
+    /// Tinta: held messages that came as their header only and whose text is wanted now, by
+    /// mailbox and UID.
+    pub bodies: Vec<(String, u32)>,
 }
 
 /// Read what the store knows of `account`'s server and which local changes it has not seen.
@@ -133,7 +142,7 @@ pub fn state(store: &Store, account: AccountId) -> State {
             }
         }
     }
-    State { known: known.into_values().collect(), pushes }
+    State { known: known.into_values().collect(), pushes, bodies: Vec::new() }
 }
 
 /// A message seen for the first time.
@@ -147,6 +156,8 @@ pub struct NewMessage {
     /// Newer than everything held of the mailbox: mail that came in since the last sync, not
     /// older mail fetched later.
     pub arrived: bool,
+    /// Tinta: `raw` is the header only ([`Limits::full_since`]).
+    pub partial: bool,
 }
 
 /// What [`run`] found in one mailbox.
@@ -163,6 +174,8 @@ pub struct FolderSync {
     pub vanished: Vec<u32>,
     /// UIDs on the server not downloaded yet (past [`Limits::new_per_folder`]).
     pub remaining: usize,
+    /// Tinta: whole messages for held ones that had only their header ([`State::bodies`]).
+    pub bodies: Vec<(u32, Vec<u8>)>,
 }
 
 /// The output of [`run`], the input to [`apply`].
@@ -315,19 +328,42 @@ fn folder<S: Read + Write>(
     f.remaining = unseen.len().saturating_sub(take);
     let newest = unseen.get(unseen.len().saturating_sub(take)..).unwrap_or(&[]);
     let top = held.last().copied();
+    // Tinta: mail older than the window comes as its header only.
+    let recent: Option<BTreeSet<u32>> = match limits.full_since {
+        Some(d) if !newest.is_empty() => Some(client.uid_search_since(d.year(), u32::from(d.month()), u32::from(d.day()))?.into_iter().collect()),
+        _ => None,
+    };
     let mut fetched = 0usize;
     for chunk in newest.chunks(limits.fetch_batch.max(1)) {
         step(fetched, newest.len());
-        for item in client.uid_fetch(&uid_set(chunk)?, Items::Full)? {
-            if let (Some(uid), Some(raw)) = (item.uid, item.body) {
-                let arrived = top.is_none_or(|t| uid > t);
-                f.new.push(NewMessage { uid, flags: item.flags.unwrap_or_default(), raw, id: None, arrived });
+        let (whole, headers): (Vec<u32>, Vec<u32>) = chunk.iter().partition(|uid| recent.as_ref().is_none_or(|r| r.contains(uid)));
+        for (uids, items) in [(whole, Items::Full), (headers, Items::Headers)] {
+            if uids.is_empty() {
+                continue;
+            }
+            let partial = items == Items::Headers;
+            for item in client.uid_fetch(&uid_set(&uids)?, items)? {
+                let raw = if partial { item.header } else { item.body };
+                if let (Some(uid), Some(raw)) = (item.uid, raw) {
+                    let arrived = top.is_none_or(|t| uid > t);
+                    f.new.push(NewMessage { uid, flags: item.flags.unwrap_or_default(), raw, id: None, arrived, partial });
+                }
             }
         }
         fetched = fetched.saturating_add(chunk.len());
     }
     if !newest.is_empty() {
         step(fetched, newest.len());
+    }
+    // Tinta: the text of held messages the person opened.
+    let wanted: Vec<u32> =
+        state.bodies.iter().filter(|(path, uid)| *path == mailbox.raw && on_server.contains(uid)).map(|(_, uid)| *uid).take(MAX_BODIES).collect();
+    for chunk in wanted.chunks(limits.fetch_batch.max(1)) {
+        for item in client.uid_fetch(&uid_set(chunk)?, Items::Full)? {
+            if let (Some(uid), Some(raw)) = (item.uid, item.body) {
+                f.bodies.push((uid, raw));
+            }
+        }
     }
     Ok(f)
 }
@@ -497,6 +533,19 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             r.flagged = flagged;
             report.updated = report.updated.saturating_add(1);
         }
+        // Tinta: a header-only message gets its text.
+        for (uid, raw) in f.bodies {
+            let Some(id) = store.find_remote(folder, uid) else { continue };
+            match store.parse_mail(&raw, folder) {
+                Ok(full) => {
+                    if let Ok(m) = store.message_mut(id) {
+                        m.fill_from(full);
+                        report.updated = report.updated.saturating_add(1);
+                    }
+                }
+                Err(e) => report.errors.push(format!("{} UID {uid}: {e}", f.path)),
+            }
+        }
         for n in f.new {
             if store.find_remote(folder, n.uid).is_some() {
                 continue;
@@ -511,6 +560,7 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
             let (seen, flagged) = (has(&n.flags, "\\Seen"), has(&n.flags, "\\Flagged"));
             m.seen = seen;
             m.flagged = flagged;
+            m.partial = n.partial;
             m.remote = Some(RemoteRef { folder, uid: n.uid, seen, flagged, id: n.id });
             if let Ok(id) = store.add_message(m) {
                 report.added = report.added.saturating_add(1);

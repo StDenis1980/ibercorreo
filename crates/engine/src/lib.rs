@@ -108,6 +108,9 @@ pub struct Session {
     /// Tinta: messages whose pictures on the web the person asked to load in this session
     /// (`message.loadPictures`).
     pub pictures_shown: std::collections::HashSet<MessageId>,
+    /// Tinta: header-only messages whose text the person asked for (`message.download`), fetched
+    /// at the next Send/Receive.
+    pub bodies_wanted: std::collections::HashSet<MessageId>,
     /// The current time in UTC, set by the front end (the engine never reads the clock, so it runs
     /// the same in tests, scripts and wasm).
     now: DateTime,
@@ -140,6 +143,7 @@ impl Session {
             sync_requested: false,
             plain_text: false,
             pictures_shown: std::collections::HashSet::new(),
+            bodies_wanted: std::collections::HashSet::new(),
             now: DateTime::midnight(today),
             system_zone: Zone::utc(),
             zone: Zone::utc(),
@@ -327,7 +331,32 @@ impl Session {
     /// What a mail sync of `account` needs from the store: run [`ibercorreo_sync::run`] with it on
     /// a connection (off the interface thread), then give the result to [`Session::apply_sync`].
     pub fn sync_state(&self, account: AccountId) -> ibercorreo_sync::State {
-        ibercorreo_sync::state(&self.store, account)
+        let mut state = ibercorreo_sync::state(&self.store, account);
+        // Tinta: the text of header-only messages the person opened.
+        for id in &self.bodies_wanted {
+            let Ok(m) = self.store.message(*id) else { continue };
+            let Some(r) = m.remote.as_ref().filter(|_| m.partial) else { continue };
+            let Ok(folder) = self.store.folder(r.folder) else { continue };
+            if self.store.account_of(r.folder).ok() != Some(account) {
+                continue;
+            }
+            if let Some(remote) = &folder.remote {
+                state.bodies.push((remote.path.clone(), r.uid));
+            }
+        }
+        state
+    }
+
+    /// Tinta: the first day whose mail is downloaded whole; older mail comes as its header
+    /// (`account.fullMail`). `None`: all mail whole.
+    pub fn full_since(&self) -> Option<Date> {
+        let months = self.store.full_months.filter(|m| *m > 0)?;
+        self.today().add_months(-i32::try_from(months).ok()?).ok()
+    }
+
+    /// The limits of a sync: [`Self::full_since`] over the defaults.
+    pub fn sync_limits(&self) -> ibercorreo_sync::Limits {
+        ibercorreo_sync::Limits { full_since: self.full_since(), ..ibercorreo_sync::Limits::default() }
     }
 
     /// Fold `account`'s sync result into the store. Undo history is cleared: stepping back past a
@@ -335,6 +364,8 @@ impl Session {
     /// this; `docs/gaps.md`.)
     pub fn apply_sync(&mut self, account: AccountId, batch: ibercorreo_sync::Batch) -> ibercorreo_sync::Report {
         let report = ibercorreo_sync::apply(&mut self.store, account, batch);
+        let store = &self.store;
+        self.bodies_wanted.retain(|id| store.message(*id).is_ok_and(|m| m.partial));
         let rules = self.store.run_rules(&report.arrived, None);
         self.undo.clear();
         self.redo.clear();

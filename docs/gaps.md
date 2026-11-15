@@ -172,6 +172,15 @@ Status: 2026-11-15 · Pick from the top.
     `Message-ID`/`References` (headers not kept yet), the account's Sent mail shown inside a
     folder's conversations, a reading pane that shows the whole conversation, and actions on a
     whole conversation (delete, move, categorize).
+20. **Mail header first (M6.2h).** Account settings › Download whole messages
+    (`account.fullMail`, 0–120 months; 0, the default, downloads all mail whole): over IMAP,
+    mail that arrived before then comes as its header (`BODY.PEEK[HEADER]`, so From, To, the
+    subject, the date and the flags are there and search finds them), and its text and
+    attachments when it is opened (`message.download`, which starts a Send/Receive; on its own
+    the first time the message is opened). Missing: the same for Exchange (EWS) and Microsoft Graph accounts,
+    which still download every message whole; a size limit (Outlook's "download only headers
+    for messages over N KB"); dropping the text of old mail already downloaded to free space;
+    and search inside the text of mail not downloaded (the server's `SEARCH BODY`).
 
 ## Revision history
 - 2026-10-22 — created with M0.

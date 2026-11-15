@@ -30,6 +30,8 @@ pub enum Items {
     Summary,
     /// The summary plus the whole message, without marking it read (`BODY.PEEK[]`).
     Full,
+    /// Tinta: the summary plus the message's header only (`BODY.PEEK[HEADER]`).
+    Headers,
 }
 
 impl Items {
@@ -37,6 +39,7 @@ impl Items {
         match self {
             Items::Summary => "(UID FLAGS RFC822.SIZE INTERNALDATE)",
             Items::Full => "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[])",
+            Items::Headers => "(UID FLAGS RFC822.SIZE INTERNALDATE BODY.PEEK[HEADER])",
         }
     }
 }
@@ -408,6 +411,29 @@ impl<S: Read + Write> Client<S> {
     /// `UID SEARCH UID <set>`: the UIDs in `set` that exist (`1:*` for all).
     pub fn uid_search(&mut self, set: &str) -> Result<Vec<u32>> {
         let done = self.run(&Command::new("UID SEARCH UID").raw(check_set(set)?))?;
+        let mut uids: Vec<u32> = done
+            .untagged
+            .into_iter()
+            .flat_map(|u| match u {
+                Untagged::Search(ids) => ids,
+                _ => Vec::new(),
+            })
+            .collect();
+        uids.sort_unstable();
+        uids.dedup();
+        Ok(uids)
+    }
+
+    /// Tinta: `UID SEARCH SINCE <date>`: the UIDs of messages that arrived on that day or later
+    /// (by the server's internal date). `month` is 1 to 12; anything else is an error.
+    pub fn uid_search_since(&mut self, year: i32, month: u32, day: u32) -> Result<Vec<u32>> {
+        const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let name =
+            month.checked_sub(1).and_then(|m| MONTHS.get(usize::try_from(m).ok()?)).ok_or_else(|| Error::Protocol(format!("no month {month}")))?;
+        if !(1..=31).contains(&day) || !(1..=9999).contains(&year) {
+            return Err(Error::Protocol(format!("no date {year}-{month}-{day}")));
+        }
+        let done = self.run(&Command::new("UID SEARCH SINCE").raw(&format!("{day}-{name}-{year}")))?;
         let mut uids: Vec<u32> = done
             .untagged
             .into_iter()

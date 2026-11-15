@@ -421,3 +421,17 @@
 	Show as conversations	Als Unterhaltungen anzeigen
 	Show as single messages	Als einzelne Nachrichten anzeigen
 	Conversations	Unterhaltungen
+# Tinta: mail downloaded header first
+	Download whole messages	Nachrichten vollständig herunterladen
+	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Ältere Mails kommen nur mit ihrem Kopf, ihr Text wird beim Öffnen heruntergeladen. Für IMAP-Konten.
+	Only the header of this message was downloaded. Its text is on the server.	Von dieser Nachricht wurde nur der Kopf heruntergeladen. Ihr Text liegt auf dem Server.
+	Downloading the message…	Nachricht wird heruntergeladen…
+	Download message	Nachricht herunterladen
+	All mail	Alle Mails
+	Last month	Letzter Monat
+	Last 3 months	Letzte 3 Monate
+	Last 6 months	Letzte 6 Monate
+	Last year	Letztes Jahr
+	Last 2 years	Letzte 2 Jahre
+	All mail is downloaded whole	Alle Mails werden vollständig heruntergeladen
+	Older mail is downloaded as its header, and its text when opened	Ältere Mails kommen mit ihrem Kopf, ihr Text beim Öffnen
