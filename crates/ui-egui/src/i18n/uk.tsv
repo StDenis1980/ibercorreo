@@ -417,7 +417,7 @@
 	Conversations	Розмови
 # Tinta: mail downloaded header first
 	Download whole messages	Завантажувати листи повністю
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Старіші листи приходять лише із заголовком, а текст завантажується, коли ви їх відкриваєте. Для облікових записів IMAP.
+	Older mail comes as its header, and its text is downloaded when you open it.	Старіші листи приходять лише із заголовком, а текст завантажується, коли ви їх відкриваєте.
 	Only the header of this message was downloaded. Its text is on the server.	Цей лист завантажено лише із заголовком. Його текст на сервері.
 	Downloading the message…	Завантаження листа…
 	Download message	Завантажити лист

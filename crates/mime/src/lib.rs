@@ -256,6 +256,47 @@ fn encode_word(v: &str) -> String {
     words.join("\r\n ")
 }
 
+/// Tinta: what a server that is not IMAP (Exchange, Microsoft Graph) tells of a message without
+/// its MIME text, for mail downloaded header first.
+#[derive(Clone, Debug, Default)]
+pub struct Envelope {
+    pub from: Option<Address>,
+    pub to: Vec<Address>,
+    pub cc: Vec<Address>,
+    pub subject: String,
+    /// When it was sent, UTC.
+    pub date: Option<DateTime>,
+    /// `<id@host>`; one that is not plain ASCII is left out.
+    pub message_id: Option<String>,
+}
+
+/// The header of a message from its [`Envelope`], as RFC 5322 text that ends with the empty
+/// line, so it parses like an IMAP `BODY[HEADER]`.
+pub fn envelope_header(e: &Envelope) -> Vec<u8> {
+    let mut s = String::new();
+    if let Some(from) = &e.from {
+        header(&mut s, "From", &address_list(std::slice::from_ref(from)));
+    }
+    if !e.to.is_empty() {
+        header(&mut s, "To", &address_list(&e.to));
+    }
+    if !e.cc.is_empty() {
+        header(&mut s, "Cc", &address_list(&e.cc));
+    }
+    let subject = single_line(clamp_text(&e.subject, MAX_FIELD_LEN));
+    if !subject.trim().is_empty() {
+        header(&mut s, "Subject", &encode_word(&subject));
+    }
+    if let Some(date) = e.date {
+        header(&mut s, "Date", &archive::date_header(date));
+    }
+    if let Some(id) = e.message_id.as_deref().map(str::trim).filter(|id| id.len() <= 998 && id.bytes().all(|b| b.is_ascii_graphic())) {
+        header(&mut s, "Message-ID", id);
+    }
+    s.push_str("\r\n");
+    s.into_bytes()
+}
+
 /// Standard base64 (RFC 4648 §4) on one line, with padding.
 pub fn base64(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -530,5 +571,25 @@ Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: 
         );
         assert_eq!(calendar_method("METHOD:cancel\r\n"), "CANCEL");
         assert_eq!(calendar_method("METHOD:a;b\r\n"), "REQUEST");
+    }
+
+    #[test]
+    fn an_envelope_becomes_a_header_that_parses_back() {
+        let e = Envelope {
+            from: Some(Address::new(Some("Марта"), "marta@example.org").unwrap()),
+            to: vec![Address::new(None, "you@example.org").unwrap()],
+            cc: Vec::new(),
+            subject: "Presupuesto\r\nBcc: evil@example.org ✓".into(),
+            date: DateTime::parse("2025-03-11T09:19:00").ok().map(|(d, _)| d),
+            message_id: Some("<bad id>".into()),
+        };
+        let raw = envelope_header(&e);
+        let text = String::from_utf8(raw.clone()).unwrap();
+        assert!(text.ends_with("\r\n\r\n") && !text.contains("Bcc:") && !text.contains("Message-ID"), "{text}");
+        let m = parse(&raw, MessageId(1), FolderId(0)).unwrap();
+        assert_eq!(m.subject, "Presupuesto  Bcc: evil@example.org ✓");
+        assert_eq!(m.from.as_ref().and_then(|a| a.name.as_deref()), Some("Марта"));
+        assert_eq!(m.date.map(|d| d.to_string()).as_deref(), Some("2025-03-11T09:19"));
+        assert!(m.preview(40).is_empty());
     }
 }

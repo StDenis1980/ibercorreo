@@ -421,7 +421,7 @@
 	Conversations	Converses
 # Tinta: mail downloaded header first
 	Download whole messages	Baixa els missatges sencers
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	El correu més antic arriba només amb la capçalera, i el text es baixa quan l'obres. Per a comptes IMAP.
+	Older mail comes as its header, and its text is downloaded when you open it.	El correu més antic arriba només amb la capçalera, i el text es baixa quan l'obres.
 	Only the header of this message was downloaded. Its text is on the server.	Només s'ha baixat la capçalera d'aquest missatge. El text és al servidor.
 	Downloading the message…	S'està baixant el missatge…
 	Download message	Baixa el missatge

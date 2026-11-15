@@ -12,7 +12,7 @@ use crate::i18n::tl;
 use crate::theme::Tokens;
 
 pub(crate) const SECTION: &str = "Download whole messages";
-pub(crate) const HOVER: &str = "Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.";
+pub(crate) const HOVER: &str = "Older mail comes as its header, and its text is downloaded when you open it.";
 pub(crate) const NOTE: &str = "Only the header of this message was downloaded. Its text is on the server.";
 pub(crate) const COMING: &str = "Downloading the message…";
 pub(crate) const DOWNLOAD: &str = "Download message";

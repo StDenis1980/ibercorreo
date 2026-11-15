@@ -10,20 +10,35 @@
 //!   and downloads the new ones as MIME text, the newest [`Limits::new_per_folder`] first, as
 //!   over IMAP.
 //! - Changes made here go back as the server's own calls ([`MailServer`]).
+//! - Tinta: mail that arrived before [`Limits::full_since`] comes as its header, built from what
+//!   the server tells of it ([`MailServer::header`]), and its MIME text when it is asked for
+//!   ([`State::bodies`]), as over IMAP.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use ibercorreo_core::DateTime;
 use ibercorreo_dav::{Error, Result};
 use ibercorreo_imap::Mailbox;
 
 use crate::outbox::{Outcome, Outgoing, Sent};
-use crate::{Batch, FolderSync, Limits, NewMessage, Progress, Push, State};
+use crate::{Batch, FolderSync, Limits, MAX_BODIES, NewMessage, Progress, Push, State};
 
 /// The `UIDVALIDITY` kept for such a folder: the numbers are this app's, they never change.
 pub const UID_VALIDITY: u32 = 1;
 /// Most messages listed in one folder.
 pub const MAX_MESSAGES: usize = 500_000;
+
+/// A message as a folder's list names it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Listed {
+    /// The server's id.
+    pub id: String,
+    /// Its flags as IMAP spells them (`\Seen`, `\Flagged`).
+    pub flags: Vec<String>,
+    /// When it arrived, UTC, when the server says.
+    pub received: Option<DateTime>,
+}
 
 /// What a server does for the mail sync. Ids are the server's own; "gone" is `Status` 404.
 pub trait MailServer {
@@ -31,11 +46,12 @@ pub trait MailServer {
     fn name(&self) -> &'static str;
     /// The mail folders, the standard ones marked, at most `max`.
     fn folders(&mut self, max: usize) -> Result<Vec<Mailbox>>;
-    /// The messages of `folder`, newest first: each id and its flags as IMAP spells them
-    /// (`\Seen`, `\Flagged`).
-    fn list(&mut self, folder: &str) -> Result<Vec<(String, Vec<String>)>>;
+    /// The messages of `folder`, newest first.
+    fn list(&mut self, folder: &str) -> Result<Vec<Listed>>;
     /// A message as MIME text.
     fn fetch(&mut self, id: &str) -> Result<Vec<u8>>;
+    /// Tinta: a message's header only, as RFC 5322 text ([`ibercorreo_mime::envelope_header`]).
+    fn header(&mut self, id: &str) -> Result<Vec<u8>>;
     fn set_flags(&mut self, id: &str, seen: bool, flagged: bool) -> Result<()>;
     fn move_to(&mut self, id: &str, folder: &str) -> Result<()>;
     /// Delete for good.
@@ -70,18 +86,18 @@ fn folder(s: &mut dyn MailServer, mailbox: &Mailbox, state: &State, limits: &Lim
     let mut f = FolderSync { path: mailbox.raw.clone(), uid_validity: UID_VALIDITY, reset, ..FolderSync::default() };
     let mut on_server = BTreeSet::new();
     // Not held yet, newest first, and whether each is newer than everything held.
-    let mut unseen: Vec<(&str, &[String], bool)> = Vec::new();
+    let mut unseen: Vec<(&Listed, bool)> = Vec::new();
     let mut past_held = false;
-    for (id, flags) in &list {
-        if !on_server.insert(id.as_str()) {
+    for l in &list {
+        if !on_server.insert(l.id.as_str()) {
             continue;
         }
-        match held.get(id.as_str()) {
+        match held.get(l.id.as_str()) {
             Some(uid) => {
                 past_held = true;
-                f.flags.push((*uid, flags.clone()));
+                f.flags.push((*uid, l.flags.clone()));
             }
-            None => unseen.push((id, flags, !past_held)),
+            None => unseen.push((l, !past_held)),
         }
     }
     f.vanished = held.iter().filter(|(id, _)| !on_server.contains(*id)).map(|(_, uid)| *uid).collect();
@@ -90,10 +106,12 @@ fn folder(s: &mut dyn MailServer, mailbox: &Mailbox, state: &State, limits: &Lim
     let newest = unseen.get(..take).unwrap_or(&[]);
     // Oldest first, so the numbers grow with the mail as IMAP UIDs do.
     let mut fetched = 0usize;
-    for (id, flags, arrived) in newest.iter().rev() {
+    for (l, arrived) in newest.iter().rev() {
         step(fetched, newest.len());
         fetched = fetched.saturating_add(1);
-        let raw = match s.fetch(id) {
+        // Tinta: older than the window, its header only. One without a time comes whole.
+        let partial = limits.full_since.is_some_and(|d| l.received.is_some_and(|r| r.date < d));
+        let raw = match if partial { s.header(&l.id) } else { s.fetch(&l.id) } {
             Ok(raw) => raw,
             // Deleted or moved since the list: it shows up where it went at the next sync.
             Err(e) if gone(&e) => continue,
@@ -101,10 +119,20 @@ fn folder(s: &mut dyn MailServer, mailbox: &Mailbox, state: &State, limits: &Lim
         };
         let Some(uid) = next_uid else { return Err(Error::TooLarge { what: "the message numbers of the folder", limit: u32::MAX as usize }) };
         next_uid = uid.checked_add(1);
-        f.new.push(NewMessage { uid, flags: flags.to_vec(), raw, id: Some(Arc::from(*id)), arrived: *arrived, partial: false });
+        f.new.push(NewMessage { uid, flags: l.flags.clone(), raw, id: Some(Arc::from(l.id.as_str())), arrived: *arrived, partial });
     }
     if !newest.is_empty() {
         step(fetched, newest.len());
+    }
+    // Tinta: the text of held messages the person opened.
+    let ids: BTreeMap<u32, &str> = held.iter().map(|(id, uid)| (*uid, *id)).collect();
+    let wanted = state.bodies.iter().filter(|(path, _)| *path == mailbox.raw).filter_map(|(_, uid)| Some((*uid, *ids.get(uid)?)));
+    for (uid, id) in wanted.filter(|(_, id)| on_server.contains(id)).take(MAX_BODIES) {
+        match s.fetch(id) {
+            Ok(raw) => f.bodies.push((uid, raw)),
+            Err(e) if gone(&e) => {}
+            Err(e) => return Err(e),
+        }
     }
     Ok(f)
 }

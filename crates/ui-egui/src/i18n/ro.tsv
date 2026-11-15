@@ -422,7 +422,7 @@
 	Conversations	Conversații
 # Tinta: mail downloaded header first
 	Download whole messages	Descarcă mesajele întregi
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Corespondența mai veche vine doar cu antetul, iar textul se descarcă la deschidere. Pentru conturile IMAP.
+	Older mail comes as its header, and its text is downloaded when you open it.	Corespondența mai veche vine doar cu antetul, iar textul se descarcă la deschidere.
 	Only the header of this message was downloaded. Its text is on the server.	S-a descărcat doar antetul acestui mesaj. Textul este pe server.
 	Downloading the message…	Se descarcă mesajul…
 	Download message	Descarcă mesajul

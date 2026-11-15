@@ -422,7 +422,7 @@
 	Conversations	Konverzace
 # Tinta: mail downloaded header first
 	Download whole messages	Stahovat celé zprávy
-	Older mail comes as its header, and its text is downloaded when you open it. For IMAP accounts.	Starší pošta přichází jen se záhlavím a její text se stáhne při otevření. Pro účty IMAP.
+	Older mail comes as its header, and its text is downloaded when you open it.	Starší pošta přichází jen se záhlavím a její text se stáhne při otevření.
 	Only the header of this message was downloaded. Its text is on the server.	U této zprávy bylo staženo jen záhlaví. Její text je na serveru.
 	Downloading the message…	Stahování zprávy…
 	Download message	Stáhnout zprávu

@@ -145,6 +145,14 @@ impl Exchange {
             "GetItem" => {
                 let id = ids(body, "ItemId").first().copied().unwrap_or("");
                 match self.items.iter().find(|i| i.id == id && !self.vanished.contains(&id)) {
+                    // Tinta: without its MIME text, the properties of a header.
+                    Some(i) if !body.contains("IncludeMimeContent>true") => ok(
+                        "GetItem",
+                        &format!(
+                            r#"<m:Items><t:Message><t:ItemId Id="{id}" ChangeKey="k"/><t:Subject>subject {id}</t:Subject><t:DateTimeSent>2025-03-11T09:19:00Z</t:DateTimeSent><t:DateTimeReceived>{}</t:DateTimeReceived><t:ToRecipients><t:Mailbox><t:Name>Tú</t:Name><t:EmailAddress>you@contoso.es</t:EmailAddress></t:Mailbox></t:ToRecipients><t:From><t:Mailbox><t:Name>Marta Ruiz</t:Name><t:EmailAddress>marta@contoso.es</t:EmailAddress><t:RoutingType>SMTP</t:RoutingType></t:Mailbox></t:From><t:InternetMessageId>&lt;{id}@contoso.es&gt;</t:InternetMessageId></t:Message></m:Items>"#,
+                            i.received
+                        ),
+                    ),
                     Some(i) => ok(
                         "GetItem",
                         &format!(
@@ -403,4 +411,34 @@ fn marking_unread_and_flagged_goes_back_as_set_fields() {
     // One the server no longer has is "gone", as over Graph.
     let r = EwsMail(&mut e).delete("nope");
     assert!(matches!(r, Err(Error::Status { status: 404, .. })), "{r:?}");
+}
+
+#[test]
+fn old_mail_comes_as_its_header_and_its_text_on_request() {
+    let mut store = Store::new();
+    let limits = Limits { full_since: Some(ibercorreo_core::Date::new(2026, 6, 1).unwrap()), ..Limits::default() };
+    let exchange =
+        || Exchange::default().with("new", "IN", false, false, "2026-10-22T08:00:00Z").with("old", "IN", false, false, "2025-03-11T09:20:00Z");
+    let mut e = ews(exchange());
+    let batch = run(&mut e, &state(&store, A), &limits).unwrap();
+    assert!(batch.errors.is_empty(), "{:?}", batch.errors);
+    let reads = e.http().asked("GetItem");
+    assert_eq!(reads.iter().filter(|b| b.contains("IncludeMimeContent>true")).count(), 1, "only the new one's text");
+    apply(&mut store, A, batch);
+    let old = store.message(find(&store, "subject old")).unwrap().clone();
+    assert!(old.partial && !store.message(find(&store, "subject new")).unwrap().partial);
+    assert_eq!(old.from.as_ref().map(|a| (a.name.as_deref(), a.email.as_str())), Some((Some("Marta Ruiz"), "marta@contoso.es")));
+    assert_eq!(old.to.first().and_then(|a| a.name.as_deref()), Some("Tú"), "names in any script");
+    assert_eq!(old.date.map(|d| d.to_string()).as_deref(), Some("2025-03-11T09:19"), "the time it was sent");
+
+    // Opened: its text comes at the next sync.
+    let mut s = state(&store, A);
+    s.bodies.push(("IN".into(), old.remote.as_ref().unwrap().uid));
+    let mut e = ews(exchange());
+    let batch = run(&mut e, &s, &limits).unwrap();
+    assert_eq!(batch.folders.iter().find(|f| f.path == "IN").unwrap().bodies.len(), 1);
+    apply(&mut store, A, batch);
+    let old = store.message(old.id).unwrap();
+    assert!(!old.partial);
+    assert!(old.preview(40).contains("body of old"), "{:?}", old.preview(40));
 }

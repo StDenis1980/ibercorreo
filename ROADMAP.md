@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-15 · M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
+Status: 2026-11-15 · M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -399,6 +399,8 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-15 — M6.2c Pictures inside HTML mail (`cid:`), deleting for good asks first, help for
   Microsoft's "Need admin approval".
 - 2026-11-15 — M6.2d Pictures on the web on request: for one message or always for its sender.
+- 2026-11-15 — M6.2i Header first over Exchange (EWS) and Microsoft Graph too: the header is
+  built from the message's fields, its MIME text read when it is opened.
 - 2026-11-15 — M6.2h Mail header first: over IMAP, mail older than the months chosen in
   Account settings comes as its header, and its text when it is opened (`account.fullMail`,
   `message.download`).

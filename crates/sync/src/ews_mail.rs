@@ -7,12 +7,15 @@
 //!   `sentitems`…) and Exchange's own Outbox is left out, the app has one.
 //! - Messages are listed with `FindItem` (ids, read state, flag, time received) page by page and
 //!   put newest first; each new one is read as MIME with `GetItem`.
+//! - Tinta: mail downloaded header first gets a header built from the item's properties
+//!   (`From`, `ToRecipients`, `Subject`, `DateTimeSent`…).
 //! - Changes made here go back as `UpdateItem` (read, flag), `MoveItem` and `DeleteItem`
 //!   (`HardDelete`). EWS gives a moved message a new id: it is downloaded again where it went,
 //!   as over IMAP.
 
 use std::collections::BTreeMap;
 
+use ibercorreo_core::{Address, DateTime};
 use ibercorreo_dav::caldav::Http;
 use ibercorreo_dav::ews::Ews;
 use ibercorreo_dav::{Error, Result};
@@ -32,7 +35,7 @@ use ews::{
 };
 
 use crate::outbox::{Outgoing, Sent};
-use crate::server_mail::{MAX_MESSAGES, MailServer, fatal};
+use crate::server_mail::{Listed, MAX_MESSAGES, MailServer, fatal};
 use crate::{Batch, Limits, Progress, State};
 
 /// How deep folders inside folders are named.
@@ -66,6 +69,34 @@ fn flag_status() -> ExtendedFieldURI {
         property_id: None,
         property_type: Some(PropertyType::Integer),
     }
+}
+
+/// Most recipients put in a header built from an item's properties.
+const MAX_RECIPIENTS: usize = 500;
+
+/// An EWS time as UTC.
+fn utc(t: &ews::DateTime) -> Option<DateTime> {
+    DateTime::from_unix(t.0.unix_timestamp()).ok()
+}
+
+fn address(r: &ews::Recipient) -> Option<Address> {
+    Address::new(r.mailbox.name.as_deref(), r.mailbox.email_address.as_deref()?).ok()
+}
+
+fn addresses(list: Option<&ews::ArrayOfRecipients>) -> Vec<Address> {
+    list.map(|l| l.iter().take(MAX_RECIPIENTS).filter_map(address).collect()).unwrap_or_default()
+}
+
+/// The header of a message from its EWS properties.
+pub(crate) fn header(m: &Message) -> Vec<u8> {
+    ibercorreo_mime::envelope_header(&ibercorreo_mime::Envelope {
+        from: m.from.as_ref().or(m.sender.as_ref()).and_then(address),
+        to: addresses(m.to_recipients.as_ref()),
+        cc: addresses(m.cc_recipients.as_ref()),
+        subject: m.subject.clone().unwrap_or_default(),
+        date: m.date_time_sent.as_ref().or(m.date_time_received.as_ref()).and_then(utc),
+        message_id: m.internet_message_id.clone(),
+    })
 }
 
 fn item_id(id: &str) -> BaseItemId {
@@ -199,7 +230,7 @@ impl<H: Http> MailServer for EwsMail<'_, H> {
         Ok(out)
     }
 
-    fn list(&mut self, folder: &str) -> Result<Vec<(String, Vec<String>)>> {
+    fn list(&mut self, folder: &str) -> Result<Vec<Listed>> {
         let mut items = Vec::new();
         let mut offset = 0usize;
         loop {
@@ -224,7 +255,8 @@ impl<H: Http> MailServer for EwsMail<'_, H> {
                 if m.flag.and_then(|f| f.flag_status) == Some(FlagStatus::Flagged) {
                     flags.push("\\Flagged".to_string());
                 }
-                items.push((m.date_time_received.map(|d| d.0), id, flags));
+                let received = m.date_time_received.as_ref().and_then(utc);
+                items.push((m.date_time_received.map(|d| d.0), Listed { id, flags, received }));
             }
             if items.len() > MAX_MESSAGES {
                 return Err(Error::TooLarge { what: "the folder", limit: MAX_MESSAGES });
@@ -241,7 +273,7 @@ impl<H: Http> MailServer for EwsMail<'_, H> {
         }
         // Newest first; an item without a time last.
         items.sort_by_key(|i| std::cmp::Reverse(i.0));
-        Ok(items.into_iter().map(|(_, id, flags)| (id, flags)).collect())
+        Ok(items.into_iter().map(|(_, l)| l).collect())
     }
 
     fn fetch(&mut self, id: &str) -> Result<Vec<u8>> {
@@ -252,6 +284,29 @@ impl<H: Http> MailServer for EwsMail<'_, H> {
         let item = self.0.call(op)?.into_iter().next().and_then(|m| m.items.inner.into_iter().next()).and_then(message);
         let mime = item.and_then(|m| m.mime_content).ok_or_else(|| Error::Protocol("Exchange sent the message without its MIME content".into()))?;
         ibercorreo_mime::unbase64(&mime.content).ok_or_else(|| Error::Protocol("Exchange sent MIME content that is not base64".into()))
+    }
+
+    fn header(&mut self, id: &str) -> Result<Vec<u8>> {
+        let fields = [
+            "item:Subject",
+            "message:From",
+            "message:Sender",
+            "message:ToRecipients",
+            "message:CcRecipients",
+            "item:DateTimeSent",
+            "item:DateTimeReceived",
+            "message:InternetMessageId",
+        ];
+        let op = GetItem {
+            item_shape: ItemShape {
+                base_shape: BaseShape::IdOnly,
+                include_mime_content: None,
+                additional_properties: Some(fields.into_iter().map(field).collect()),
+            },
+            item_ids: vec![item_id(id)],
+        };
+        let item = self.0.call(op)?.into_iter().next().and_then(|m| m.items.inner.into_iter().next()).and_then(message);
+        item.map(|m| header(&m)).ok_or_else(|| Error::Protocol("Exchange sent no properties for the message".into()))
     }
 
     fn set_flags(&mut self, id: &str, seen: bool, flagged: bool) -> Result<()> {

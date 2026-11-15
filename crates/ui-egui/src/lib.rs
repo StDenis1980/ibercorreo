@@ -1193,7 +1193,7 @@ impl App {
                 });
             }
 
-            if !other_server {
+            {
                 section(ui, &t, partial_ui::SECTION, Some(partial_ui::HOVER), false);
                 form_row(ui, &t, "", None, |ui| {
                     full_chosen = partial_ui::choice(ui, full_now);

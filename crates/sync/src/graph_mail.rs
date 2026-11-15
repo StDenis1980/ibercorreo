@@ -6,10 +6,13 @@
 //!   Exchange's own Outbox is left out, the app has one.
 //! - Ids are asked for as immutable ones, so they stay the same when Outlook files a message.
 //! - Messages are listed by `receivedDateTime`, newest first, and read as MIME (`…/$value`).
+//! - Tinta: mail downloaded header first gets a header built from the message's fields
+//!   (`from`, `toRecipients`, `subject`, `sentDateTime`…).
 //! - Changes made here go back as `PATCH` (read, flagged), `move` and `permanentDelete`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use ibercorreo_core::{Address, DateTime};
 use ibercorreo_dav::caldav::Http;
 use ibercorreo_dav::graph::Graph;
 use ibercorreo_dav::{Error, Result};
@@ -18,7 +21,7 @@ use serde_json::{Value, json};
 
 use crate::graph_calendar::{segment, text};
 use crate::outbox::{Outgoing, Sent};
-use crate::server_mail::{MailServer, fatal};
+use crate::server_mail::{Listed, MailServer, fatal};
 use crate::{Batch, Limits, Progress, State};
 
 pub use crate::server_mail::{MAX_MESSAGES, UID_VALIDITY, with_bcc};
@@ -42,7 +45,7 @@ const WELL_KNOWN: [(&str, &str); 7] = [
     ("outbox", OUTBOX),
 ];
 const FOLDER_FIELDS: &str = "$select=id,displayName,childFolderCount&$top=100";
-const MESSAGE_FIELDS: &str = "$select=id,isRead,flag&$orderby=receivedDateTime%20desc&$top=500";
+const MESSAGE_FIELDS: &str = "$select=id,isRead,flag,receivedDateTime&$orderby=receivedDateTime%20desc&$top=500";
 
 /// The account's mail folders, the standard ones marked with their special-use attribute, at
 /// most `max`.
@@ -90,8 +93,42 @@ pub fn folders<H: Http>(g: &mut Graph<H>, max: usize) -> Result<Vec<Mailbox>> {
     Ok(out)
 }
 
-/// A listed message's id and its flags as IMAP spells them.
-fn listed(v: &Value) -> Option<(String, Vec<String>)> {
+/// The fields read for a message's header.
+const HEADER_FIELDS: &str = "$select=subject,from,toRecipients,ccRecipients,sentDateTime,receivedDateTime,internetMessageId";
+/// Most recipients put in a header built from Graph's fields.
+const MAX_RECIPIENTS: usize = 500;
+
+/// A Graph UTC time (`2026-11-02T09:00:00Z`, with or without a fraction).
+fn utc(v: &Value, key: &str) -> Option<DateTime> {
+    let s = text(v, key)?.trim_end_matches('Z');
+    let s = s.split('.').next().unwrap_or(s);
+    DateTime::parse(s).ok().map(|(t, _)| t)
+}
+
+/// A Graph `recipient` (`{"emailAddress": {"name", "address"}}`); `None` without a usable address.
+fn recipient(v: &Value) -> Option<Address> {
+    let a = v.get("emailAddress")?;
+    Address::new(text(a, "name"), text(a, "address")?).ok()
+}
+
+fn recipients(v: &Value, key: &str) -> Vec<Address> {
+    v.get(key).and_then(Value::as_array).map(|list| list.iter().take(MAX_RECIPIENTS).filter_map(recipient).collect()).unwrap_or_default()
+}
+
+/// The header of a message from its Graph fields.
+pub(crate) fn header(v: &Value) -> Vec<u8> {
+    ibercorreo_mime::envelope_header(&ibercorreo_mime::Envelope {
+        from: v.get("from").and_then(recipient),
+        to: recipients(v, "toRecipients"),
+        cc: recipients(v, "ccRecipients"),
+        subject: text(v, "subject").unwrap_or_default().to_string(),
+        date: utc(v, "sentDateTime").or_else(|| utc(v, "receivedDateTime")),
+        message_id: text(v, "internetMessageId").map(str::to_string),
+    })
+}
+
+/// A listed message's id, its flags as IMAP spells them and when it arrived.
+fn listed(v: &Value) -> Option<Listed> {
     let id = text(v, "id")?;
     let mut flags = Vec::new();
     if v.get("isRead").and_then(Value::as_bool) == Some(true) {
@@ -100,7 +137,7 @@ fn listed(v: &Value) -> Option<(String, Vec<String>)> {
     if v.get("flag").and_then(|f| f.get("flagStatus")).and_then(Value::as_str) == Some("flagged") {
         flags.push("\\Flagged".to_string());
     }
-    Some((id.to_string(), flags))
+    Some(Listed { id: id.to_string(), flags, received: utc(v, "receivedDateTime") })
 }
 
 /// A Graph connection as a [`MailServer`].
@@ -115,13 +152,18 @@ impl<H: Http> MailServer for GraphMail<'_, H> {
         folders(self.0, max)
     }
 
-    fn list(&mut self, folder: &str) -> Result<Vec<(String, Vec<String>)>> {
+    fn list(&mut self, folder: &str) -> Result<Vec<Listed>> {
         let list = self.0.list(&format!("me/mailFolders/{}/messages?{MESSAGE_FIELDS}", segment(folder)), &[IMMUTABLE_IDS], MAX_MESSAGES)?;
         Ok(list.items.iter().filter_map(listed).collect())
     }
 
     fn fetch(&mut self, id: &str) -> Result<Vec<u8>> {
         self.0.raw("GET", &format!("me/messages/{}/$value", segment(id)), &[IMMUTABLE_IDS], b"", "")
+    }
+
+    fn header(&mut self, id: &str) -> Result<Vec<u8>> {
+        let v = self.0.call("GET", &format!("me/messages/{}?{HEADER_FIELDS}", segment(id)), &[IMMUTABLE_IDS], None)?;
+        v.map(|v| header(&v)).ok_or_else(|| Error::Protocol("Microsoft Graph sent no fields for the message".into()))
     }
 
     fn set_flags(&mut self, id: &str, seen: bool, flagged: bool) -> Result<()> {
