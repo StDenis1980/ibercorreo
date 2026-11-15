@@ -24,7 +24,7 @@ fn span(text: &str) -> Span {
 }
 
 fn block(kind: BlockKind, quote: u8, spans: Vec<Span>) -> Block {
-    Block { kind, quote, spans }
+    Block { kind, quote, spans, cell: None }
 }
 
 #[test]

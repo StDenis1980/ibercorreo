@@ -229,6 +229,6 @@ mod tests {
     fn ibercorreo_mime_free_rich(cids: &[&str]) -> Rich {
         use ibercorreo_core::rich::{Block, BlockKind, Span};
         let spans = cids.iter().map(|c| Span { text: "image".into(), image: true, cid: Some((*c).into()), ..Span::default() }).collect();
-        Rich { blocks: vec![Block { kind: BlockKind::Paragraph, quote: 0, spans }], remote_images: 0 }
+        Rich { blocks: vec![Block { kind: BlockKind::Paragraph, quote: 0, spans, cell: None }], remote_images: 0 }
     }
 }
