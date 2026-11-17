@@ -1658,7 +1658,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-engine",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "jiff",
  "serde",
@@ -1703,7 +1703,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-dav"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ews",
  "hmac",
@@ -1718,7 +1718,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-dav",
@@ -1736,14 +1736,14 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-ical"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
 ]
 
 [[package]]
 name = "ibercorreo-imap"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-mime",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-mime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "mail-parser",
@@ -1760,7 +1760,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-net"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "hmac",
  "ibercorreo-core",
@@ -1782,7 +1782,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-outlook"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-mime",
@@ -1791,7 +1791,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-smtp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-mime",
  "thiserror 2.0.21",
@@ -1799,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
  "ibercorreo-ical",
@@ -1812,7 +1812,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-sync"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ews",
  "ibercorreo-core",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-ui-egui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "egui",
  "ibercorreo-core",
@@ -1843,7 +1843,7 @@ dependencies = [
 
 [[package]]
 name = "ibercorreo-vcard"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ibercorreo-core",
 ]
@@ -4752,7 +4752,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "yasna"
