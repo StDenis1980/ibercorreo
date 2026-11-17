@@ -1276,12 +1276,28 @@ impl App {
                 }
             }
         }
-        let saved = match (f.id, p.as_object_mut()) {
+        let (id, p) = match (f.id, p.as_object_mut()) {
             (Some(id), Some(o)) => {
                 o.insert("id".into(), json!(id.0));
-                self.run("account.set", p)
+                ("account.set", p)
             }
-            _ => self.run("account.add", p),
+            _ => ("account.add", p),
+        };
+        // Tinta: say why the account was not saved. The button otherwise did nothing visible (an
+        // empty server name, say), because `run` keeps only the success.
+        let saved = match self.session.run(id, &p) {
+            Ok(v) => {
+                self.due_checked = None;
+                self.invite = None;
+                self.content = None;
+                Some(v)
+            }
+            Err(e) => {
+                if self.account_form.id.is_some() || self.existing_account(&self.account_form.email).is_none() {
+                    self.account_form.note = e.to_string();
+                }
+                None
+            }
         };
         let saved = saved.and_then(|v| v.get("id").and_then(Value::as_u64)).and_then(|n| u32::try_from(n).ok()).map(AccountId);
         if let Some(id) = saved {
@@ -4825,6 +4841,22 @@ mod tests {
             ),
             attention: false,
         }
+    }
+
+    #[test]
+    fn saving_an_account_the_engine_refuses_says_why() {
+        i18n::set_current(Language::En);
+        let mut app = App::new(Session::new(ibercorreo_store::Store::new(), Date::new(2026, 11, 3).unwrap()));
+        app.open_account_settings(None, "");
+        app.account_form.email = "ana@gmail.com".into();
+        app.account_form.oauth = "google".into();
+        // No server names: autoconfig found none, and none were typed.
+        app.account_form.imap_host.clear();
+        app.account_form.smtp_host.clear();
+        assert!(!app.save_account(), "the dialog stays open");
+        assert!(app.session.store.accounts.is_empty());
+        assert!(app.oauth_request.is_none(), "no sign-in for an account that was not saved");
+        assert!(app.account_form.note.contains("imapHost"), "the reason shows: {:?}", app.account_form.note);
     }
 
     #[test]
