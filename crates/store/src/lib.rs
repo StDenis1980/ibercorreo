@@ -1305,9 +1305,12 @@ impl Store {
         if dir.exists() {
             std::fs::rename(&dir, files::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
         }
+        // The search index is only a copy of what the mail says: when it can't move (Windows
+        // refuses while a store in this process still has its file open), it is removed or left,
+        // and the fresh store's first save writes one of its own beside it.
         let dir = search_file::dir(path);
-        if dir.exists() {
-            std::fs::rename(&dir, search_file::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
+        if dir.exists() && std::fs::rename(&dir, search_file::dir(&aside)).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
         }
         Ok(aside)
     }
