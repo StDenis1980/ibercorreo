@@ -104,3 +104,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-13 — M6.1b: attachment contents kept, `save_attachment` over MCP (Vilna OS #33 item 5).
 - 2026-11-14 — M6.2b: Open and Save on each attachment in the reading pane.
 - 2026-11-17 — Files attached to drafts (Attach file, dropped files, forwards, MCP `attach_file`).
+- 2026-11-17 — Search index kept on disk: big mailboxes in a tenth of the memory.

@@ -71,8 +71,12 @@ Status: 2026-11-17 · Pick from the top.
 7. **Store**: `store.json` with the messages in shard files beside it (`store.mail/`, a thousand
    ids each); a background save rewrites only the shards that changed, and no file grows with the
    mailbox. Message text stays on disk in each shard's content file and is read when shown
-   (M3.9), so only headers sit in memory. Next: an on-disk search index (it is now most of the
-   memory a big mailbox takes, and is rebuilt at every start by reading all the text).
+   (M3.9), so only headers sit in memory. The search index is kept on disk too (`store.index/`,
+   2026-11-17): a start reads only a small sample of its words, the messages changed since it was
+   written are indexed in memory, and a save writes a new one once more than 2,000 are. With
+   67,000 messages a fresh start takes about 42 MB in place of 400 MB, and search is ready at
+   once in place of after 11 seconds. Next: the first save after an upgrade writes the index (a
+   few seconds on a background thread, longer without a window).
 8. **Attachments**: the contents of mail that arrives are kept beside the mailbox (2026-11-13), and
    an assistant can save one through MCP (`save_attachment`); the reading pane has Open and Save on
    each attachment (Save to the Downloads folder under a free name; Open as a copy, never for a
@@ -136,10 +140,9 @@ Status: 2026-11-17 · Pick from the top.
     as one text ("Company, Department").
 15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
     ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
-    dates) and the All mailboxes / Current mailbox / Current folder scope. Missing: an index kept
-    on disk (it is rebuilt on a background thread at start and after each Send/Receive, up to a
-    minute for 60,000 messages, and takes a fraction of the mail's size in memory; a search
-    before then waits for it; gap 7), searching
+    dates) and the All mailboxes / Current mailbox / Current folder scope. The index is kept
+    on disk (gap 7); only the messages changed since it was written are indexed at start or
+    after a Send/Receive. Missing: searching
     attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
     the words found, a Search ribbon tab with filter buttons, search history and saved searches
     (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
@@ -234,3 +237,4 @@ Status: 2026-11-17 · Pick from the top.
 - 2026-11-12 — gaps 1 and 2 narrowed (M6.2): folder tree with folds kept; plain-text links; whole-message selection.
 - 2026-11-13 — gap 17: the Export everything button.
 - 2026-11-13 — gap 8: attachment contents kept; `save_attachment` over MCP.
+- 2026-11-17 — gaps 7 and 15: the search index kept on disk.
