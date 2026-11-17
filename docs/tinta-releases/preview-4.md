@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
-> **Status:** 2026-11-16 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86).
+> **Status:** 2026-11-17 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -25,6 +25,8 @@ Novedades:
 - **Exportar todo** a mbox, iCalendar y vCard con un botón, y una guía para pasar de Outlook.
 - **Borrar sin sustos:** al borrar desde la papelera se pide confirmación antes de eliminarlo para siempre.
 - Ayuda cuando su organización tiene que aprobar la aplicación en Microsoft 365.
+- **El mismo aspecto en toda la suite:** Tinta PDF, Texto, Calculo y Presenta adoptan ahora el
+  aspecto de Tinta Correo.
 
 Limitaciones conocidas: Google aún no ha verificado la aplicación, así que al iniciar sesión con Google
 verá un aviso (o use una contraseña de aplicación); aún no se puede exportar a .pst; Exchange propio
@@ -46,6 +48,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
 - **Експорт усього** в mbox, iCalendar і vCard однією кнопкою та посібник із переходу з Outlook.
 - **Видалення без несподіванок:** видалення з кошика спершу питає, чи стерти лист назавжди.
 - Підказка, коли вашій організації треба схвалити програму в Microsoft 365.
+- **Однаковий вигляд у всьому пакеті:** Tinta PDF, Texto, Calculo й Presenta тепер мають вигляд
+  Tinta Correo.
 
 Відомі обмеження: Google ще не перевірив застосунок, тому під час входу через Google буде
 попередження (або скористайтеся паролем застосунку); експорту в .pst ще немає; власний Exchange
@@ -67,6 +71,8 @@ What's new:
 - **Export everything** to mbox, iCalendar and vCard with one button, and a guide to move from Outlook.
 - **Safer delete:** deleting from Deleted Items asks before it deletes for good.
 - Help when your organisation has to approve the app in Microsoft 365.
+- **One look across the suite:** Tinta PDF, Texto, Calculo and Presenta now take Tinta Correo's
+  look.
 
 Known limits: Google has not verified the app yet, so Google sign-in shows a warning (or use an app
 password); no export to .pst yet; an organisation's own Exchange server (EWS) has not been tested
