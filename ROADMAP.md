@@ -1,12 +1,12 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-15 · M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
+Status: 2026-11-17 · files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
 | Number | Value |
 |---|---|
-| Commands in the registry | 86 |
+| Commands in the registry | 95 |
 | Tests | see `cargo test --workspace` |
 | Protocols working | IMAP4rev1/rev2 two-way sync with IDLE push and SMTP submission over TLS/STARTTLS, with a password or OAuth 2.0 (XOAUTH2: Gmail, Microsoft 365); CalDAV two-way calendar sync; CardDAV two-way contact sync; meeting invitations by mail (iTIP/iMIP: accept, tentative, decline, cancel); files: `.eml`, `.ics`, `.vcf` |
 
@@ -318,6 +318,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-13 — M5.3 in the window: **Export everything** at the foot of the rail writes the
   whole mailbox to a new folder in Documents (the home folder without one; the app's data folder
   inside Flatpak) on another thread, with progress in the status bar, then opens the folder.
+
+- 2026-11-17 — Files attached to drafts: **Attach file** beside Send (the system's file picker,
+  rfd), files dropped on the window while a draft is open, a chip with × for each, and a total.
+  `message.attach` / `message.detach`; the files are kept beside the mailbox like those that arrive
+  and written as `multipart/mixed` (names in RFC 2231 and RFC 2047 forms) for SMTP, Microsoft
+  Graph and EWS alike. A forward carries the original's kept attachments. MCP: `attach_file`, only
+  from `--automation-read-root` folders; `contentHash` covers the files' contents.
 
 ## Revision history
 - 2026-11-04 — M6.1: MCP server, `ibercorreo-cli mcp` (Vilna OS request, tintaoffice-web#28;

@@ -433,3 +433,12 @@
 	Last 2 years	Os últimos 2 anos
 	All mail is downloaded whole	Todo o correo descárgase enteiro
 	Older mail is downloaded as its header, and its text when opened	O correo máis antigo descárgase coa cabeceira, e o texto ao abrilo
+# Tinta: files attached to a draft
+	Attach file	Anexar ficheiro
+	Attach files to this message (or drop them on the window)	Anexar ficheiros a esta mensaxe (ou soltalos na xanela)
+	Remove this attachment	Quitar este anexo
+	Could not attach {name}: {error}	Non se puido anexar {name}: {error}
+	No file picker on this system: drop the files on the window instead	Este sistema non ten selector de ficheiros: solte os ficheiros na xanela
+	{count} files, {size}	{count} ficheiros, {size}
+	Attached {name}	Anexado {name}
+	Some attachments are not kept on this computer and were left out	Algúns anexos non se gardan neste ordenador e omitíronse

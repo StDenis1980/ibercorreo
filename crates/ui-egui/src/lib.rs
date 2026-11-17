@@ -12,6 +12,7 @@ pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod body_text;
 mod categories_ui;
 mod chrome;
+mod compose_files_ui;
 mod conversations_ui;
 mod delete_ui;
 mod export_ui;
@@ -556,6 +557,8 @@ pub struct App {
     export: export_ui::ExportState,
     /// Attachments to open or save, for the shell.
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
+    /// Tinta: the draft the person asked to attach files to (the shell shows the file picker).
+    attach_wanted: Option<MessageId>,
     /// Tinta: the pictures the message being read carries (`cid:`).
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
@@ -810,6 +813,7 @@ impl App {
             links: Vec::new(),
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
+            attach_wanted: None,
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
             categories_form: categories_ui::CategoriesForm::default(),
@@ -2830,9 +2834,13 @@ impl App {
         let Some(d) = self.draft.as_mut() else { return };
         let mut send = false;
         let mut discard = false;
+        let mut attach = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
+            attach = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Clip), compose_files_ui::ATTACH, true)
+                .on_hover_text(tl(compose_files_ui::ATTACH_TIP))
+                .clicked();
             discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
         ui.add_space(10.0);
@@ -2863,6 +2871,11 @@ impl App {
                 .rect;
             ui.painter().hline(row.x_range(), row.bottom(), Stroke::new(1.0, t.border.gamma_multiply(0.5)));
         }
+        // Tinta: the files attached, under the header as in Outlook.
+        let draft_id = MessageId(d.id);
+        ui.add_space(6.0);
+        let removed = compose_files_ui::chips(ui, &t, self, draft_id);
+        let Some(d) = self.draft.as_mut() else { return };
         ui.add_space(4.0);
         // The text: just the card below the header, with a letter's shape as a hint while empty.
         let body = egui::TextEdit::multiline(&mut d.body)
@@ -2874,6 +2887,12 @@ impl App {
         let id = d.id;
         if changed || send {
             self.run("message.update", params);
+        }
+        if let Some(index) = removed {
+            self.run("message.detach", json!({ "id": id, "index": index }));
+        }
+        if attach {
+            self.attach_wanted = Some(MessageId(id));
         }
         if send {
             self.run("message.send", json!({ "id": id }));

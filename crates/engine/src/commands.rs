@@ -253,6 +253,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: message_update,
     },
     CommandSpec {
+        id: "message.attach",
+        label: "Attach File",
+        group: "Message/Include",
+        shortcut: None,
+        params: "id?: number — a draft\nname: string — the file's name as the recipient sees it\ndata: string — its contents in base64\ntype?: string — its media type; default from the name's extension",
+        edits: true,
+        run: message_attach,
+    },
+    CommandSpec {
+        id: "message.detach",
+        label: "Remove attachment",
+        group: "Message/Include",
+        shortcut: None,
+        params: "id?: number — a draft\nindex: number — the attachment's place in the draft's attachmentList",
+        edits: true,
+        run: message_detach,
+    },
+    CommandSpec {
         id: "message.reply",
         label: "Reply",
         group: "Home/Respond",
@@ -1301,11 +1319,7 @@ fn message_compose_mailto(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = target_message(s, p)?;
-    let drafts = s.store.folder_by_role(account_of_message(s, id)?, FolderRole::Drafts)?;
-    if s.store.message(id)?.folder != drafts {
-        return Err(Error::invalid("message", "only drafts can be edited"));
-    }
+    let id = target_draft(s, p)?;
     // Parse everything before changing anything.
     let to = str_param(p, "to")?.map(Address::parse_list).transpose()?;
     let cc = str_param(p, "cc")?.map(Address::parse_list).transpose()?;
@@ -1329,6 +1343,80 @@ fn message_update(s: &mut Session, p: &Value) -> Result<Value> {
         s.store.content_mut(id)?.body = ibercorreo_core::clamp_text(body, ibercorreo_mime::MAX_BODY_BYTES).to_string();
     }
     Ok(json!({ "id": id.0 }))
+}
+
+/// The draft a command names (`id`, or the open message), refused when it is not in its
+/// account's Drafts.
+fn target_draft(s: &Session, p: &Value) -> Result<MessageId> {
+    let id = target_message(s, p)?;
+    let drafts = s.store.folder_by_role(account_of_message(s, id)?, FolderRole::Drafts)?;
+    if s.store.message(id)?.folder != drafts {
+        return Err(Error::invalid("message", "only drafts can be edited"));
+    }
+    Ok(id)
+}
+
+/// Most bytes of files one draft carries: what still fits in [`ibercorreo_mime::MAX_MESSAGE_BYTES`]
+/// once in base64, with room for the text.
+pub const MAX_DRAFT_FILES_BYTES: usize = ibercorreo_mime::MAX_MESSAGE_BYTES / 4 * 3 - 4 * 1024 * 1024;
+/// Most files one draft carries.
+pub const MAX_DRAFT_FILES: usize = 100;
+
+/// Tinta: attach a file to a draft. The contents are kept with the mailbox, like those of mail
+/// that arrives (`ibercorreo_store::files`), and are written into the message when it is sent.
+fn message_attach(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_draft(s, p)?;
+    let name = crate::attachments::file_name(required_str(p, "name")?);
+    let data = required_str(p, "data")?;
+    // Checked before decoding: base64 is a third larger than what it holds.
+    if data.len() / 4 * 3 > MAX_DRAFT_FILES_BYTES.saturating_add(3) {
+        return Err(Error::TooLarge { what: "attachment", size: data.len() / 4 * 3, limit: MAX_DRAFT_FILES_BYTES });
+    }
+    let bytes = ibercorreo_mime::unbase64(data).ok_or_else(|| Error::invalid("data", "not base64"))?;
+    let mime_type = match str_param(p, "type")?.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => t.to_ascii_lowercase(),
+        None => ibercorreo_mime::media_type_for(&name).to_string(),
+    };
+    attach_bytes(s, id, &name, &mime_type, bytes)
+}
+
+/// Attach `bytes` called `name` to draft `id` (already checked to be one).
+pub(crate) fn attach_bytes(s: &mut Session, id: MessageId, name: &str, mime_type: &str, bytes: Vec<u8>) -> Result<Value> {
+    let m = s.store.message(id)?;
+    if m.attachments.len() >= MAX_DRAFT_FILES {
+        return Err(Error::invalid("attachment", format!("a message can carry at most {MAX_DRAFT_FILES} files")));
+    }
+    let carried: usize = m.attachments.iter().map(|a| a.size).fold(0, usize::saturating_add);
+    let total = carried.saturating_add(bytes.len());
+    if total > MAX_DRAFT_FILES_BYTES {
+        return Err(Error::TooLarge { what: "attachments of one message", size: total, limit: MAX_DRAFT_FILES_BYTES });
+    }
+    let size = bytes.len();
+    let sha256 = s.store.keep_file(bytes).ok_or(Error::TooLarge { what: "attachment", size, limit: MAX_DRAFT_FILES_BYTES })?;
+    let a =
+        ibercorreo_core::mail::Attachment { name: name.to_string(), mime_type: mime_type.to_string(), size, sha256: Some(sha256), content_id: None };
+    let m = s.store.message_mut(id)?;
+    m.attachments.push(a);
+    let index = m.attachments.len() - 1;
+    s.status = format!("Attached {name}");
+    Ok(
+        json!({ "id": id.0, "index": index, "attachmentList": m.attachments.iter().enumerate().map(|(i, a)| attachment_json(i, a)).collect::<Vec<_>>() }),
+    )
+}
+
+/// Tinta: take a file off a draft.
+fn message_detach(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_draft(s, p)?;
+    let index = u64_param(p, "index")?.ok_or_else(|| Error::invalid("index", "required: the attachment's place in attachmentList"))?;
+    let m = s.store.message_mut(id)?;
+    let index = usize::try_from(index)
+        .ok()
+        .filter(|i| *i < m.attachments.len())
+        .ok_or_else(|| Error::invalid("index", format!("the draft has {} attachments, counted from 0", m.attachments.len())))?;
+    let gone = m.attachments.remove(index);
+    s.status = format!("Removed {}", gone.name);
+    let m = s.store.message(id)?;
+    Ok(json!({ "id": id.0, "attachmentList": m.attachments.iter().enumerate().map(|(i, a)| attachment_json(i, a)).collect::<Vec<_>>() }))
 }
 
 /// `m`, which says `body`, quoted under a reply or forward.
@@ -1377,7 +1465,23 @@ fn forward(s: &mut Session, p: &Value) -> Result<Value> {
     let subject = prefixed("Fwd", &orig.subject);
     let account = account_of_message(s, id)?;
     let body = str_param(p, "body")?.unwrap_or("");
-    new_draft(s, account, DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body, signed: true, quoted: &quote(&orig, &text) })
+    let out = new_draft(
+        s,
+        account,
+        DraftParts { to, cc: Vec::new(), bcc: Vec::new(), subject: &subject, body, signed: true, quoted: &quote(&orig, &text) },
+    )?;
+    // Tinta: the attachments go with it, as in Outlook; ones whose contents are not kept here
+    // (mail that arrived before Correo kept them) cannot.
+    let draft = MessageId(out.get("id").and_then(Value::as_u64).unwrap_or(0));
+    let (kept, missing): (Vec<_>, Vec<_>) =
+        orig.attachments.iter().cloned().map(|a| ibercorreo_core::mail::Attachment { content_id: None, ..a }).partition(|a| a.sha256.is_some());
+    if !kept.is_empty() {
+        s.store.message_mut(draft)?.attachments = kept.into_iter().take(MAX_DRAFT_FILES).collect();
+    }
+    if !missing.is_empty() {
+        s.status = "Some attachments are not kept on this computer and were left out".into();
+    }
+    Ok(out)
 }
 
 /// The message as RFC 5322 text. The `Message-ID` is made from the message's id and its date, so
@@ -1389,7 +1493,17 @@ pub(crate) fn render(s: &Session, id: MessageId) -> Result<String> {
     let date = ibercorreo_mime::archive::date_header(when);
     let unique = format!("{}.{:05}.{}.ibercorreo", when.date.day_number(), u32::from(when.minute_of_day()) * 60 + u32::from(when.second()), id.0);
     let content = s.store.content(id)?;
-    ibercorreo_mime::write(m, &content, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique })
+    // Tinta: the files attached; one whose contents are not kept here cannot be sent.
+    let mut bytes = Vec::with_capacity(m.attachments.len());
+    for a in &m.attachments {
+        let kept = a.sha256.as_deref().ok_or_else(|| {
+            Error::invalid("attachment", format!("{}: its contents are not kept on this computer; remove it and attach the file again", a.name))
+        })?;
+        bytes.push(s.store.file(kept).map_err(|e| Error::invalid("attachment", format!("{}: {e}", a.name)))?);
+    }
+    let files: Vec<ibercorreo_mime::OutFile<'_>> =
+        m.attachments.iter().zip(&bytes).map(|(a, b)| ibercorreo_mime::OutFile { name: &a.name, mime_type: &a.mime_type, bytes: b }).collect();
+    ibercorreo_mime::write_with_files(m, &content, &ibercorreo_mime::Outgoing { from: &from, date: &date, message_id: &unique }, &files)
 }
 
 /// A fingerprint of what a message says and who it goes to: the account it is sent from, the
@@ -1416,7 +1530,7 @@ pub fn content_hash(s: &Session, id: MessageId) -> Result<String> {
         content.body,
         rich,
         content.invite,
-        m.attachments.iter().map(|a| json!([a.name, a.mime_type, a.size])).collect::<Vec<_>>(),
+        m.attachments.iter().map(|a| json!([a.name, a.mime_type, a.size, a.sha256])).collect::<Vec<_>>(),
     ]);
     let bytes = serde_json::to_vec(&canonical).map_err(|e| Error::invalid("message", e.to_string()))?;
     let digest = sha2::Sha256::digest(&bytes);

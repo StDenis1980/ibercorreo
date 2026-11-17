@@ -429,3 +429,12 @@
 	Last 2 years	Останні 2 роки
 	All mail is downloaded whole	Уся пошта завантажується повністю
 	Older mail is downloaded as its header, and its text when opened	Старіші листи завантажуються із заголовком, а текст — коли їх відкрити
+# Tinta: files attached to a draft
+	Attach file	Вкласти файл
+	Attach files to this message (or drop them on the window)	Вкласти файли в цей лист (або перетягніть їх на вікно)
+	Remove this attachment	Прибрати це вкладення
+	Could not attach {name}: {error}	Не вдалося вкласти {name}: {error}
+	No file picker on this system: drop the files on the window instead	У цій системі немає вікна вибору файлів: перетягніть файли на вікно
+	{count} files, {size}	Файлів: {count}, {size}
+	Attached {name}	Вкладено {name}
+	Some attachments are not kept on this computer and were left out	Деяких вкладень немає на цьому комп'ютері, тож їх не додано

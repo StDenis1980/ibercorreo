@@ -435,3 +435,12 @@
 	Last 2 years	Ostatnie 2 lata
 	All mail is downloaded whole	Cała poczta jest pobierana w całości
 	Older mail is downloaded as its header, and its text when opened	Starsza poczta jest pobierana z nagłówkiem, a tekst po otwarciu
+# Tinta: files attached to a draft
+	Attach file	Dołącz plik
+	Attach files to this message (or drop them on the window)	Dołącz pliki do tej wiadomości (lub upuść je na okno)
+	Remove this attachment	Usuń ten załącznik
+	Could not attach {name}: {error}	Nie udało się dołączyć {name}: {error}
+	No file picker on this system: drop the files on the window instead	W tym systemie nie ma okna wyboru plików: upuść pliki na okno
+	{count} files, {size}	Pliki: {count}, {size}
+	Attached {name}	Dołączono {name}
+	Some attachments are not kept on this computer and were left out	Niektóre załączniki nie są przechowywane na tym komputerze i zostały pominięte

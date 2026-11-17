@@ -435,3 +435,12 @@
 	Last 2 years	Letzte 2 Jahre
 	All mail is downloaded whole	Alle Mails werden vollständig heruntergeladen
 	Older mail is downloaded as its header, and its text when opened	Ältere Mails kommen mit ihrem Kopf, ihr Text beim Öffnen
+# Tinta: files attached to a draft
+	Attach file	Datei anhängen
+	Attach files to this message (or drop them on the window)	Dateien an diese Nachricht anhängen (oder auf das Fenster ziehen)
+	Remove this attachment	Diesen Anhang entfernen
+	Could not attach {name}: {error}	{name} konnte nicht angehängt werden: {error}
+	No file picker on this system: drop the files on the window instead	Auf diesem System gibt es keine Dateiauswahl: Ziehen Sie die Dateien auf das Fenster
+	{count} files, {size}	{count} Dateien, {size}
+	Attached {name}	{name} angehängt
+	Some attachments are not kept on this computer and were left out	Einige Anhänge sind auf diesem Computer nicht gespeichert und wurden weggelassen

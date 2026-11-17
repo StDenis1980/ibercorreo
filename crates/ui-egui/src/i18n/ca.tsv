@@ -433,3 +433,12 @@
 	Last 2 years	Els últims 2 anys
 	All mail is downloaded whole	Tot el correu es baixa sencer
 	Older mail is downloaded as its header, and its text when opened	El correu més antic es baixa amb la capçalera, i el text quan l'obres
+# Tinta: files attached to a draft
+	Attach file	Adjunta un fitxer
+	Attach files to this message (or drop them on the window)	Adjunta fitxers a aquest missatge (o deixa'ls anar a la finestra)
+	Remove this attachment	Treu aquest adjunt
+	Could not attach {name}: {error}	No s'ha pogut adjuntar {name}: {error}
+	No file picker on this system: drop the files on the window instead	Aquest sistema no té selector de fitxers: deixeu anar els fitxers a la finestra
+	{count} files, {size}	{count} fitxers, {size}
+	Attached {name}	S'ha adjuntat {name}
+	Some attachments are not kept on this computer and were left out	Alguns adjunts no es desen en aquest ordinador i s'han omès

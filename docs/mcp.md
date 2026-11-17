@@ -74,8 +74,10 @@ Send/Receive); without it, at the window's next Send/Receive or `ibercorreo-cli 
   one of them (whole path components, case ignored on Windows): `..`, a link leading out and a
   folder that does not exist are refused. A file (or link) already there is never replaced. The
   file is written under a temporary name beside its place and linked into place in one step.
-- `--automation-read-root DIR` is accepted (and must name a folder) so a host can pass every Tinta
-  app the same flags; no Correo tool reads a file.
+- `--automation-read-root DIR`: the folders `attach_file` may read from, with the same rules
+  (repeatable, must exist, links followed, whole components). Without one the tool is not listed
+  and no tool reads a file. A file, its links followed, must lie inside a root: `..` or a link
+  that leads out is refused.
 
 The other flags may each be given once.
 
@@ -97,6 +99,12 @@ mailbox, so it needs no network and works in a sandbox that sees only the mailbo
 the write roots. An attachment not kept is a tool error that says so. It runs `message.read` (for
 `--allow-commands`) and never sends, deletes or replaces anything.
 
+`attach_file` (`id` of a draft, `path`, `name?`) attaches a file from a read root to a draft
+(`message.attach`): `path` is absolute or relative to the first read root, `name` is what the
+recipient sees (default the file's own name). The draft's `contentHash` changes with its
+attachments (names, types, sizes and contents), so a send approved before a file was attached is
+refused. A draft carries at most 100 files and about 44 MiB in all.
+
 ## Tools
 
 | Tool | Command | Read-only |
@@ -111,6 +119,7 @@ the write roots. An attachment not kept is a tool error that says so. It runs `m
 | `update_draft` (`id`, `to?`, `cc?`, `bcc?`, `subject?`, `body?`) | `message.update` | no |
 | `send_draft` (`id`, `contentHash`) — only with `--allow-send` | `message.send` | no (destructive) |
 | `save_attachment` (`id`, `attachment`, `path?`) — only with `--automation-write-root` | `message.read`, then writes a new file | no |
+| `attach_file` (`id`, `path`, `name?`) — only with `--automation-read-root` | reads the file, then `message.attach` | no |
 | `set_flag` (`id`, `flagged?`), `mark_read` (`id`, `read?`) | `message.flag`, `message.markRead` | no |
 | `get_conversation` (`id`) | `message.conversation` | yes |
 
@@ -156,6 +165,8 @@ should mark every `read_message` and `search_messages` result.
 
 ## Revision history
 
+- 2026-11-17 — `attach_file` and `--automation-read-root`: files from the read roots attached to
+  drafts; the content hash covers each attachment's contents.
 - 2026-11-13 — `save_attachment` and `--automation-write-root` (repeatable; `--automation-read-root`
   accepted): attachment contents of arriving mail are kept beside the mailbox; `read_message`
   lists `index` and `kept`.

@@ -34,8 +34,10 @@ pub struct Request {
 
 /// How long a start waits for the open window's answer, and the open window for a request.
 const WAIT: Duration = Duration::from_secs(3);
-/// A request longer than this isn't one a start sends (a few paths and links).
-const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
+/// A request longer than this isn't one a start or the MCP server sends: a few paths and links, or
+/// Tinta: a file the MCP server attaches to a draft (`message.attach`, up to what a message
+/// carries, in base64).
+const MAX_REQUEST_BYTES: u64 = ibercorreo_mime::MAX_MESSAGE_BYTES as u64 + 8 * 1024 * 1024;
 /// At most this many files and links are taken from one request.
 const MAX_ITEMS: usize = 256;
 /// How long the window has to run a command handed over (it runs between frames).

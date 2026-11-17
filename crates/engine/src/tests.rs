@@ -1387,3 +1387,86 @@ fn header_only_mail_gets_its_text_on_request() {
     s.run("account.fullMail", &json!({ "months": 0 })).unwrap();
     assert!(s.full_since().is_none());
 }
+
+#[test]
+fn files_attach_to_drafts_and_go_with_the_message() {
+    let mut s = session();
+    let id = s.run("message.compose", &json!({"to": "ana@example.org", "subject": "Factura", "body": "Adjunta."})).unwrap()["id"].as_u64().unwrap();
+    let before = commands::content_hash(&s, MessageId(id)).unwrap();
+    let pdf = b"%PDF-1.7 factura".to_vec();
+    let out = s.run("message.attach", &json!({"id": id, "name": "../factura:11.pdf", "data": ibercorreo_mime::base64(&pdf)})).unwrap();
+    assert_eq!(out["index"], 0);
+    assert_eq!(out["attachmentList"][0]["name"], "factura_11.pdf", "a name made safe: {out}");
+    assert_eq!(out["attachmentList"][0]["type"], "application/pdf");
+    assert_eq!(out["attachmentList"][0]["kept"], true);
+    s.run("message.attach", &json!({"id": id, "name": "notas.txt", "data": ibercorreo_mime::base64("Привіт".as_bytes()), "type": "text/plain"}))
+        .unwrap();
+    assert_ne!(commands::content_hash(&s, MessageId(id)).unwrap(), before, "a changed attachment list changes the hash");
+    let raw = commands::render(&s, MessageId(id)).unwrap();
+    let (back, contents) = ibercorreo_mime::parse_with_files(raw.as_bytes(), MessageId(99), FolderId(0)).unwrap();
+    assert_eq!(back.attachments.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(), ["factura_11.pdf", "notas.txt"]);
+    assert_eq!(contents.first(), Some(&pdf));
+    // Removed again; undo puts it back.
+    let out = s.run("message.detach", &json!({"id": id, "index": 1})).unwrap();
+    assert_eq!(out["attachmentList"].as_array().map(Vec::len), Some(1));
+    assert!(s.run("message.detach", &json!({"id": id, "index": 1})).is_err());
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 2);
+    // Sending puts the files in what goes out.
+    s.run("message.send", &json!({"id": id})).unwrap();
+    let outbox = s.outbox(AccountId(0));
+    let raw = &outbox.iter().find(|o| o.id == MessageId(id)).unwrap().raw;
+    assert_eq!(ibercorreo_mime::parse(raw, MessageId(98), FolderId(0)).unwrap().attachments.len(), 2);
+    // Only drafts take files; bad data is refused.
+    assert!(s.run("message.attach", &json!({"id": id, "name": "x", "data": "eA=="})).is_err(), "not a draft any more");
+    let other = s.run("message.compose", &json!({"to": "ana@example.org"})).unwrap()["id"].as_u64().unwrap();
+    assert!(s.run("message.attach", &json!({"id": other, "name": "x", "data": "not base64!"})).is_err());
+    assert!(s.run("message.attach", &json!({"id": other, "data": "eA=="})).is_err(), "a name is needed");
+}
+
+#[test]
+fn a_draft_can_not_carry_more_than_a_message_holds() {
+    let mut s = session();
+    let id = s.run("message.compose", &json!({"to": "ana@example.org"})).unwrap()["id"].as_u64().unwrap();
+    let big = vec![0u8; commands::MAX_DRAFT_FILES_BYTES / 2 + 1];
+    s.run("message.attach", &json!({"id": id, "name": "a.bin", "data": ibercorreo_mime::base64(&big)})).unwrap();
+    let e = s.run("message.attach", &json!({"id": id, "name": "b.bin", "data": ibercorreo_mime::base64(&big)})).unwrap_err();
+    assert!(e.to_string().contains("too large") || e.to_string().contains("larger"), "{e}");
+    assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 1);
+}
+
+#[test]
+fn forwarding_carries_the_attachments_kept() {
+    let mut s = session();
+    let raw = "From: ana@example.org\r\nTo: me@example.com\r\nSubject: Fotos\r\nContent-Type: multipart/mixed; boundary=\"b\"\r\n\r\n\
+--b\r\nContent-Type: text/plain\r\n\r\nAhí van.\r\n--b\r\nContent-Type: image/png; name=uno.png\r\nContent-Disposition: attachment; filename=uno.png\r\n\
+Content-Transfer-Encoding: base64\r\n\r\niVBORw0K\r\n--b--\r\n";
+    let inbox = s.store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+    let orig = s.store.import_eml(raw.as_bytes(), inbox).unwrap();
+    // One older message's file, whose contents were never kept.
+    s.store.message_mut(orig).unwrap().attachments.push(ibercorreo_core::mail::Attachment { name: "old.doc".into(), ..Default::default() });
+    let fwd = s.run("message.forward", &json!({"id": orig.0, "to": "luis@example.org"})).unwrap()["id"].as_u64().unwrap();
+    let names: Vec<String> = s.store.message(MessageId(fwd)).unwrap().attachments.iter().map(|a| a.name.clone()).collect();
+    assert_eq!(names, ["uno.png"]);
+    assert!(s.status.contains("left out"), "{}", s.status);
+    let raw = commands::render(&s, MessageId(fwd)).unwrap();
+    let (_, contents) = ibercorreo_mime::parse_with_files(raw.as_bytes(), MessageId(97), FolderId(0)).unwrap();
+    assert_eq!(contents.first().map(|c| c.starts_with(b"\x89PNG")), Some(true));
+}
+
+#[test]
+fn files_are_read_to_attach_only_when_they_are_files() {
+    let dir = std::env::temp_dir().join(format!("tinta-attach-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("informe.odt"), b"odt").unwrap();
+    let (name, bytes) = attachments::read_to_attach(&dir.join("informe.odt")).unwrap();
+    assert_eq!((name.as_str(), bytes.as_slice()), ("informe.odt", &b"odt"[..]));
+    assert!(attachments::read_to_attach(&dir).is_err(), "a folder is not a file");
+    assert!(attachments::read_to_attach(&dir.join("missing")).is_err());
+    let mut s = session();
+    let id = s.run("message.compose", &json!({"to": "ana@example.org"})).unwrap()["id"].as_u64().unwrap();
+    attachments::attach(&mut s, MessageId(id), &name, &bytes).unwrap();
+    assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}

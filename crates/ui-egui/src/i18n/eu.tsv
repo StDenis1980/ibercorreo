@@ -433,3 +433,12 @@
 	Last 2 years	Azken 2 urteak
 	All mail is downloaded whole	Posta guztia osorik deskargatzen da
 	Older mail is downloaded as its header, and its text when opened	Posta zaharrena goiburuarekin deskargatzen da, eta testua irekitzean
+# Tinta: files attached to a draft
+	Attach file	Erantsi fitxategia
+	Attach files to this message (or drop them on the window)	Erantsi fitxategiak mezu honi (edo jaregin leihoan)
+	Remove this attachment	Kendu eranskin hau
+	Could not attach {name}: {error}	Ezin izan da {name} erantsi: {error}
+	No file picker on this system: drop the files on the window instead	Sistema honek ez du fitxategi-hautatzailerik: jaregin fitxategiak leihoan
+	{count} files, {size}	{count} fitxategi, {size}
+	Attached {name}	{name} erantsita
+	Some attachments are not kept on this computer and were left out	Eranskin batzuk ez daude ordenagailu honetan gordeta, eta kanpoan geratu dira

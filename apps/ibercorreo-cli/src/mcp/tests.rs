@@ -354,3 +354,59 @@ fn root_flags_may_repeat_and_must_name_folders() {
     );
     assert!(main(&["--sample".into(), "--sample".into()]).unwrap_err().contains("given twice"));
 }
+
+fn reading(dir: &std::path::Path) -> Limits {
+    Limits { read_roots: vec![Root::open(dir, "--automation-read-root").unwrap()], ..Limits::default() }
+}
+
+#[test]
+fn attach_file_is_off_without_a_read_root() {
+    let mut s = sample_server(Limits::default());
+    assert!(!tool_names(&mut s).contains(&"attach_file".to_string()));
+    let e = call(&mut s, "attach_file", json!({ "id": 1, "path": "/etc/hostname" })).unwrap_err();
+    assert!(e.contains("--automation-read-root"), "{e}");
+    assert!(!rpc(&mut s, "initialize", json!({}))["result"]["instructions"].as_str().unwrap().contains("attach_file"));
+}
+
+#[test]
+fn attach_file_reads_only_inside_the_read_root_and_changes_the_hash() {
+    let dir = temp_dir("attach");
+    let root = dir.join("docs");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("factura.pdf"), b"%PDF-1.7 factura").unwrap();
+    std::fs::write(dir.join("secret.txt"), b"not for mail").unwrap();
+    let mut s = sample_server(reading(&root));
+    assert!(tool_names(&mut s).contains(&"attach_file".to_string()));
+    assert!(rpc(&mut s, "initialize", json!({}))["result"]["instructions"].as_str().unwrap().contains("attach_file"));
+    let draft = call(&mut s, "create_draft", json!({ "to": "ana@example.org", "subject": "Factura" })).unwrap()["id"].as_u64().unwrap();
+    let before = call(&mut s, "read_message", json!({ "id": draft })).unwrap()["contentHash"].clone();
+    let r = call(&mut s, "attach_file", json!({ "id": draft, "path": "factura.pdf" })).unwrap();
+    assert_eq!(r["attachmentList"][0]["name"], "factura.pdf");
+    assert_eq!(r["attachmentList"][0]["type"], "application/pdf");
+    let after = call(&mut s, "read_message", json!({ "id": draft })).unwrap();
+    assert_ne!(after["contentHash"], before, "an approval made before the file was attached no longer sends it");
+    // Renamed for the recipient; an absolute path inside the root works too.
+    let abs = root.join("factura.pdf").display().to_string();
+    call(&mut s, "attach_file", json!({ "id": draft, "path": abs, "name": "Factura 11-2026.pdf" })).unwrap();
+    // Outside the root, by `..` or an absolute path, or a folder: refused.
+    for path in ["../secret.txt", dir.join("secret.txt").to_str().unwrap(), ".", "missing.pdf"] {
+        let e = call(&mut s, "attach_file", json!({ "id": draft, "path": path })).unwrap_err();
+        assert!(e.contains("outside the read root") || e.contains("not a file") || e.contains(path), "{path}: {e}");
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(dir.join("secret.txt"), root.join("link.txt")).unwrap();
+        let e = call(&mut s, "attach_file", json!({ "id": draft, "path": "link.txt" })).unwrap_err();
+        assert!(e.contains("outside the read root"), "{e}");
+    }
+    // Only drafts.
+    let (pdf, _) = sample_attachments(&mut s);
+    assert!(call(&mut s, "attach_file", json!({ "id": pdf, "path": "factura.pdf" })).is_err());
+    let names: Vec<String> = call(&mut s, "read_message", json!({ "id": draft })).unwrap()["attachmentList"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, ["factura.pdf", "Factura 11-2026.pdf"]);
+}

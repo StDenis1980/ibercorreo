@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-15 · Pick from the top.
+Status: 2026-11-17 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -76,9 +76,16 @@ Status: 2026-11-15 · Pick from the top.
 8. **Attachments**: the contents of mail that arrives are kept beside the mailbox (2026-11-13), and
    an assistant can save one through MCP (`save_attachment`); the reading pane has Open and Save on
    each attachment (Save to the Downloads folder under a free name; Open as a copy, never for a
-   program or script) (2026-11-14). Missing: choosing where to save, downloading the attachments of mail that arrived before, keeping
-   those of `.pst`/`.msg` imports and the export, attaching files to a draft (Tinta PDF, Tinta
-   Texto, Tinta Calculo hand-off planned).
+   program or script) (2026-11-14). Files are attached to a draft with Attach file beside Send, by
+   dropping them on the window while a draft is open, with `message.attach` or with MCP's
+   `attach_file` (only from `--automation-read-root` folders); each has a × to take it off, they
+   are kept with the mailbox like those that arrive, and they go out over SMTP, Microsoft Graph
+   and EWS as `multipart/mixed`. A forward carries the original's kept attachments (2026-11-17).
+   A draft carries at most 100 files and about 44 MiB in all; Microsoft Graph sends at most 4 MB
+   per message. Missing: choosing where to save, downloading the attachments of mail that arrived
+   before, keeping those of `.pst`/`.msg` imports and the export, pasting a file or picture from
+   the clipboard, pictures inside the text of a message written here, a warning before sending a
+   message that mentions an attachment but has none, the Tinta PDF, Texto and Calculo hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
     move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on

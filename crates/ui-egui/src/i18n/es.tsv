@@ -433,3 +433,12 @@
 	Last 2 years	Últimos 2 años
 	All mail is downloaded whole	Todo el correo se descarga completo
 	Older mail is downloaded as its header, and its text when opened	El correo más antiguo se descarga con su encabezado, y su texto al abrirlo
+# Tinta: files attached to a draft
+	Attach file	Adjuntar archivo
+	Attach files to this message (or drop them on the window)	Adjuntar archivos a este mensaje (o soltarlos en la ventana)
+	Remove this attachment	Quitar este adjunto
+	Could not attach {name}: {error}	No se pudo adjuntar {name}: {error}
+	No file picker on this system: drop the files on the window instead	Este sistema no tiene selector de archivos: suelte los archivos en la ventana
+	{count} files, {size}	{count} archivos, {size}
+	Attached {name}	Adjuntado {name}
+	Some attachments are not kept on this computer and were left out	Algunos adjuntos no se guardan en este equipo y se han omitido

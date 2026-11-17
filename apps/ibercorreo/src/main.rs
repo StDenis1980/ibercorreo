@@ -141,7 +141,13 @@ struct Shell {
     export: Option<Receiver<ExportEvent>>,
     /// Tinta: pictures on the web the person chose to see, coming from the download thread.
     pictures: Vec<Receiver<PictureArrived>>,
+    /// Tinta: the system's file picker, open for Attach file: the draft, and the files chosen.
+    picking: Option<Receiver<Picked>>,
 }
+
+/// Tinta: what the file picker answered for a draft: the files chosen (none when cancelled), and
+/// whether it answered too soon for anyone to have seen it (no picker on the system).
+type Picked = (ibercorreo_core::MessageId, Vec<PathBuf>, bool);
 
 /// Tinta: a picture on the web, downloaded for a message (or why not).
 type PictureArrived = (ibercorreo_core::MessageId, String, Result<Vec<u8>, String>);
@@ -723,15 +729,74 @@ impl Shell {
         }
     }
 
-    /// Files dropped on the window open like files opened with the app.
+    /// Files dropped on the window open like files opened with the app; Tinta: while a draft is
+    /// open they are attached to it instead, as in Outlook.
     fn dropped(&mut self, ctx: &egui::Context) {
         let imports: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| p.is_absolute()).collect());
         if imports.is_empty() {
             return;
         }
+        if let Some(draft) = self.app.composing() {
+            self.attach_files(draft, &imports);
+            return;
+        }
         let request = single_instance::Request { imports, mailto: Vec::new() };
         if let Some(e) = open_requested(&mut |id, p| self.app.run_external(id, p), &request, &mut self.pst_queue) {
             self.app.session.status = e;
+        }
+    }
+
+    /// Tinta: attach the files at `paths` to `draft`, one by one; the status bar names the first
+    /// that could not be.
+    fn attach_files(&mut self, draft: ibercorreo_core::MessageId, paths: &[PathBuf]) {
+        for path in paths {
+            let shown = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+            match ibercorreo_engine::attachments::read_to_attach(path) {
+                Ok((name, bytes)) => self.app.attach(draft, &name, &bytes),
+                Err(e) => {
+                    self.app.attach_failed(&shown, &e.to_string());
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Tinta: show the file picker when the window asks for one (on another thread, so the window
+    /// keeps drawing), and attach what it answers.
+    fn pick_files(&mut self) {
+        if let Some(draft) = self.app.take_attach_request()
+            && self.picking.is_none()
+        {
+            let (tx, rx) = mpsc::channel();
+            let ctx = self.ctx.clone();
+            let title = ibercorreo_ui_egui::i18n::tl("Attach file").to_string();
+            let spawned = std::thread::Builder::new().name("file picker".into()).spawn(move || {
+                let asked = Instant::now();
+                let files = pollster::block_on(rfd::AsyncFileDialog::new().set_title(title).pick_files()).unwrap_or_default();
+                // rfd answers "cancelled" at once when Linux has neither a portal nor zenity.
+                let unseen = files.is_empty() && cfg!(all(unix, not(target_os = "macos"))) && asked.elapsed() < Duration::from_millis(300);
+                let _ = tx.send((draft, files.iter().map(|f| f.path().to_path_buf()).collect(), unseen));
+                if let Some(c) = &ctx {
+                    c.request_repaint();
+                }
+            });
+            match spawned {
+                Ok(_) => self.picking = Some(rx),
+                Err(e) => self.app.attach_failed("", &e.to_string()),
+            }
+        }
+        let Some(rx) = &self.picking else { return };
+        match rx.try_recv() {
+            Ok((draft, files, unseen)) => {
+                self.picking = None;
+                if unseen {
+                    self.app.attach_no_picker();
+                } else {
+                    self.attach_files(draft, &files);
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => self.picking = None,
         }
     }
 
@@ -1141,6 +1206,7 @@ impl eframe::App for Shell {
             }
         }
         self.attachments();
+        self.pick_files();
         self.pictures();
         if let Some(g) = &mut self.gnome {
             g.tick(&mut self.app.session, self.worker.is_some());
@@ -1419,6 +1485,7 @@ fn main() -> eframe::Result {
                 pst: None,
                 export: None,
                 pictures: Vec::new(),
+                picking: None,
             }))
         }),
     )
