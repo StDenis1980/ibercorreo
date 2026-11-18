@@ -1558,6 +1558,8 @@ fn message_send(s: &mut Session, p: &Value) -> Result<Value> {
     s.store.message_mut(id)?.date = Some(s.now());
     s.store.move_message(id, outbox)?;
     s.fix_selection();
+    // The window starts a Send/Receive for it now, or right after the one running.
+    s.sync_requested = true;
     s.status = "Queued in Outbox: it is sent at the next sync".into();
     Ok(json!({ "id": id.0, "folder": outbox.0, "queued": true }))
 }

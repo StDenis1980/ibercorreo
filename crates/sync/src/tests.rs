@@ -334,6 +334,11 @@ mod sending {
         assert!(matches!(results.get(1).map(|r| &r.outcome), Some(Outcome::Later(_))), "unsent mail stays queued");
         let gmail = ibercorreo_core::mail::OAuthProvider::for_host("smtp.gmail.com");
         assert!(gmail.is_some_and(|p| p.saves_sent));
+        // Outlook.com and Exchange Online too: an APPEND made a second copy in Sent.
+        for host in ["smtp.office365.com", "smtp-mail.outlook.com"] {
+            assert!(ibercorreo_core::mail::OAuthProvider::for_host(host).is_some_and(|p| p.saves_sent), "{host}");
+        }
+        assert!(ibercorreo_core::mail::OAuthProvider::for_host("smtp.example.org").is_none(), "others get a copy saved");
     }
 }
 

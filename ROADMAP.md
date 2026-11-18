@@ -325,6 +325,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   and written as `multipart/mixed` (names in RFC 2231 and RFC 2047 forms) for SMTP, Microsoft
   Graph and EWS alike. A forward carries the original's kept attachments. MCP: `attach_file`, only
   from `--automation-read-root` folders; `contentHash` covers the files' contents.
+- 2026-11-18 — Fixes from the first test on a real Outlook.com account: Send starts a
+  Send/Receive at once (or right after the one running) instead of waiting for the next one;
+  Outlook.com and Exchange Online file what SMTP sends themselves, so no second copy is saved in
+  Sent; names and subjects in the message list end in "…" short of the date, the Bcc button
+  keeps its translated width, and the status bar's texts stop short of the size slider.
 - 2026-11-17 — The search index is kept on disk (`store.index/`, one segment file named in
   `store.json`): words in order with their postings, of which only every 64th word and the
   message ids stay in memory. Messages changed since the segment was written are indexed in

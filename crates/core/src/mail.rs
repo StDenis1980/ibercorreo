@@ -189,7 +189,9 @@ pub const OAUTH_PROVIDERS: &[OAuthProvider] = &[
         id: "microsoft",
         name: "Microsoft",
         domains: &["office365.com", "outlook.com"],
-        saves_sent: false,
+        // Outlook.com and Exchange Online file what SMTP sends in Sent Items themselves (seen on
+        // a real Outlook.com account: an APPEND made a second copy).
+        saves_sent: true,
         imap_host: "outlook.office365.com",
         smtp_host: "smtp.office365.com",
         smtp_starttls: true,

@@ -54,8 +54,10 @@ fn compose_send_and_undo() {
     let mut s = session();
     let id = s.run("message.compose", &json!({"to": "Ana <ana@example.org>", "subject": "Olá", "body": "Teste"})).unwrap()["id"].as_u64().unwrap();
     assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());
+    assert!(!s.sync_requested);
     s.run("message.send", &json!({"id": id})).unwrap();
     assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Outbox).unwrap());
+    assert!(s.sync_requested, "a message sent goes out with a Send/Receive started now");
     assert!(s.run("message.send", &json!({"id": id})).is_err(), "only drafts send");
     s.run("edit.undo", &Value::Null).unwrap();
     assert_eq!(s.store.message(MessageId(id)).unwrap().folder, s.store.folder_by_role(AccountId(0), FolderRole::Drafts).unwrap());

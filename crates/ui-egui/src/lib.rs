@@ -2035,7 +2035,16 @@ impl App {
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
+        // Tinta: the size slider first, at the right; the texts take what is left and are cut
+        // short (whole on hover) rather than drawn under it.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            self.zoom_slider(ui);
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.status_texts(ui));
+        });
+    }
+
+    fn status_texts(&mut self, ui: &mut Ui) {
+        ui.scope(|ui| {
             let inbox = self.session.store.folder_by_role(self.session.current_account(), FolderRole::Inbox).ok();
             let unread = inbox.and_then(|f| self.unread.get(&f).copied()).unwrap_or(0);
             ui.label(RichText::new(tf("Unread in Inbox: {n}", &[("n", &unread.to_string())])).small().color(self.tokens.text_weak));
@@ -2045,11 +2054,10 @@ impl App {
             {
                 let bar = egui::ProgressBar::new(done.clamp(0.0, 1.0)).desired_width(160.0).desired_height(10.0).fill(self.tokens.accent);
                 ui.add(bar);
-                ui.label(RichText::new(what).small().color(self.tokens.text_weak));
+                ui.add(egui::Label::new(RichText::new(what).small().color(self.tokens.text_weak)).truncate());
                 ui.separator();
             }
-            ui.label(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| self.zoom_slider(ui));
+            ui.add(egui::Label::new(RichText::new(tl(&self.session.status)).small().color(self.tokens.text_weak)).truncate());
         });
     }
 
@@ -2594,7 +2602,11 @@ impl App {
                 let x = rect.left() + if child { 36.0 } else { 18.0 };
                 let font = |size: f32| egui::FontId::proportional(size);
                 let strong = if seen { t.text } else { t.unread };
-                let name = painter.text(egui::pos2(x, rect.top() + 12.0), egui::Align2::LEFT_TOP, &who, font(15.0), strong);
+                // Tinta: the name and the subject end in "…" short of the date and the flag.
+                let when_w = painter.layout_no_wrap(when.clone(), font(theme::CAPTION), t.text_weak).size().x;
+                let name_galley = one_line(&painter, &who, font(15.0), strong, rect.right() - 14.0 - when_w - 10.0 - x);
+                let name = Rect::from_min_size(egui::pos2(x, rect.top() + 12.0), name_galley.size());
+                painter.galley(name.min, name_galley, strong);
                 if let conversations_ui::Kind::Head { count, open, .. } = row.kind {
                     // A small arrow, right when closed and down when open, drawn (the font has none).
                     let c = egui::pos2(rect.left() + 10.0, rect.top() + 22.0);
@@ -2617,7 +2629,9 @@ impl App {
                 if attachment {
                     subj = format!("📎 {subj}");
                 }
-                painter.text(egui::pos2(x, rect.top() + 35.0), egui::Align2::LEFT_TOP, &subj, font(theme::BODY), if seen { t.text } else { strong });
+                let subj_color = if seen { t.text } else { strong };
+                let subj_room = rect.right() - 14.0 - if flagged { 22.0 } else { 0.0 } - x;
+                painter.galley(egui::pos2(x, rect.top() + 35.0), one_line(&painter, &subj, font(theme::BODY), subj_color, subj_room), subj_color);
                 // Tinta: the preview stops short of the category dots.
                 let dots_room = if category_colors.is_empty() { 0.0 } else { 14.0 + 13.0 * category_colors.len().min(6) as f32 };
                 let preview_clip = Rect::from_min_max(rect.min, egui::pos2(rect.right() - dots_room, rect.bottom()));
@@ -2856,7 +2870,13 @@ impl App {
                 .allocate_ui_with_layout(vec2(ui.available_width(), 40.0), Layout::left_to_right(Align::Center), |ui| {
                     ui.add_sized(vec2(72.0, 20.0), egui::Label::new(RichText::new(tl(label)).color(t.text_weak)).truncate());
                     let bcc_toggle = label == "Cc" && !d.show_bcc;
-                    let room = (ui.available_width() - if bcc_toggle { 64.0 } else { 0.0 }).max(80.0);
+                    // Room for the Bcc button as wide as its label is in this language.
+                    let toggle_w = if bcc_toggle {
+                        ui.painter().layout_no_wrap(tl("Bcc").to_string(), egui::FontId::proportional(theme::BODY), t.accent).size().x + 20.0 + 12.0
+                    } else {
+                        0.0
+                    };
+                    let room = (ui.available_width() - toggle_w).max(80.0);
                     let size = if label == "Subject" { theme::SUBTITLE } else { theme::BODY };
                     let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(egui::FontId::proportional(size)).desired_width(room);
                     changed |= ui.add(edit).lost_focus();
@@ -4816,6 +4836,13 @@ fn human_size(bytes: usize) -> String {
         1024..1_048_576 => format!("{} {}", bytes / 1024, tl("KB")),
         _ => format!("{:.1} {}", bytes as f64 / 1_048_576.0, tl("MB")),
     }
+}
+
+/// Tinta: `text` on one line at most `width` wide, ending in "…" when it does not fit.
+fn one_line(painter: &egui::Painter, text: &str, font: egui::FontId, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
+    job.wrap = egui::text::TextWrapping { max_width: width.max(20.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+    painter.layout_job(job)
 }
 
 #[cfg(test)]
