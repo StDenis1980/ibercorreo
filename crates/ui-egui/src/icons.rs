@@ -59,6 +59,8 @@ pub enum Icon {
     Tag,
     /// Tinta: three lines, the lower two set in (conversations).
     Thread,
+    /// Tinta: a paper clip (attach a file).
+    Clip,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -159,6 +161,21 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Tag => {
             p.add(egui::Shape::closed_line(vec![at(-0.32, -0.2), at(0.1, -0.2), at(0.32, 0.0), at(0.1, 0.2), at(-0.32, 0.2)], w));
             p.circle_stroke(at(0.08, 0.0), s * 0.05, w);
+        }
+        Icon::Clip => {
+            // A clip upright: three legs joined by two loops at the foot and one at the head.
+            // Drawn a third larger than the box the others use: a clip is thin.
+            let big = |x: f32, y: f32| at(x * 1.35, y * 1.35);
+            let arc = |cx: f32, cy: f32, r: f32, from: f32, to: f32| -> Vec<Pos2> {
+                (0..=8).map(|i| from + (to - from) * i as f32 / 8.0).map(|a: f32| big(cx + r * a.cos(), cy + r * a.sin())).collect()
+            };
+            let pi = std::f32::consts::PI;
+            let mut pts = vec![big(0.05, -0.14)];
+            pts.extend(arc(-0.02, 0.17, 0.07, 0.0, pi));
+            pts.extend(arc(0.01, -0.25, 0.1, pi, 2.0 * pi));
+            pts.extend(arc(-0.02, 0.24, 0.13, 0.0, pi));
+            pts.push(big(-0.15, -0.12));
+            p.add(egui::Shape::line(pts, w));
         }
         Icon::Thread => {
             p.line_segment([at(-0.32, -0.22), at(0.32, -0.22)], w);

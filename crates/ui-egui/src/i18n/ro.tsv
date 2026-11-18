@@ -434,3 +434,12 @@
 	Last 2 years	Ultimii 2 ani
 	All mail is downloaded whole	Toată corespondența se descarcă întreagă
 	Older mail is downloaded as its header, and its text when opened	Corespondența mai veche se descarcă cu antetul, iar textul la deschidere
+# Tinta: files attached to a draft
+	Attach file	Atașează fișier
+	Attach files to this message (or drop them on the window)	Atașează fișiere la acest mesaj (sau trage-le pe fereastră)
+	Remove this attachment	Elimină acest atașament
+	Could not attach {name}: {error}	Nu s-a putut atașa {name}: {error}
+	No file picker on this system: drop the files on the window instead	Acest sistem nu are selector de fișiere: trageți fișierele pe fereastră
+	{count} files, {size}	{count} fișiere, {size}
+	Attached {name}	S-a atașat {name}
+	Some attachments are not kept on this computer and were left out	Unele atașamente nu sunt păstrate pe acest computer și au fost omise

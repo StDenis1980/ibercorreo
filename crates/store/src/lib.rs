@@ -11,6 +11,7 @@
 pub mod files;
 pub mod rules;
 pub mod search;
+pub mod search_file;
 pub mod shards;
 pub mod tinta_reports;
 
@@ -175,6 +176,10 @@ pub struct Store {
     /// Set in a written store file whose messages are in shard files; never set in memory.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     message_shards: bool,
+    /// Tinta: in a written store file, the generation of the search index on disk that goes with
+    /// it ([`search_file`]); never set in memory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    search_index: Option<String>,
     /// The shards the last save wrote, so the next one writes only what changed.
     #[serde(skip)]
     saved: shards::Saved,
@@ -1237,6 +1242,8 @@ impl Store {
         let mut rest = self.clone();
         rest.messages = Vec::new();
         rest.message_shards = true;
+        // Tinta: the index on disk first, so the store file never names one that is not there.
+        rest.search_index = search::persist(&self.search_cache, &self.stamps, &self.messages, &mut self.saved.reader(), path);
         let json = serde_json::to_vec_pretty(&rest).map_err(|e| Error::Storage(e.to_string()))?;
         shards::write_file(path, &json)?;
         shards::finish(&self.saved, path, pending);
@@ -1254,6 +1261,7 @@ impl Store {
         }
         let bytes = std::fs::read(path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
         let mut s = Store::parse(&bytes)?;
+        let search_index = s.search_index.take();
         let headers_only = s.version >= 6;
         s.repaired.old_format = !headers_only;
         if !s.message_shards {
@@ -1269,6 +1277,9 @@ impl Store {
         let s = s.finish_load()?;
         s.saved.remember(path, &s.messages, headers_only);
         files::prune(path, &s.wanted_files());
+        if let Some(generation) = search_index {
+            search::open_base(&s.search_cache, &s.stamps, path, &generation);
+        }
         Ok(s)
     }
 
@@ -1293,6 +1304,13 @@ impl Store {
         let dir = files::dir(path);
         if dir.exists() {
             std::fs::rename(&dir, files::dir(&aside)).map_err(|e| Error::Storage(format!("{}: {e}", dir.display())))?;
+        }
+        // The search index is only a copy of what the mail says: when it can't move (Windows
+        // refuses while a store in this process still has its file open), it is removed or left,
+        // and the fresh store's first save writes one of its own beside it.
+        let dir = search_file::dir(path);
+        if dir.exists() && std::fs::rename(&dir, search_file::dir(&aside)).is_err() {
+            let _ = std::fs::remove_dir_all(&dir);
         }
         Ok(aside)
     }
@@ -1762,6 +1780,110 @@ END:VCALENDAR\r\n";
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("store.json")
+    }
+
+    fn ids(found: Vec<&Message>) -> Vec<MessageId> {
+        let mut v: Vec<MessageId> = found.iter().map(|m| m.id).collect();
+        v.sort();
+        v
+    }
+
+    /// Tinta: the index on disk is written with the store and read back instead of every
+    /// message's text; what changed after it was written is read again.
+    #[test]
+    fn the_search_index_on_disk_is_used_after_a_restart() {
+        let path = temp("index-disk");
+        let mut s = Store::new();
+        let mut m = msg(&s, "Factura de octubre", 3);
+        m.content_mut().unwrap().body = "El camión llega el lunes".into();
+        let a = s.add_message(m).unwrap();
+        let mut m = msg(&s, "Presupuesto", 4);
+        m.content_mut().unwrap().body = "Reunión en Valencia".into();
+        let b = s.add_message(m).unwrap();
+        s.save(&path).unwrap();
+        let generation = s.search_cache.generation().expect("a segment is written at the first save");
+        assert!(search_file::segment_path(&search_file::dir(&path), &generation).exists());
+
+        let mut s = Store::load(&path).unwrap();
+        assert_eq!(ids(s.search("camion")), [a]);
+        assert_eq!(ids(s.search("valencia OR factura")), [a, b]);
+        assert_eq!(ids(s.search("subject:presu")), [b]);
+        assert_eq!(s.search_cache.indexed(), 0, "nothing read into memory: the segment had it all");
+        // A change, a new message and a removal after the segment was written.
+        s.content_mut(a).unwrap().body = "Ahora dice Sevilla".into();
+        let mut m = msg(&s, "Nueva entrega", 5);
+        m.content_mut().unwrap().body = "camión otra vez".into();
+        let c = s.add_message(m).unwrap();
+        s.remove_message(b).unwrap();
+        assert_eq!(ids(s.search("camion")), [c]);
+        assert_eq!(ids(s.search("sevilla")), [a]);
+        assert!(s.search("valencia").is_empty());
+        assert_eq!(s.search_cache.indexed(), 2, "only what changed is in memory");
+        s.save(&path).unwrap();
+        assert_eq!(s.search_cache.generation(), Some(generation.clone()), "a few changes write no new segment");
+
+        // After another restart the stale list keeps the changed message's old words out.
+        let s = Store::load(&path).unwrap();
+        assert_eq!(ids(s.search("camion")), [c]);
+        assert_eq!(ids(s.search("sevilla")), [a]);
+        assert!(s.search("lunes").is_empty());
+        assert_eq!(s.search_cache.indexed(), 2);
+    }
+
+    #[test]
+    fn a_damaged_or_missing_index_is_rebuilt_in_memory() {
+        let path = temp("index-damaged");
+        let mut s = Store::new();
+        let a = s.add_message(msg(&s, "Factura de octubre", 3)).unwrap();
+        s.save(&path).unwrap();
+        let generation = s.search_cache.generation().unwrap();
+        let seg = search_file::segment_path(&search_file::dir(&path), &generation);
+        let good = std::fs::read(&seg).unwrap();
+        std::fs::write(&seg, &good[..good.len() / 2]).unwrap();
+        let s = Store::load(&path).unwrap();
+        assert_eq!(ids(s.search("factura")), [a]);
+        assert_eq!(s.search_cache.generation(), None);
+        // Gone after it was opened: the search still answers.
+        std::fs::write(&seg, &good).unwrap();
+        let s = Store::load(&path).unwrap();
+        assert!(s.search_cache.generation().is_some());
+        std::fs::remove_file(&seg).unwrap();
+        assert_eq!(ids(s.search("factura")), [a]);
+        // A store file that names no index (written by an older version) is indexed in memory.
+        let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        v.as_object_mut().unwrap().remove("search_index");
+        std::fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+        let s = Store::load(&path).unwrap();
+        assert_eq!(s.search_cache.generation(), None);
+        assert_eq!(ids(s.search("octubre")), [a]);
+    }
+
+    #[test]
+    fn many_new_messages_write_a_new_segment() {
+        let path = temp("index-rewrite");
+        let mut s = Store::new();
+        let first = s.add_message(msg(&s, "primero", 1)).unwrap();
+        s.save(&path).unwrap();
+        let old = s.search_cache.generation().unwrap();
+        let mut s = Store::load(&path).unwrap();
+        let mut last = first;
+        for i in 0..(search::REWRITE_AFTER + 1) {
+            let mut m = msg(&s, &format!("mensaje {i}"), 2);
+            m.content_mut().unwrap().body = format!("palabra{i}");
+            last = s.add_message(m).unwrap();
+        }
+        s.save(&path).unwrap();
+        let new = s.search_cache.generation().unwrap();
+        assert_ne!(new, old);
+        assert_eq!(s.search_cache.indexed(), 0, "the new segment has them all");
+        assert!(!search_file::segment_path(&search_file::dir(&path), &old).exists(), "the old segment goes");
+        assert_eq!(ids(s.search("primero")), [first]);
+        let word = format!("palabra{}", search::REWRITE_AFTER);
+        assert_eq!(ids(s.search(&word)), [last]);
+        let s = Store::load(&path).unwrap();
+        assert_eq!(ids(s.search(&word)), [last]);
+        assert_eq!(s.search("mensaje").len(), search::REWRITE_AFTER + 1);
+        assert_eq!(s.search_cache.indexed(), 0);
     }
 
     fn shard_files(path: &Path) -> Vec<String> {

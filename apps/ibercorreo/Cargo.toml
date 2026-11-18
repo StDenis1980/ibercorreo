@@ -26,6 +26,11 @@ eframe = { workspace = true, features = ["default_fonts", "glow", "accesskit", "
 keyring = "4"
 # Tinta Office error reports: a random installation id (`tinta_report.rs`); already in the tree.
 getrandom = "0.4"
+# Tinta: the system's file picker for Attach file (MIT); on Linux and the BSDs it asks the
+# xdg-desktop-portal, as the other Tinta Office apps do.
+rfd = "0.17"
+# Waits for the picker on a background thread (MIT OR Apache-2.0); rfd already depends on it.
+pollster = "1"
 
 # Events in the GNOME clock panel (`gnome_calendar.rs`): Evolution Data Server's D-Bus API. Already
 # in the tree through the Secret Service keyring.

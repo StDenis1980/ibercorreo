@@ -136,12 +136,35 @@ pub struct Outgoing<'a> {
     pub message_id: &'a str,
 }
 
+/// A file sent with a message ([`write_with_files`]).
+#[derive(Clone, Copy, Debug)]
+pub struct OutFile<'a> {
+    /// The file's name as the recipient sees it.
+    pub name: &'a str,
+    /// Its media type (`application/pdf`); anything that is not `type/subtype` is sent as
+    /// `application/octet-stream`.
+    pub mime_type: &'a str,
+    pub bytes: &'a [u8],
+}
+
 /// RFC 5322 text for `m`, which says `content`, ready for SMTP `DATA` or saving as `.eml`. Lines
 /// end in CRLF.
 pub fn write(m: &Message, content: &Content, out: &Outgoing<'_>) -> Result<String> {
+    write_with_files(m, content, out, &[])
+}
+
+/// [`write`], with `files` attached: the message becomes `multipart/mixed` (RFC 2046 §5.1.3), the
+/// text (or the text and its meeting part) first, then each file in base64 with its name in both
+/// the RFC 2231 form and the RFC 2047 one older programs read. A whole message larger than
+/// [`MAX_MESSAGE_BYTES`] is refused.
+pub fn write_with_files(m: &Message, content: &Content, out: &Outgoing<'_>, files: &[OutFile<'_>]) -> Result<String> {
     // Bcc is never written: blind copies go only in the SMTP envelope.
     if m.to.is_empty() && m.cc.is_empty() && m.bcc.is_empty() {
         return Err(Error::invalid("message", "no recipients"));
+    }
+    let size: usize = files.iter().map(|f| f.bytes.len().div_ceil(3).saturating_mul(4)).fold(0, usize::saturating_add);
+    if size > MAX_MESSAGE_BYTES {
+        return Err(Error::TooLarge { what: "message", size, limit: MAX_MESSAGE_BYTES });
     }
     let domain = out.from.email.rsplit_once('@').map(|(_, d)| d).unwrap_or("localhost");
     let mut s = String::new();
@@ -156,25 +179,141 @@ pub fn write(m: &Message, content: &Content, out: &Outgoing<'_>) -> Result<Strin
     header(&mut s, "Date", &single_line(out.date));
     header(&mut s, "Message-ID", &format!("<{}@{}>", single_line(out.message_id).replace(['<', '>', '@', ' '], ""), domain));
     header(&mut s, "MIME-Version", "1.0");
-    match &content.invite {
-        // An invitation or a reply to one: the text and the calendar as alternatives (RFC 6047
-        // §2.4), the calendar last as the richest. The boundary comes from the Message-ID, so the
-        // same message always renders to the same bytes.
-        Some(cal) => {
-            let unique: String = base64(out.message_id.as_bytes()).chars().filter(char::is_ascii_alphanumeric).take(40).collect();
-            let boundary = format!("=_ibercorreo_{unique}");
-            let method = calendar_method(cal);
-            header(&mut s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
-            s.push_str("\r\n");
+    // Boundaries come from the Message-ID, so the same message always renders to the same bytes.
+    let unique: String = base64(out.message_id.as_bytes()).chars().filter(char::is_ascii_alphanumeric).take(40).collect();
+    if files.is_empty() {
+        body_part(&mut s, content, &unique);
+    } else {
+        let boundary = format!("=_ibercorreo_mixed_{unique}");
+        header(&mut s, "Content-Type", &format!("multipart/mixed; boundary=\"{boundary}\""));
+        s.push_str("\r\n");
+        s.push_str(&format!("--{boundary}\r\n"));
+        body_part(&mut s, content, &unique);
+        for f in files {
             s.push_str(&format!("--{boundary}\r\n"));
-            text_part(&mut s, "text/plain; charset=utf-8", &content.body, Some(&boundary));
-            s.push_str(&format!("--{boundary}\r\n"));
-            text_part(&mut s, &format!("text/calendar; charset=utf-8; method={method}"), clamp_text(cal, MAX_INVITE_BYTES), Some(&boundary));
-            s.push_str(&format!("--{boundary}--\r\n"));
+            file_part(&mut s, f);
         }
-        None => text_part(&mut s, "text/plain; charset=utf-8", &content.body, None),
+        s.push_str(&format!("--{boundary}--\r\n"));
+    }
+    if s.len() > MAX_MESSAGE_BYTES {
+        return Err(Error::TooLarge { what: "message", size: s.len(), limit: MAX_MESSAGE_BYTES });
     }
     Ok(s)
+}
+
+/// The content headers and text of a message's body: plain text, or the text and its meeting
+/// part as alternatives.
+fn body_part(s: &mut String, content: &Content, unique: &str) {
+    match &content.invite {
+        // An invitation or a reply to one: the text and the calendar as alternatives (RFC 6047
+        // §2.4), the calendar last as the richest.
+        Some(cal) => {
+            let boundary = format!("=_ibercorreo_{unique}");
+            let method = calendar_method(cal);
+            header(s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
+            s.push_str("\r\n");
+            s.push_str(&format!("--{boundary}\r\n"));
+            text_part(s, "text/plain; charset=utf-8", &content.body, Some(&boundary));
+            s.push_str(&format!("--{boundary}\r\n"));
+            text_part(s, &format!("text/calendar; charset=utf-8; method={method}"), clamp_text(cal, MAX_INVITE_BYTES), Some(&boundary));
+            s.push_str(&format!("--{boundary}--\r\n"));
+        }
+        None => text_part(s, "text/plain; charset=utf-8", &content.body, None),
+    }
+}
+
+/// An attached file: its type and name, then its bytes in base64 lines of 76 characters.
+fn file_part(s: &mut String, f: &OutFile<'_>) {
+    let mime_type = media_type(f.mime_type);
+    let name = single_line(clamp_text(f.name, 255)).replace(['"', '\\'], "_");
+    let name = if name.trim().is_empty() { "attachment".to_string() } else { name };
+    if name.is_ascii() {
+        header(s, "Content-Type", &format!("{mime_type}; name=\"{name}\""));
+        header(s, "Content-Disposition", &format!("attachment; filename=\"{name}\""));
+    } else {
+        // RFC 2231 for programs that read it, an RFC 2047 word for the ones that read only that.
+        header(s, "Content-Type", &format!("{mime_type}; name=\"{}\"", encode_word(&name).replace("\r\n ", " ")));
+        header(s, "Content-Disposition", &format!("attachment;\r\n filename*=utf-8''{}", percent_encode(&name)));
+    }
+    header(s, "Content-Transfer-Encoding", "base64");
+    s.push_str("\r\n");
+    let encoded = base64(f.bytes);
+    for chunk in encoded.as_bytes().chunks(76) {
+        s.push_str(std::str::from_utf8(chunk).unwrap_or(""));
+        s.push_str("\r\n");
+    }
+}
+
+/// `type/subtype` as given when it is one (lowercased), else `application/octet-stream`: a type
+/// can never carry parameters or a line break into the header.
+fn media_type(raw: &str) -> String {
+    let raw = raw.trim().to_ascii_lowercase();
+    let token = |t: &str| !t.is_empty() && t.len() <= 64 && t.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$&-^_.+".contains(&b));
+    match raw.split_once('/') {
+        Some((a, b)) if token(a) && token(b) => raw,
+        _ => "application/octet-stream".into(),
+    }
+}
+
+/// RFC 2231 / RFC 5987 percent-encoding: letters, digits and `!#$&+-.^_`|~` as they are.
+fn percent_encode(v: &str) -> String {
+    let mut out = String::with_capacity(v.len() * 3);
+    for b in v.bytes() {
+        if b.is_ascii_alphanumeric() || b"!#$&+-.^_`|~".contains(&b) {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The media type for a file called `name`, from its extension: the common document, picture,
+/// archive and calendar types, `application/octet-stream` for the rest.
+pub fn media_type_for(name: &str) -> &'static str {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "txt" | "text" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "htm" | "html" => "text/html",
+        "md" => "text/markdown",
+        "ics" => "text/calendar",
+        "vcf" => "text/vcard",
+        "eml" => "message/rfc822",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "tif" | "tiff" => "image/tiff",
+        "heic" => "image/heic",
+        "zip" => "application/zip",
+        "7z" => "application/x-7z-compressed",
+        "gz" => "application/gzip",
+        "rar" => "application/vnd.rar",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "rtf" => "application/rtf",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        "odp" => "application/vnd.oasis.opendocument.presentation",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "xsig" | "xades" => "application/xml",
+        "p7s" => "application/pkcs7-signature",
+        "mp3" => "audio/mpeg",
+        "ogg" | "oga" => "audio/ogg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        _ => "application/octet-stream",
+    }
 }
 
 /// The `METHOD` of a calendar object, for its `Content-Type` (`REQUEST` when it names none or
@@ -591,5 +730,56 @@ Content-Type: multipart/alternative; boundary=\"a\"\r\n\r\n--a\r\nContent-Type: 
         assert_eq!(m.from.as_ref().and_then(|a| a.name.as_deref()), Some("Марта"));
         assert_eq!(m.date.map(|d| d.to_string()).as_deref(), Some("2025-03-11T09:19"));
         assert!(m.preview(40).is_empty());
+    }
+
+    #[test]
+    fn files_are_attached_and_read_back() {
+        let from = Address::parse("Denys <denys@example.com>").unwrap();
+        let mut m = Message::new(MessageId(1), FolderId(3));
+        m.to = Address::parse_list("ana@example.org").unwrap();
+        m.set_subject("Factura");
+        m.content_mut().unwrap().body = "Adjunto la factura.\n".into();
+        let pdf: Vec<u8> = (0..=255u8).cycle().take(5000).collect();
+        let files = [
+            OutFile { name: "factura 2026.pdf", mime_type: "application/pdf", bytes: &pdf },
+            OutFile { name: "Рахунок «листопад».txt", mime_type: "text/plain\r\nBcc: x@y", bytes: "Привіт".as_bytes() },
+            OutFile { name: "\"quoted\".bin", mime_type: "", bytes: b"" },
+        ];
+        let out = Outgoing { from: &from, date: "Thu, 22 Oct 2026 14:05:00 +0000", message_id: "files" };
+        let raw = write_with_files(&m, m.content().unwrap(), &out, &files).unwrap();
+        assert_eq!(raw, write_with_files(&m, m.content().unwrap(), &out, &files).unwrap(), "the same bytes every time");
+        assert!(raw.contains("Content-Type: multipart/mixed; boundary="), "{raw}");
+        assert!(!raw.contains("\r\nBcc:"), "a type can't start a header: {raw}");
+        assert!(raw.lines().all(|l| l.len() <= 998), "no line too long");
+        let (back, contents) = parse_with_files(raw.as_bytes(), MessageId(2), FolderId(0)).unwrap();
+        assert_eq!(back.content().unwrap().body.trim_end(), "Adjunto la factura.");
+        let names: Vec<(&str, &str, usize)> = back.attachments.iter().map(|a| (a.name.as_str(), a.mime_type.as_str(), a.size)).collect();
+        assert_eq!(
+            names,
+            [
+                ("factura 2026.pdf", "application/pdf", 5000),
+                ("Рахунок «листопад».txt", "application/octet-stream", 12),
+                ("_quoted_.bin", "application/octet-stream", 0)
+            ]
+        );
+        assert_eq!(contents.first().map(Vec::as_slice), Some(pdf.as_slice()));
+        assert_eq!(contents.get(1).map(Vec::as_slice), Some("Привіт".as_bytes()));
+        // An invitation with a file: the alternative inside the mixed message.
+        m.content_mut().unwrap().invite = Some(REQUEST.into());
+        let raw = write_with_files(&m, m.content().unwrap(), &out, files.get(..1).unwrap()).unwrap();
+        let back = parse(raw.as_bytes(), MessageId(3), FolderId(0)).unwrap();
+        assert_eq!(back.content().unwrap().invite.as_deref(), Some(REQUEST));
+        assert_eq!(back.attachments.len(), 1);
+        // No files: the same text as before.
+        assert_eq!(write_with_files(&m, m.content().unwrap(), &out, &[]).unwrap(), write(&m, m.content().unwrap(), &out).unwrap());
+    }
+
+    #[test]
+    fn media_types_come_from_the_extension() {
+        assert_eq!(media_type_for("Factura.PDF"), "application/pdf");
+        assert_eq!(media_type_for("informe.odt"), "application/vnd.oasis.opendocument.text");
+        assert_eq!(media_type_for("noextension"), "application/octet-stream");
+        assert_eq!(media_type("Image/PNG"), "image/png");
+        assert_eq!(media_type("text/plain; charset=x"), "application/octet-stream");
     }
 }

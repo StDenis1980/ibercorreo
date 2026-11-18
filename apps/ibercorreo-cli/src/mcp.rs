@@ -56,6 +56,8 @@ approve, call send_draft with its id and the contentHash read_message gave: a dr
 Calendar: list_calendars, list_events, add_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
 update_contact.";
 
+const ATTACHING: &str = " attach_file attaches a file from the folders this server may read to a draft.";
+
 const SAVING: &str = " Files: save_attachment saves one of a message's attachments (read_message lists them, with `kept` \
 saying whether Tinta Correo has its contents) into the folders this server may write to; it never replaces a file.";
 
@@ -212,6 +214,20 @@ const TOOLS: &[Tool] = &[
             ),
         ],
         required: &["id", "attachment"],
+    },
+    Tool {
+        name: "attach_file",
+        title: "Attach file",
+        description: "Attaches a file to a draft, from the folders this server may read (--automation-read-root). The draft's contentHash changes with it, so read_message again before asking the person to approve it.",
+        commands: &["message.attach"],
+        read_only: false,
+        destructive: false,
+        args: &[
+            ("id", "integer", "The draft's id."),
+            ("path", "string", "The file: absolute, or relative to the first read root. It must lie inside a read root."),
+            ("name", "string", "The name the recipient sees; default the file's own name."),
+        ],
+        required: &["id", "path"],
     },
     Tool {
         name: "set_flag",
@@ -430,11 +446,14 @@ pub struct Limits {
     /// `--automation-write-root`: the folders `save_attachment` may write to; none, no tool
     /// writes a file.
     pub write_roots: Vec<Root>,
+    /// Tinta: `--automation-read-root`: the folders `attach_file` may read from; none, no tool
+    /// reads a file.
+    pub read_roots: Vec<Root>,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { send: false, commands: None, max_messages: DEFAULT_MAX_MESSAGES, write_roots: Vec::new() }
+        Limits { send: false, commands: None, max_messages: DEFAULT_MAX_MESSAGES, write_roots: Vec::new(), read_roots: Vec::new() }
     }
 }
 
@@ -444,7 +463,9 @@ impl Limits {
     }
 
     fn lists(&self, t: &Tool) -> bool {
-        (t.name != "save_attachment" || !self.write_roots.is_empty()) && t.commands.iter().any(|c| self.allows(c))
+        (t.name != "save_attachment" || !self.write_roots.is_empty())
+            && (t.name != "attach_file" || !self.read_roots.is_empty())
+            && t.commands.iter().any(|c| self.allows(c))
     }
 }
 
@@ -753,11 +774,12 @@ impl Server {
                 let sending =
                     if self.limits.send { "" } else { " Sending is off on this server (no send_draft): drafts are left for the person to send." };
                 let saving = if self.limits.write_roots.is_empty() { "" } else { SAVING };
+                let attaching = if self.limits.read_roots.is_empty() { "" } else { ATTACHING };
                 Ok(json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
                     "serverInfo": { "name": "tinta-correo", "title": "Tinta Correo", "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{INSTRUCTIONS}{sending}{saving}"),
+                    "instructions": format!("{INSTRUCTIONS}{sending}{saving}{attaching}"),
                 }))
             }
             "ping" => Ok(json!({})),
@@ -827,6 +849,7 @@ impl Server {
                 self.run("message.read", Value::Object(params)).map(|v| readable(v, chars))
             }
             "save_attachment" => self.save_attachment(&params),
+            "attach_file" => self.attach_file(&params),
             "reply_to_message" => {
                 let all = params.remove("all").and_then(|v| v.as_bool()).unwrap_or(false);
                 self.run(if all { "message.replyAll" } else { "message.reply" }, Value::Object(params))
@@ -891,6 +914,23 @@ impl Server {
     }
 }
 
+impl Server {
+    /// Tinta: `attach_file`: read a file inside a read root and attach it to a draft with
+    /// `message.attach` (in the open window when there is one).
+    fn attach_file(&mut self, params: &Map<String, Value>) -> Result<Value, String> {
+        if self.limits.read_roots.is_empty() {
+            return Err("attaching files is off on this server: start it with --automation-read-root FOLDER".into());
+        }
+        let path = params.get("path").and_then(Value::as_str).ok_or("`path` is required: the file to attach")?;
+        let file = write_root::source(&self.limits.read_roots, path)?;
+        let (own, bytes) = ibercorreo_engine::attachments::read_to_attach(&file).map_err(|e| e.to_string())?;
+        let name = params.get("name").and_then(Value::as_str).filter(|n| !n.trim().is_empty()).map_or(own, str::to_string);
+        let id = params.get("id").cloned().unwrap_or(Value::Null);
+        let data = ibercorreo_mime::base64(&bytes);
+        self.run("message.attach", json!({ "id": id, "name": name, "data": data }))
+    }
+}
+
 /// At most `n` of a list asked for with one more, and whether there were more.
 fn page(v: Value, n: usize) -> Value {
     match v {
@@ -923,7 +963,6 @@ pub fn main(args: &[String]) -> Result<(), String> {
     let mut store_path: Option<PathBuf> = None;
     let mut sample = false;
     let mut limits = Limits::default();
-    let mut read_roots = 0usize;
     let mut seen = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -934,8 +973,7 @@ pub fn main(args: &[String]) -> Result<(), String> {
             if write {
                 limits.write_roots.push(root);
             } else {
-                // Taken so a host can pass every Tinta app the same flags; no Correo tool reads a file.
-                read_roots = read_roots.saturating_add(1);
+                limits.read_roots.push(root);
             }
             continue;
         }
@@ -973,8 +1011,9 @@ pub fn main(args: &[String]) -> Result<(), String> {
         let roots = limits.write_roots.iter().map(|r| r.shown().display().to_string()).collect::<Vec<_>>().join(", ");
         eprintln!("files confined: save_attachment writes only in {roots}");
     }
-    if read_roots > 0 {
-        eprintln!("--automation-read-root: accepted; no Tinta Correo tool reads files");
+    if !limits.read_roots.is_empty() {
+        let roots = limits.read_roots.iter().map(|r| r.shown().display().to_string()).collect::<Vec<_>>().join(", ");
+        eprintln!("files confined: attach_file reads only in {roots}");
     }
     let stdin = std::io::stdin();
     Server::new(mailbox, limits).serve(stdin.lock(), std::io::stdout().lock()).map_err(|e| e.to_string())

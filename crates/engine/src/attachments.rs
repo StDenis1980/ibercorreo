@@ -269,6 +269,30 @@ pub fn opened_dir() -> Option<PathBuf> {
     crate::instance::data_dir().map(|d| d.join("Opened"))
 }
 
+/// Tinta: the name and contents of the file at `path`, to attach to a draft ([`attach`]): a
+/// regular file no larger than a message can carry ([`crate::commands::MAX_DRAFT_FILES_BYTES`]),
+/// checked before it is read.
+pub fn read_to_attach(path: &Path) -> Result<(String, Vec<u8>)> {
+    let meta = std::fs::metadata(path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
+    if !meta.is_file() {
+        return Err(Error::invalid("file", format!("{}: not a file", path.display())));
+    }
+    let limit = crate::commands::MAX_DRAFT_FILES_BYTES;
+    if meta.len() > limit as u64 {
+        return Err(Error::TooLarge { what: "attachment", size: usize::try_from(meta.len()).unwrap_or(usize::MAX), limit });
+    }
+    let bytes = std::fs::read(path).map_err(|e| Error::Storage(format!("{}: {e}", path.display())))?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok((file_name(&name), bytes))
+}
+
+/// Tinta: attach `bytes`, called `name`, to draft `id` through `message.attach` (undoable, saved
+/// like any edit).
+pub fn attach(s: &mut crate::Session, id: MessageId, name: &str, bytes: &[u8]) -> Result<()> {
+    let data = ibercorreo_mime::base64(bytes);
+    s.run("message.attach", &serde_json::json!({ "id": id.0, "name": name, "data": data })).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

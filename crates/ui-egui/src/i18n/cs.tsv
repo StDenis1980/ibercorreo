@@ -434,3 +434,12 @@
 	Last 2 years	Poslední 2 roky
 	All mail is downloaded whole	Veškerá pošta se stahuje celá
 	Older mail is downloaded as its header, and its text when opened	Starší pošta se stahuje se záhlavím a text při otevření
+# Tinta: files attached to a draft
+	Attach file	Přiložit soubor
+	Attach files to this message (or drop them on the window)	Přiložit soubory k této zprávě (nebo je přetáhněte do okna)
+	Remove this attachment	Odebrat tuto přílohu
+	Could not attach {name}: {error}	{name} se nepodařilo přiložit: {error}
+	No file picker on this system: drop the files on the window instead	Tento systém nemá výběr souborů: přetáhněte soubory do okna
+	{count} files, {size}	Soubory: {count}, {size}
+	Attached {name}	Přiloženo {name}
+	Some attachments are not kept on this computer and were left out	Některé přílohy nejsou v tomto počítači uloženy, a proto byly vynechány

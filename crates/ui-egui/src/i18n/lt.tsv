@@ -434,3 +434,12 @@
 	Last 2 years	Paskutiniai 2 metai
 	All mail is downloaded whole	Visi laiškai atsisiunčiami pilnai
 	Older mail is downloaded as its header, and its text when opened	Senesni laiškai atsisiunčiami su antrašte, o tekstas juos atidarius
+# Tinta: files attached to a draft
+	Attach file	Pridėti failą
+	Attach files to this message (or drop them on the window)	Pridėti failus prie šio laiško (arba nutempti juos į langą)
+	Remove this attachment	Pašalinti šį priedą
+	Could not attach {name}: {error}	Nepavyko pridėti {name}: {error}
+	No file picker on this system: drop the files on the window instead	Šioje sistemoje nėra failų parinkiklio: nutempkite failus į langą
+	{count} files, {size}	Failų: {count}, {size}
+	Attached {name}	Pridėta {name}
+	Some attachments are not kept on this computer and were left out	Kai kurie priedai šiame kompiuteryje nesaugomi, todėl jie praleisti

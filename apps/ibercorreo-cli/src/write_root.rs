@@ -131,6 +131,25 @@ pub fn target(roots: &[Root], path: Option<&str>, name: &str) -> Result<PathBuf,
     Ok(entry)
 }
 
+/// Tinta: the file at `path` (absolute, or relative to the first root), with its links followed,
+/// after checking that it is a file inside one of `roots` (the read roots of `attach_file`).
+pub fn source(roots: &[Root], path: &str) -> Result<PathBuf, String> {
+    let first = roots.first().ok_or("attaching files is off on this server: start it with --automation-read-root FOLDER")?;
+    if path.is_empty() {
+        return Err("`path` is empty".into());
+    }
+    let given = first.resolved.join(path);
+    let resolved = std::fs::canonicalize(&given).map_err(|e| format!("{path}: {e}"))?;
+    if !roots.iter().any(|r| inside(&resolved, &r.resolved)) {
+        let shown_roots = roots.iter().map(|r| r.shown.display().to_string()).collect::<Vec<_>>().join(", ");
+        return Err(format!("{path}: outside the read root{} {shown_roots}", if roots.len() > 1 { "s" } else { "" }));
+    }
+    if !resolved.is_file() {
+        return Err(format!("{path}: not a file"));
+    }
+    Ok(resolved)
+}
+
 /// `to` as people read it (without Windows' `\\?\` prefix).
 pub fn shown(to: &Path) -> String {
     plain(to.to_path_buf()).display().to_string()

@@ -82,7 +82,8 @@ pub fn sent_mailbox(mailboxes: &[ibercorreo_imap::Mailbox], linked: Option<&str>
 }
 
 /// Store a copy of each sent message in the server mailbox `sent_path`, marked read. Servers that
-/// save sent mail themselves would then hold two copies: Gmail is known ([`server_saved`]);
+/// save sent mail themselves would then hold two copies: Gmail, Outlook.com and Exchange Online
+/// are known ([`server_saved`]);
 /// others will need an account setting (`docs/gaps.md`).
 pub fn save_sent<S: Read + Write>(client: &mut ibercorreo_imap::Client<S>, sent_path: &str, mail: &[Outgoing], results: &mut [Sent]) {
     for r in results.iter_mut() {

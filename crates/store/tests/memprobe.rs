@@ -29,8 +29,12 @@ fn memprobe() {
         let s = Store::load(&path).unwrap();
         let loaded = rss();
         eprintln!("fresh process: loaded store {} MB", loaded.saturating_sub(base));
+        let t = std::time::Instant::now();
         (s.search_warmup())();
-        eprintln!("fresh process: index {} MB, total rss {} MB", rss().saturating_sub(loaded), rss());
+        eprintln!("fresh process: index {} MB in {:?}, total rss {} MB", rss().saturating_sub(loaded), t.elapsed(), rss());
+        let t = std::time::Instant::now();
+        let hits = s.search("valencia lunes").len();
+        eprintln!("fresh process: search {hits} in {:?}, total rss {} MB", t.elapsed(), rss());
         return;
     }
     let n: u64 = std::env::var("N").ok().and_then(|v| v.parse().ok()).unwrap_or(67000);
@@ -81,9 +85,14 @@ fn memprobe() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("store.json");
+    // As the app does: the index is built in memory at the first start, then the first save
+    // writes it to disk.
+    let t = std::time::Instant::now();
+    (s.search_warmup())();
+    eprintln!("index in memory {:?}", t.elapsed());
     let t = std::time::Instant::now();
     s.save(&path).unwrap();
-    eprintln!("save {:?}", t.elapsed());
+    eprintln!("save (with the index) {:?}", t.elapsed());
     drop(s);
     let before = rss();
     let t = std::time::Instant::now();

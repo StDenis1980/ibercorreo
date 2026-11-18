@@ -435,3 +435,12 @@
 	Last 2 years	Les 2 dernières années
 	All mail is downloaded whole	Tout le courrier est téléchargé en entier
 	Older mail is downloaded as its header, and its text when opened	Le courrier plus ancien est téléchargé avec son en-tête, et son texte à l'ouverture
+# Tinta: files attached to a draft
+	Attach file	Joindre un fichier
+	Attach files to this message (or drop them on the window)	Joindre des fichiers à ce message (ou les déposer sur la fenêtre)
+	Remove this attachment	Retirer cette pièce jointe
+	Could not attach {name}: {error}	Impossible de joindre {name} : {error}
+	No file picker on this system: drop the files on the window instead	Aucun sélecteur de fichiers sur ce système : déposez les fichiers sur la fenêtre
+	{count} files, {size}	{count} fichiers, {size}
+	Attached {name}	{name} joint
+	Some attachments are not kept on this computer and were left out	Certaines pièces jointes ne sont pas conservées sur cet ordinateur et ont été omises

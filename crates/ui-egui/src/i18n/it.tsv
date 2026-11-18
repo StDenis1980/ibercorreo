@@ -435,3 +435,12 @@
 	Last 2 years	Ultimi 2 anni
 	All mail is downloaded whole	Tutta la posta viene scaricata intera
 	Older mail is downloaded as its header, and its text when opened	La posta più vecchia viene scaricata con l'intestazione, e il testo quando la apri
+# Tinta: files attached to a draft
+	Attach file	Allega file
+	Attach files to this message (or drop them on the window)	Allega file a questo messaggio (o trascinali sulla finestra)
+	Remove this attachment	Rimuovi questo allegato
+	Could not attach {name}: {error}	Impossibile allegare {name}: {error}
+	No file picker on this system: drop the files on the window instead	Nessun selettore di file su questo sistema: trascina i file sulla finestra
+	{count} files, {size}	{count} file, {size}
+	Attached {name}	Allegato {name}
+	Some attachments are not kept on this computer and were left out	Alcuni allegati non sono conservati su questo computer e sono stati esclusi
