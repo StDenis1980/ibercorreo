@@ -56,11 +56,14 @@ pub struct Limits {
     /// Tinta: mail that arrived before this day comes as its header only (over IMAP); its text is
     /// downloaded when the person opens it ([`State::bodies`]). `None`: every message whole.
     pub full_since: Option<ibercorreo_core::Date>,
+    /// Tinta: only the Inbox this time (an account's first sync over IMAP), so it shows in
+    /// minutes; the other mailboxes follow at once in the next sync ([`Batch::folders_left`]).
+    pub inbox_only: bool,
 }
 
 impl Default for Limits {
     fn default() -> Self {
-        Limits { new_per_folder: 500, fetch_batch: 25, flag_batch: 1000, folders: 500, full_since: None }
+        Limits { new_per_folder: 500, fetch_batch: 25, flag_batch: 1000, folders: 500, full_since: None, inbox_only: false }
     }
 }
 
@@ -190,6 +193,8 @@ pub struct Batch {
     /// `mailboxes` is the server's whole list, not cut at [`Limits::folders`]: a linked folder
     /// whose mailbox is not in it is gone from the server, and [`apply`] unlinks it.
     pub listed_all: bool,
+    /// Tinta: mailboxes left out of this sync by [`Limits::inbox_only`], for the next one.
+    pub folders_left: usize,
 }
 
 fn has(flags: &[String], flag: &str) -> bool {
@@ -232,6 +237,15 @@ pub fn run_with<S: Read + Write>(client: &mut Client<S>, state: &State, limits: 
     let mut mailboxes = client.list()?;
     batch.listed_all = mailboxes.len() <= limits.folders;
     mailboxes.truncate(limits.folders);
+    // Tinta: the Inbox first, so it is the first folder whose mail comes in.
+    mailboxes.sort_by_key(|m| m.role() != FolderRole::Inbox);
+    if limits.inbox_only && mailboxes.iter().any(|m| m.role() == FolderRole::Inbox) {
+        let before = mailboxes.iter().filter(|m| m.selectable()).count();
+        mailboxes.retain(|m| m.role() == FolderRole::Inbox);
+        batch.folders_left = before.saturating_sub(mailboxes.iter().filter(|m| m.selectable()).count());
+        // Not the whole list: nothing may be unlinked for being absent from it.
+        batch.listed_all = false;
+    }
     let selectable: Vec<&Mailbox> = mailboxes.iter().filter(|m| m.selectable()).collect();
     let folders = selectable.len();
     for (index, mailbox) in selectable.into_iter().enumerate() {
@@ -380,6 +394,8 @@ pub struct Report {
     pub folders_unlinked: usize,
     /// Messages on the server still to download.
     pub remaining: usize,
+    /// Tinta: mailboxes not synced yet ([`Limits::inbox_only`]): the next sync should come at once.
+    pub folders_left: usize,
     pub errors: Vec<String>,
     /// Mail new in an Inbox that was synced before (newer than everything it held), for the
     /// rules to run on; not the first download of a folder, nor older mail fetched later.
@@ -480,6 +496,7 @@ pub fn apply(store: &mut Store, account: AccountId, batch: Batch) -> Report {
     if batch.listed_all {
         unlink_gone(store, account, &batch.mailboxes, &mut report);
     }
+    report.folders_left = batch.folders_left;
 
     let mut folder_ids: BTreeMap<String, FolderId> = BTreeMap::new();
     for mailbox in batch.mailboxes.iter().filter(|m| m.selectable()) {

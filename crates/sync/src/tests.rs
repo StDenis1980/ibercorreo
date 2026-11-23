@@ -277,6 +277,57 @@ a3 OK examined
     assert_eq!(run(&mut c, &s, &Limits::default()), Err(Error::Closed));
 }
 
+#[test]
+fn a_first_sync_brings_the_inbox_alone_and_says_folders_are_left() {
+    // Gmail lists the Inbox after its other mailboxes; the first sync (#91) takes the Inbox only.
+    let mut c = client(
+        "* OK [CAPABILITY IMAP4rev1] hi
+* LIST () \"/\" Work
+* LIST (\\Noselect) \"/\" [Gmail]
+* LIST (\\All) \"/\" \"[Gmail]/All Mail\"
+* LIST () \"/\" INBOX
+a1 OK listed
+* 1 EXISTS
+* OK [UIDVALIDITY 9] ok
+a2 OK examined
+* SEARCH 5
+a3 OK searched
+* 1 FETCH (UID 5 FLAGS () BODY[] {4}
+five)
+a4 OK fetched
+",
+    );
+    let limits = Limits { inbox_only: true, ..Limits::default() };
+    let batch = run(&mut c, &State::default(), &limits).unwrap();
+    assert_eq!(batch.folders.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["INBOX"]);
+    assert_eq!(batch.folders_left, 2, "Work and All Mail; the Noselect parent is no folder");
+    assert!(!batch.listed_all, "the list was cut: nothing may be unlinked for missing from it");
+    assert!(sent(c).contains("a2 EXAMINE INBOX\n"), "the Inbox is the only mailbox opened");
+    let mut store = Store::new();
+    let report = apply(&mut store, A, batch);
+    assert_eq!((report.added, report.folders_left), (1, 2), "{report:?}");
+    let inbox = store.folders_of(A).iter().find(|f| f.role == FolderRole::Inbox).map(|f| f.id).unwrap();
+    assert_eq!(store.messages_in(inbox).len(), 1, "the Inbox shows its mail after the first round");
+
+    // Without the limit the Inbox still comes first.
+    let mut c = client(
+        "* OK [CAPABILITY IMAP4rev1] hi
+* LIST () \"/\" Work
+* LIST () \"/\" INBOX
+a1 OK listed
+* 0 EXISTS
+* OK [UIDVALIDITY 9] ok
+a2 OK examined
+* 0 EXISTS
+* OK [UIDVALIDITY 3] ok
+a3 OK examined
+",
+    );
+    let batch = run(&mut c, &State::default(), &Limits::default()).unwrap();
+    assert_eq!(batch.folders.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["INBOX", "Work"]);
+    assert_eq!(batch.folders_left, 0);
+}
+
 mod sending {
     use super::super::outbox::{Outcome, Outgoing, Sent, send};
     use super::*;
