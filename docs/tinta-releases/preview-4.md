@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
-> **Status:** 2026-11-18 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes).
+> **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -26,6 +26,8 @@ Novedades:
   usa unas 10 veces menos memoria y la búsqueda está lista nada más abrir el programa.
 - **Enviar** empieza a enviar al instante, y con Outlook.com ya no aparece una segunda copia en
   Enviados.
+- **Al añadir una cuenta grande**, la Bandeja de entrada llega primero y se ve en minutos; las
+  demás carpetas siguen justo después.
 - **Exportar todo** a mbox, iCalendar y vCard con un botón, y una guía para pasar de Outlook.
 - **Borrar sin sustos:** al borrar desde la papelera se pide confirmación antes de eliminarlo para siempre.
 - Corregidos solapamientos en la lista de mensajes y en la barra de estado.
@@ -54,6 +56,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
   пам'яті потрібно приблизно вдесятеро менше, а пошук готовий одразу після запуску.
 - **«Надіслати»** починає надсилання одразу, а з Outlook.com у «Надісланих» більше немає другої
   копії листа.
+- **Після додавання великої скриньки** спершу приходять «Вхідні», і їх видно за кілька хвилин;
+  інші папки підтягуються одразу слідом.
 - **Експорт усього** в mbox, iCalendar і vCard однією кнопкою та посібник із переходу з Outlook.
 - **Видалення без несподіванок:** видалення з кошика спершу питає, чи стерти лист назавжди.
 - Виправлено накладання в списку листів і в рядку стану.
@@ -81,6 +85,8 @@ What's new:
   open it (with Exchange and Microsoft 365 too). The search index is kept on disk, so it uses about
   ten times less memory and search is ready as soon as the app starts.
 - **Send** starts sending at once, and Outlook.com no longer gets a second copy in Sent.
+- **Adding a big account:** its Inbox comes first and shows within minutes; the other folders follow
+  right after.
 - **Export everything** to mbox, iCalendar and vCard with one button, and a guide to move from Outlook.
 - **Safer delete:** deleting from Deleted Items asks before it deletes for good.
 - Fixed overlaps in the message list and the status bar.
