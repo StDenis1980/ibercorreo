@@ -490,8 +490,13 @@ impl Shell {
             };
             let s = &self.app.session;
             let id = account.id;
+            let state = s.sync_state(id);
+            // An account's first Send/Receive brings its Inbox alone, so the mail shows in
+            // minutes even when the account holds tens of thousands of messages (#91); the other
+            // folders come in the round right after.
+            let limits = ibercorreo_sync::Limits { inbox_only: state.known.is_empty(), ..s.sync_limits() };
             jobs.push(ibercorreo_net::job::Job {
-                state: s.sync_state(id),
+                state,
                 outbox: s.outbox(id),
                 sent_path: s.sent_path(id),
                 dav_credential: (!account.dav_goa.is_empty())
@@ -499,7 +504,7 @@ impl Shell {
                 account,
                 credential,
                 tls: tls.clone(),
-                limits: s.sync_limits(),
+                limits,
                 calendar: s.calendar_sync_state(),
                 contacts: s.contacts_sync_state(),
             });
@@ -592,7 +597,7 @@ impl Shell {
         match finished.batch {
             Ok(batch) => {
                 let report = self.app.session.apply_sync(id, batch);
-                self.more |= report.remaining > 0 && report.added > 0;
+                self.more |= (report.remaining > 0 && report.added > 0) || report.folders_left > 0;
                 self.keep_watching(id);
             }
             Err(e) => {
