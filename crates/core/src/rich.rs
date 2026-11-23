@@ -36,7 +36,7 @@ pub struct Block {
 
 /// Tinta: where a block sits in a table: blocks with the same `table` that follow each other make
 /// one table; `row` and `col` count from 0.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Cell {
     pub table: u16,
     pub row: u16,
@@ -44,6 +44,23 @@ pub struct Cell {
     /// A heading cell (`<th>`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub header: bool,
+    /// Tinta: the columns it covers (`colspan`); 0 and 1 are one.
+    #[serde(default, skip_serializing_if = "one_column")]
+    pub span: u16,
+    /// Tinta: the background the sender gave the cell or its row, `0xRRGGBB`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<u32>,
+}
+
+impl Cell {
+    /// The columns it covers, at least one.
+    pub fn columns(&self) -> u16 {
+        self.span.max(1)
+    }
+}
+
+fn one_column(span: &u16) -> bool {
+    *span <= 1
 }
 
 /// Smallest and largest text size kept ([`Span::size`]), in percent of normal text.
@@ -362,7 +379,7 @@ mod tests {
             kind: BlockKind::Paragraph,
             quote: 0,
             spans: vec![Span { text: t.into(), ..Span::default() }],
-            cell: Some(Cell { table: 0, row, col, header: row == 0 }),
+            cell: Some(Cell { table: 0, row, col, header: row == 0, ..Cell::default() }),
         };
         let r = Rich { blocks: vec![cell(0, 0, "Item"), cell(0, 1, "Price"), cell(1, 0, "Tea"), cell(1, 1, "3 €")], remote_images: 0 };
         assert_eq!(r.to_text(), "Item\tPrice\nTea\t3 €");

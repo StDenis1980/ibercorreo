@@ -15,6 +15,13 @@ use crate::{Pictures, rich_block};
 const MIN_CONTRAST: f32 = 3.0;
 /// Narrowest column drawn.
 const MIN_COLUMN: f32 = 48.0;
+/// A cell background this close to white only matched a white page, and is not drawn.
+const PAGE_WHITE: f32 = 1.05;
+
+/// The background to draw behind a cell: the sender's, unless it is about white.
+pub(crate) fn cell_background(sender: Option<u32>) -> Option<Color32> {
+    sender.map(rgb).filter(|c| contrast(*c, Color32::WHITE) >= PAGE_WHITE)
+}
 
 /// `0xRRGGBB` as a colour.
 pub(crate) fn rgb(c: u32) -> Color32 {
@@ -50,9 +57,11 @@ pub(crate) fn text_color(sender: Option<u32>, usual: Color32, behind: Color32) -
 }
 
 /// The blocks of one table, `first` being where it starts among the message's blocks: a grid, a
-/// column per cell, rows striped. When copied, cells are a tab apart and rows a line.
+/// column per cell, rows striped. A merged cell (`colspan`) keeps the columns it covers empty, so
+/// the cells after it stay in theirs; a cell with a background has it drawn behind its text. When
+/// copied, cells are a tab apart and rows a line.
 pub(crate) fn table(ui: &mut Ui, t: &Tokens, blocks: &[Block], first: usize, body: &mut BodyText, pictures: &mut Pictures<'_>) {
-    let cols = blocks.iter().filter_map(|b| b.cell).map(|c| usize::from(c.col) + 1).max().unwrap_or(1);
+    let cols = blocks.iter().filter_map(|b| b.cell).map(|c| usize::from(c.col) + usize::from(c.columns())).max().unwrap_or(1);
     let gap = 14.0;
     let room = ui.available_width();
     // Precision does not matter for a count of columns.
@@ -84,14 +93,23 @@ pub(crate) fn table(ui: &mut Ui, t: &Tokens, blocks: &[Block], first: usize, bod
                         "\t"
                     };
                     first_cell = false;
-                    ui.vertical(|ui| {
+                    let fill = cell_background(c.background);
+                    // Painted once the cell's size is known, under its text.
+                    let slot = ui.painter().add(egui::Shape::Noop);
+                    let width = ui.available_width().min(column);
+                    let cell = ui.vertical(|ui| {
                         ui.set_max_width(column);
                         ui.spacing_mut().item_spacing.y = 2.0;
                         for (k, b) in blocks.get(i..i + len).unwrap_or(&[]).iter().enumerate() {
-                            rich_block(ui, t, b, body, pictures, Some(if k == 0 { lead } else { "\n" }));
+                            rich_block(ui, t, b, body, pictures, Some(if k == 0 { lead } else { "\n" }), fill.unwrap_or(t.card));
                         }
                     });
-                    next_col = c.col.saturating_add(1);
+                    if let Some(fill) = fill {
+                        let mut rect = cell.response.rect;
+                        rect.set_width(rect.width().max(width));
+                        ui.painter().set(slot, egui::Shape::rect_filled(rect.expand2(vec2(5.0, 3.0)), 3, fill));
+                    }
+                    next_col = c.col.saturating_add(c.columns());
                     i += len;
                 }
                 ui.end_row();
@@ -119,5 +137,16 @@ mod tests {
         assert_eq!(text_color(None, light_text, rgb(0xffff00)), Color32::BLACK);
         assert!(contrast(Color32::BLACK, white) > 20.0);
         assert!((contrast(white, white) - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_white_cell_background_is_not_drawn_a_coloured_one_is() {
+        assert_eq!(cell_background(Some(0xffffff)), None);
+        assert_eq!(cell_background(Some(0xfdfdfd)), None);
+        assert_eq!(cell_background(None), None);
+        assert_eq!(cell_background(Some(0xdddddd)), Some(rgb(0xdddddd)));
+        // Light text in the dark theme turns dark on a light cell.
+        let light_text = Color32::from_rgb(0xe8, 0xe8, 0xe8);
+        assert_eq!(text_color(None, light_text, rgb(0xdddddd)), Color32::BLACK);
     }
 }

@@ -442,3 +442,7 @@
 	{count} files, {size}	{count} archivos, {size}
 	Attached {name}	Adjuntado {name}
 	Some attachments are not kept on this computer and were left out	Algunos adjuntos no se guardan en este equipo y se han omitido
+# Tinta: asking before opening a deceptive link
+	Open this link?	¿Abrir este enlace?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	El texto de este enlace nombra un sitio, pero lleva a otra dirección. Ábralo solo si confía en el remitente.
+	Open link	Abrir enlace

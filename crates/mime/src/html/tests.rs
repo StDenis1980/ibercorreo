@@ -214,6 +214,51 @@ fn tables_of_data_keep_their_cells_and_layout_tables_flow() {
     assert!(to_rich(&wide).blocks.iter().all(|b| b.cell.is_none()), "too wide to be a table");
 }
 
+/// Tinta: merged cells keep the cells after them in their own columns, and the backgrounds of
+/// cells and rows stay with the cells.
+#[test]
+fn merged_cells_and_cell_backgrounds_keep_their_place() {
+    let r = to_rich(
+        "<table><tr bgcolor=\"#dddddd\"><th colspan=2>Order</th><th>Price</th></tr>\
+         <tr><td rowspan=2>Tea</td><td>green</td><td style=\"background-color:#ffeeaa\">3 €</td></tr>\
+         <tr><td>black</td><td>2 €</td></tr>\
+         <tr><td colspan=\"2\">Total</td><td>5 €</td></tr></table>",
+    );
+    let cells: Vec<_> = r
+        .blocks
+        .iter()
+        .filter_map(|b| b.cell.map(|c| (b.spans.first().map(|s| s.text.clone()).unwrap_or_default(), c.row, c.col, c.columns(), c.background)))
+        .collect();
+    let cell = |t: &str, row, col, span, bg| (t.to_string(), row, col, span, bg);
+    assert_eq!(
+        cells,
+        [
+            cell("Order", 0, 0, 2, Some(0xdd_dddd)),
+            cell("Price", 0, 2, 1, Some(0xdd_dddd)),
+            cell("Tea", 1, 0, 1, None),
+            cell("green", 1, 1, 1, None),
+            cell("3 €", 1, 2, 1, Some(0xff_eeaa)),
+            // "Tea" covers the first column of this row.
+            cell("black", 2, 1, 1, None),
+            cell("2 €", 2, 2, 1, None),
+            cell("Total", 3, 0, 2, None),
+            cell("5 €", 3, 2, 1, None),
+        ]
+    );
+    // The background stays a cell's, not a highlight of its text.
+    assert!(r.blocks.iter().flat_map(|b| &b.spans).all(|s| s.highlight.is_none()));
+
+    // Hostile spans are bounded: a huge or broken count is clamped, and too wide a table flows.
+    let huge = to_rich("<table><tr><td colspan=99999999999>a</td><td>b</td></tr><tr><td rowspan=4000000000>c</td><td>d</td></tr></table>");
+    assert!(huge.blocks.iter().all(|b| b.cell.is_none()), "wider than any table of data");
+    let broken = to_rich("<table><tr><td colspan=x rowspan=0>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>");
+    let cols: Vec<_> = broken.blocks.iter().filter_map(|b| b.cell.map(|c| (c.row, c.col, c.columns()))).collect();
+    assert_eq!(cols, [(0, 0, 1), (0, 1, 1), (1, 0, 1), (1, 1, 1)]);
+    let tall = to_rich("<table><tr><td rowspan=65535>a</td><td>b</td></tr><tr><td>c</td><td>d</td></tr></table>");
+    let cols: Vec<_> = tall.blocks.iter().filter_map(|b| b.cell.map(|c| (c.row, c.col))).collect();
+    assert_eq!(cols, [(0, 0), (0, 1), (1, 1), (1, 2)]);
+}
+
 /// Tinta: colours, highlights and clearly different sizes are kept; near-normal sizes and the
 /// backgrounds of blocks are not.
 #[test]

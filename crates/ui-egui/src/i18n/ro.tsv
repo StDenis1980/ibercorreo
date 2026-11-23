@@ -443,3 +443,7 @@
 	{count} files, {size}	{count} fișiere, {size}
 	Attached {name}	S-a atașat {name}
 	Some attachments are not kept on this computer and were left out	Unele atașamente nu sunt păstrate pe acest computer și au fost omise
+# Tinta: asking before opening a deceptive link
+	Open this link?	Deschideți acest link?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	Textul acestui link numește un site, dar duce la altă adresă. Deschideți-l doar dacă aveți încredere în expeditor.
+	Open link	Deschide linkul

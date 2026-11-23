@@ -442,3 +442,7 @@
 	{count} files, {size}	{count} fitxategi, {size}
 	Attached {name}	{name} erantsita
 	Some attachments are not kept on this computer and were left out	Eranskin batzuk ez daude ordenagailu honetan gordeta, eta kanpoan geratu dira
+# Tinta: asking before opening a deceptive link
+	Open this link?	Esteka hau ireki?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	Esteka honen testuak gune bat aipatzen du, baina beste helbide batera darama. Ireki igorleaz fidatzen bazara soilik.
+	Open link	Ireki esteka

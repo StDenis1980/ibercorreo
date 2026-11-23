@@ -438,3 +438,7 @@
 	{count} files, {size}	Файлів: {count}, {size}
 	Attached {name}	Вкладено {name}
 	Some attachments are not kept on this computer and were left out	Деяких вкладень немає на цьому комп'ютері, тож їх не додано
+# Tinta: asking before opening a deceptive link
+	Open this link?	Відкрити це посилання?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	Текст цього посилання називає один сайт, але веде воно на іншу адресу. Відкривайте його, лише якщо довіряєте відправникові.
+	Open link	Відкрити посилання

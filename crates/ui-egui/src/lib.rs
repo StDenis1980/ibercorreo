@@ -19,6 +19,7 @@ mod export_ui;
 pub mod i18n;
 pub mod icons;
 mod inline_images;
+mod link_ui;
 mod partial_ui;
 mod pictures_ui;
 mod rich_table;
@@ -1413,6 +1414,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         self.delete_window(ui);
+        self.link_window(ui);
         self.categories_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
@@ -4175,7 +4177,7 @@ fn rich_body(ui: &mut Ui, t: &Tokens, rich: &Rich, body: &mut body_text::BodyTex
             i += len;
             continue;
         }
-        rich_block(ui, t, block, body, &mut pictures, None);
+        rich_block(ui, t, block, body, &mut pictures, None, t.card);
         i += 1;
     }
 }
@@ -4189,6 +4191,7 @@ fn rich_block(
     body: &mut body_text::BodyText,
     pictures: &mut Pictures<'_>,
     lead: Option<&'static str>,
+    behind: Color32,
 ) {
     let quote = f32::from(block.quote) * 14.0;
     if block.kind == BlockKind::Rule {
@@ -4233,7 +4236,7 @@ fn rich_block(
                             inline_picture(ui, t, span, texture, pictures);
                             continue;
                         }
-                        rich_span(ui, t, span, size, pre, body, before);
+                        rich_span(ui, t, span, size, pre, body, before, behind);
                         before = "";
                     }
                 });
@@ -4317,7 +4320,9 @@ fn inline_picture(ui: &mut Ui, t: &Tokens, span: &Span, texture: &egui::TextureH
     });
 }
 
-fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &mut body_text::BodyText, before: &'static str) {
+/// `behind` is what the text sits on: the card, or the background of its table cell.
+#[allow(clippy::too_many_arguments)]
+fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &mut body_text::BodyText, before: &'static str, behind: Color32) {
     let mut text = if span.image { RichText::new(format!("🖼 {}", span.text)).italics() } else { RichText::new(&span.text) };
     // Tinta: the sender's size, within limits.
     let size = span.size.map_or(size, |p| (size * f32::from(p) / 100.0).clamp(9.0, 40.0));
@@ -4327,7 +4332,7 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &
     if let Some(h) = highlight {
         text = text.background_color(h);
     }
-    let behind = highlight.unwrap_or(t.card);
+    let behind = highlight.unwrap_or(behind);
     if pre || span.code {
         text = text.monospace();
     }
@@ -4360,11 +4365,17 @@ fn rich_span(ui: &mut Ui, t: &Tokens, span: &Span, size: f32, pre: bool, body: &
         ui.add(egui::Label::new(RichText::new("⚠ ").size(size).color(t.flag)).selectable(false))
             .on_hover_text(tl("This link does not go where its text says"));
     }
-    let shown = egui::Label::new(text.color(t.accent).underline()).sense(Sense::click());
+    let link_color = rich_table::text_color(None, t.accent, behind);
+    let shown = egui::Label::new(text.color(link_color).underline()).sense(Sense::click());
     let hover = if span.deceptive { format!("Careful: the text names one site, but the link goes to\n{url}") } else { url.clone() };
-    let link = body.add(ui, shown, t.accent, before).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(hover);
+    let link = body.add(ui, shown, link_color, before).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(hover);
     if link.clicked() {
-        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        if span.deceptive {
+            // Tinta: a phishing-shaped link opens only after the window asks.
+            link_ui::ask(ui.ctx(), url);
+        } else {
+            ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+        }
     }
 }
 

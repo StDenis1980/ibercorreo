@@ -443,3 +443,7 @@
 	{count} files, {size}	Failų: {count}, {size}
 	Attached {name}	Pridėta {name}
 	Some attachments are not kept on this computer and were left out	Kai kurie priedai šiame kompiuteryje nesaugomi, todėl jie praleisti
+# Tinta: asking before opening a deceptive link
+	Open this link?	Atidaryti šią nuorodą?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	Šios nuorodos tekste nurodyta viena svetainė, bet ji veda kitu adresu. Atidarykite ją tik jei pasitikite siuntėju.
+	Open link	Atidaryti nuorodą
