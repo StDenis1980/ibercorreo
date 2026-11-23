@@ -63,6 +63,10 @@ struct Tag {
     color: Option<String>,
     size: Option<String>,
     face: Option<String>,
+    /// Tinta: `<td colspan rowspan bgcolor>`, `<tr bgcolor>`.
+    colspan: Option<String>,
+    rowspan: Option<String>,
+    bgcolor: Option<String>,
     hidden: bool,
 }
 
@@ -97,8 +101,15 @@ struct Table {
     /// The first block read inside it.
     start: usize,
     row: Option<u16>,
+    /// The column the current cell starts in, and the columns it covers.
     col: Option<u16>,
+    span: u16,
     header: bool,
+    /// For each column, the row a cell from above (`rowspan`) covers it to, not included.
+    covered: Vec<u16>,
+    /// The background of the current row, and of the current cell.
+    row_background: Option<u32>,
+    background: Option<u32>,
     /// Rows with two cells or more.
     wide_rows: u16,
     last_wide: Option<u16>,
@@ -347,7 +358,7 @@ impl Builder {
         if !in_cell || t.layout {
             return None;
         }
-        Some(Cell { table: t.id, row: t.row.unwrap_or(0), col: t.col?, header: t.header })
+        Some(Cell { table: t.id, row: t.row.unwrap_or(0), col: t.col?, header: t.header, span: t.span, background: t.background })
     }
 
     /// Tinta: tables whose element is no longer open are finished.
@@ -378,18 +389,44 @@ impl Builder {
         }
     }
 
-    /// Tinta: count the rows and cells of the innermost table.
-    fn table_tag(&mut self, name: &str) {
+    /// Tinta: count the rows and cells of the innermost table. A cell starts in the first column
+    /// after the cell before it that no cell from a row above covers (`rowspan`), and covers
+    /// `colspan` columns; `background` is the one its tag gives.
+    fn table_tag(&mut self, name: &str, tag: &Tag, background: Option<u32>) {
         let Some(t) = self.tables.last_mut() else { return };
+        // A count too big to read is as big as allowed; a missing or broken one is one.
+        let count = |v: &Option<String>, max: u16| {
+            let digits = v.as_deref().unwrap_or("").trim().bytes().take_while(u8::is_ascii_digit);
+            let n = digits.fold(0u32, |n, d| n.saturating_mul(10).saturating_add(u32::from(d - b'0')));
+            u16::try_from(n).unwrap_or(max).clamp(1, max)
+        };
         match name {
             "tr" => {
                 t.row = Some(t.row.map_or(0, |r| r.saturating_add(1)));
                 t.col = None;
+                t.span = 1;
+                t.row_background = background;
             }
             "td" | "th" => {
                 let row = *t.row.get_or_insert(0);
-                let col = t.col.map_or(0, |c| c.saturating_add(1));
+                let mut col = t.col.map_or(0, |c| c.saturating_add(t.span.max(1)));
+                while col < MAX_TABLE_COLS && t.covered.get(usize::from(col)).is_some_and(|&until| until > row) {
+                    col = col.saturating_add(1);
+                }
+                let span = count(&tag.colspan, MAX_TABLE_COLS);
+                let down = count(&tag.rowspan, MAX_TABLE_ROWS);
+                if down > 1 {
+                    let end = usize::from(col.saturating_add(span).min(MAX_TABLE_COLS));
+                    if t.covered.len() < end {
+                        t.covered.resize(end, 0);
+                    }
+                    for until in t.covered.iter_mut().skip(usize::from(col)) {
+                        *until = row.saturating_add(down);
+                    }
+                }
                 t.col = Some(col);
+                t.span = span;
+                t.background = background.or(t.row_background);
                 t.header = name == "th";
                 if col >= 1 && t.last_wide != Some(row) {
                     t.last_wide = Some(row);
@@ -398,7 +435,7 @@ impl Builder {
             }
             _ => return,
         }
-        if t.row.is_some_and(|r| r >= MAX_TABLE_ROWS) || t.col.is_some_and(|c| c >= MAX_TABLE_COLS) {
+        if t.row.is_some_and(|r| r >= MAX_TABLE_ROWS) || t.col.is_some_and(|c| c.saturating_add(t.span.max(1)) > MAX_TABLE_COLS) {
             t.layout = true;
         }
     }
@@ -480,8 +517,11 @@ impl Builder {
             css.size = css.size.or_else(|| tag.size.as_deref().and_then(font_size_attr));
             css.mono |= tag.face.as_deref().is_some_and(monospace);
         }
-        // Tinta: a highlight is an inline element's; the backgrounds of blocks and cells lay the
-        // message out (often white), and are not drawn.
+        // Tinta: a highlight is an inline element's; the backgrounds of blocks lay the message out
+        // (often white), and are not drawn. A cell's or row's is kept with the cell: in a table of
+        // data it marks headings and totals.
+        let cell_background =
+            if matches!(name, "td" | "th" | "tr") { css.highlight.or_else(|| tag.bgcolor.as_deref().and_then(css_color)) } else { None };
         if !INLINE.contains(&name) {
             css.highlight = None;
         }
@@ -570,7 +610,7 @@ impl Builder {
             self.tables.push(Table { id: self.next_table, depth: self.stack.len(), start: self.out.blocks.len(), ..Table::default() });
             self.next_table = self.next_table.saturating_add(1);
         }
-        self.table_tag(name);
+        self.table_tag(name, &tag, cell_background);
         self.stack.push(o);
     }
 
@@ -703,6 +743,9 @@ fn parse_tag(s: &str) -> (Tag, usize) {
             "color" => &mut tag.color,
             "size" => &mut tag.size,
             "face" => &mut tag.face,
+            "colspan" => &mut tag.colspan,
+            "rowspan" => &mut tag.rowspan,
+            "bgcolor" => &mut tag.bgcolor,
             "hidden" => {
                 tag.hidden = true;
                 continue;

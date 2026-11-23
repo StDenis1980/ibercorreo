@@ -444,3 +444,7 @@
 	{count} files, {size}	Pliki: {count}, {size}
 	Attached {name}	Dołączono {name}
 	Some attachments are not kept on this computer and were left out	Niektóre załączniki nie są przechowywane na tym komputerze i zostały pominięte
+# Tinta: asking before opening a deceptive link
+	Open this link?	Otworzyć ten link?
+	The text of this link names one site, but it goes to another address. Open it only if you trust the sender.	Tekst tego linku wskazuje jedną witrynę, ale prowadzi on pod inny adres. Otwórz go tylko, jeśli ufasz nadawcy.
+	Open link	Otwórz link
