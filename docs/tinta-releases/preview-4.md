@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
 > **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first).
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) and #93 (asking before a deceptive link; merged cells and cell backgrounds in tables).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -17,8 +17,10 @@ Novedades:
 - **Nuevo aspecto:** temas claro y oscuro, tamaño del texto, árbol de carpetas, diálogos y selección
   renovados.
 - **Conversaciones** agrupadas en la lista de mensajes, y **categorías de colores** como en Outlook.
-- **Correo HTML más fiel:** tablas, colores y tamaños de letra; las imágenes incluidas se ven, y las
-  de internet solo cuando usted lo pide.
+- **Correo HTML más fiel:** tablas (también con celdas combinadas y su color de fondo), colores y
+  tamaños de letra; las imágenes incluidas se ven, y las de internet solo cuando usted lo pide.
+- **Enlaces engañosos:** si el texto de un enlace nombra un sitio pero lleva a otro, Tinta Correo
+  muestra la dirección real y pregunta antes de abrirlo.
 - **Adjuntos:** abrir y guardar desde el panel de lectura, y adjuntar archivos al escribir (botón
   Adjuntar archivo o arrastrándolos a la ventana); al reenviar se conservan los adjuntos.
 - **Más rápido con buzones grandes:** el correo antiguo se descarga primero con su encabezado, y el
@@ -47,8 +49,11 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
 
 - **Новий вигляд:** світла й темна теми, розмір тексту, оновлені дерево папок, діалоги й виділення.
 - **Розмови** згруповані в списку листів, і **кольорові категорії**, як в Outlook.
-- **HTML-листи ближче до оригіналу:** таблиці, кольори й розміри шрифту; вбудовані зображення
-  видно, а зображення з інтернету — лише коли ви попросите.
+- **HTML-листи ближче до оригіналу:** таблиці (також з об'єднаними клітинками та їхнім фоном),
+  кольори й розміри шрифту; вбудовані зображення видно, а зображення з інтернету — лише коли ви
+  попросите.
+- **Оманливі посилання:** якщо текст посилання називає один сайт, а веде воно на інший, Tinta Correo
+  показує справжню адресу й питає, перш ніж відкрити.
 - **Вкладення:** відкрити й зберегти прямо з панелі читання, а також додати файли до листа (кнопка
   «Вкласти файл» або перетягнути їх у вікно); під час пересилання вкладення зберігаються.
 - **Швидше з великими скриньками:** старі листи спершу завантажуються заголовками, а текст — коли
@@ -77,8 +82,10 @@ What's new:
 
 - **A new look:** light and dark themes, text size, and a refreshed folder tree, dialogs and selection.
 - **Conversations** grouped in the message list, and **colour categories** as in Outlook.
-- **HTML mail closer to the original:** tables, colours and text sizes; pictures inside the message
-  show, and pictures from the web only when you ask.
+- **HTML mail closer to the original:** tables (merged cells and cell backgrounds too), colours and
+  text sizes; pictures inside the message show, and pictures from the web only when you ask.
+- **Deceptive links:** when a link's text names one site but it goes to another, Tinta Correo shows
+  the real address and asks before opening it.
 - **Attachments:** open and save them from the reading pane, and attach files while writing (the
   Attach file button, or drop files on the window); forwarding keeps the attachments.
 - **Faster with large mailboxes:** older mail is downloaded header first, and its text when you
