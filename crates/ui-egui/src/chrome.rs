@@ -744,13 +744,13 @@ impl App {
                 }
             });
         });
-        let Ok(start) = first.add_days(-i64::from(first.weekday().index())) else { return };
+        let start = self.session.week_start_of(first);
         let cell = ((ui.available_width() / 7.0).floor()).clamp(28.0, 40.0);
         let (grid, _) = ui.allocate_exact_size(vec2(cell * 7.0, cell * 7.0), Sense::hover());
         let font = FontId::proportional(13.0);
-        for (i, name) in crate::WEEKDAYS.iter().enumerate() {
+        for (i, name) in crate::week_names(&self.session).iter().enumerate() {
             let c = pos2(grid.left() + cell * (i as f32 + 0.5), grid.top() + cell * 0.5);
-            let letter: String = tl(name).chars().take(2).collect();
+            let letter: String = name.chars().take(2).collect();
             ui.painter().text(c, Align2::CENTER_CENTER, letter, font.clone(), t.text_weak);
         }
         let week_mode = matches!(self.session.calendar_mode, CalendarMode::Week | CalendarMode::WorkWeek);
@@ -763,7 +763,7 @@ impl App {
             let rect = Rect::from_min_size(pos2(grid.left() + cell * col as f32, grid.top() + cell * (row as f32 + 1.0)), vec2(cell, cell));
             let resp = ui.interact(rect, ui.id().with(("mini-month", n)), Sense::click());
             let in_month = d.month() == first.month();
-            let shown = !to_calendar && (d == day || (week_mode && same_week(d, day)));
+            let shown = !to_calendar && (d == day || (week_mode && self.session.week_start_of(d) == self.session.week_start_of(day)));
             let p = ui.painter();
             if shown {
                 p.rect_filled(rect.shrink(1.0), 4.0, t.accent_soft);
@@ -855,12 +855,6 @@ impl App {
             ui.label(RichText::new(tl("Nothing in the coming days")).small().color(t.text_weak));
         }
     }
-}
-
-/// Whether `a` and `b` fall in the same Monday-to-Sunday week.
-fn same_week(a: Date, b: Date) -> bool {
-    let monday = |d: Date| d.add_days(-i64::from(d.weekday().index())).ok();
-    monday(a).is_some() && monday(a) == monday(b)
 }
 
 /// A theme's name in the picker.
