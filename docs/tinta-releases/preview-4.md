@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
 > **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) and #96 (the forgotten-attachment reminder).
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) #96 (the forgotten-attachment reminder) and #97 (date words and folders in search).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -29,6 +29,8 @@ Novedades:
   adjuntos, que se abren y guardan como los del correo nuevo; la exportación a mbox los incluye.
 - **Adjunto olvidado:** si el mensaje dice que lleva un archivo («te adjunto», «en el anexo»…) pero
   no tiene ninguno, Tinta Correo pregunta antes de enviarlo.
+- **Buscar por fecha y carpeta:** `recibido:ayer`, `recibido:"semana pasada"`, `"este mes"`…, y
+  `carpeta:enviados` o `in:inbox` para buscar solo en una carpeta.
 - **Más rápido con buzones grandes:** el correo antiguo se descarga primero con su encabezado, y el
   texto al abrirlo (también con Exchange y Microsoft 365). El índice de búsqueda se guarda en disco:
   usa unas 10 veces menos memoria y la búsqueda está lista nada más abrir el programa.
@@ -68,6 +70,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
   їх можна відкрити й зберегти, як у новій пошті; експорт у mbox теж їх містить.
 - **Забуте вкладення:** якщо в листі сказано, що до нього додано файл («у вкладенні», «додаю
   файл»…), а вкладення немає, Tinta Correo запитає перед надсиланням.
+- **Пошук за датою й папкою:** `отримано:вчора`, `отримано:"минулого тижня"`, `"цього місяця"`…,
+  і `папка:надіслані` чи `in:inbox`, щоб шукати лише в одній папці.
 - **Швидше з великими скриньками:** старі листи спершу завантажуються заголовками, а текст — коли
   ви їх відкриваєте (також для Exchange і Microsoft 365). Пошуковий індекс зберігається на диску:
   пам'яті потрібно приблизно вдесятеро менше, а пошук готовий одразу після запуску.
@@ -106,6 +110,8 @@ What's new:
   and save like those of new mail; the mbox export includes them.
 - **Forgotten attachment:** when a message says a file is attached ("attached", "enclosed"…) but
   has none, Tinta Correo asks before sending it.
+- **Search by date and folder:** `received:yesterday`, `received:"last week"`, `"this month"`…, and
+  `in:sent` or `folder:Projects` to search one folder only.
 - **Faster with large mailboxes:** older mail is downloaded header first, and its text when you
   open it (with Exchange and Microsoft 365 too). The search index is kept on disk, so it uses about
   ten times less memory and search is ready as soon as the app starts.
