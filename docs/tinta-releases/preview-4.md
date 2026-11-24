@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
 > **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) and #93 (asking before a deceptive link; merged cells and cell backgrounds in tables).
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) and #94 (All Inboxes).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -16,6 +16,8 @@ Novedades:
 
 - **Nuevo aspecto:** temas claro y oscuro, tamaño del texto, árbol de carpetas, diálogos y selección
   renovados.
+- **Todas las bandejas de entrada:** con varias cuentas, una carpeta en Favoritos reúne la Bandeja
+  de entrada de todas; al responder se usa la cuenta que recibió el mensaje.
 - **Conversaciones** agrupadas en la lista de mensajes, y **categorías de colores** como en Outlook.
 - **Correo HTML más fiel:** tablas (también con celdas combinadas y su color de fondo), colores y
   tamaños de letra; las imágenes incluidas se ven, y las de internet solo cuando usted lo pide.
@@ -48,6 +50,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
 Що нового:
 
 - **Новий вигляд:** світла й темна теми, розмір тексту, оновлені дерево папок, діалоги й виділення.
+- **Усі вхідні:** якщо акаунтів кілька, папка у «Вибраному» збирає «Вхідні» з усіх; відповідь
+  іде з того акаунта, на який прийшов лист.
 - **Розмови** згруповані в списку листів, і **кольорові категорії**, як в Outlook.
 - **HTML-листи ближче до оригіналу:** таблиці (також з об'єднаними клітинками та їхнім фоном),
   кольори й розміри шрифту; вбудовані зображення видно, а зображення з інтернету — лише коли ви
@@ -81,6 +85,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
 What's new:
 
 - **A new look:** light and dark themes, text size, and a refreshed folder tree, dialogs and selection.
+- **All Inboxes:** with several accounts, one folder in Favorites gathers every account's Inbox;
+  a reply goes from the account the message came to.
 - **Conversations** grouped in the message list, and **colour categories** as in Outlook.
 - **HTML mail closer to the original:** tables (merged cells and cell backgrounds too), colours and
   text sizes; pictures inside the message show, and pictures from the web only when you ask.
