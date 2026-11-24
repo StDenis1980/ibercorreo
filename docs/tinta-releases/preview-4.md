@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
 > **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) #96 (the forgotten-attachment reminder) #97 (date words and folders in search) #98 (dragging appointments in the calendar) and #99 (work hours in the calendar).
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) #96 (the forgotten-attachment reminder) #97 (date words and folders in search) #98 (dragging appointments in the calendar) #99 (work hours in the calendar) and #100 (working days and the first day of the week).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -36,6 +36,9 @@ Novedades:
   deshace). Las citas periódicas y de todo el día aún no se arrastran.
 - **Horario laboral en el calendario:** elija con 🕘 cuándo empieza y termina su jornada (por
   defecto 08:00–17:00); las vistas de día y semana se abren una hora antes y sombrean el resto.
+- **Días laborables y primer día de la semana:** en el mismo menú 🕘; la semana laboral muestra
+  los días elegidos (también no seguidos) y la semana, el mes y el calendario pequeño empiezan por
+  el día elegido, por ejemplo el domingo.
 - **Más rápido con buzones grandes:** el correo antiguo se descarga primero con su encabezado, y el
   texto al abrirlo (también con Exchange y Microsoft 365). El índice de búsqueda se guarda en disco:
   usa unas 10 veces menos memoria y la búsqueda está lista nada más abrir el programa.
@@ -82,6 +85,9 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
   Ctrl+Z повертає). Повторювані зустрічі й події на весь день поки не перетягуються.
 - **Робочі години в календарі:** кнопкою 🕘 виберіть, коли починається й закінчується робочий
   день (типово 08:00–17:00); вигляд дня й тижня відкривається за годину до початку, решта затінена.
+- **Робочі дні й перший день тижня:** у тому ж меню 🕘; робочий тиждень показує вибрані дні
+  (навіть не підряд), а тиждень, місяць і малий календар починаються з вибраного дня, наприклад
+  з неділі.
 - **Швидше з великими скриньками:** старі листи спершу завантажуються заголовками, а текст — коли
   ви їх відкриваєте (також для Exchange і Microsoft 365). Пошуковий індекс зберігається на диску:
   пам'яті потрібно приблизно вдесятеро менше, а пошук готовий одразу після запуску.
@@ -127,6 +133,9 @@ What's new:
   Repeating and all-day appointments don't drag yet.
 - **Work hours in the calendar:** choose with 🕘 when your working day starts and ends (08:00–17:00
   by default); the day and week views open an hour before and shade the rest.
+- **Working days and the first day of the week:** in the same 🕘 menu; Work Week shows the chosen
+  days (even when not in a row), and Week, Month and the small calendar start on the chosen day,
+  such as Sunday.
 - **Faster with large mailboxes:** older mail is downloaded header first, and its text when you
   open it (with Exchange and Microsoft 365 too). The search index is kept on disk, so it uses about
   ten times less memory and search is ready as soon as the app starts.
