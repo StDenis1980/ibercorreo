@@ -643,6 +643,14 @@ impl Store {
         v
     }
 
+    /// Tinta: messages in any of `folders`, newest first (undated last): every account's Inbox for
+    /// All Inboxes.
+    pub fn messages_in_any(&self, folders: &[FolderId]) -> Vec<&Message> {
+        let mut v: Vec<&Message> = self.messages.iter().filter(|m| folders.contains(&m.folder)).map(|m| &**m).collect();
+        v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
+        v
+    }
+
     /// A job that reads every message into the full-text index, to run on another thread when
     /// the store opens or mail arrives: the first search of a big mailbox then has nothing to
     /// read. The index is shared with this store and its copies.

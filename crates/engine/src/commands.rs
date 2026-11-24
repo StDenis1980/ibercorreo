@@ -140,7 +140,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Open folder",
         group: "Folder/Folders",
         shortcut: None,
-        params: "folder: number | role (inbox, drafts, sent, outbox, archive, junk, trash)",
+        params: "folder: number | role (inbox, drafts, sent, outbox, archive, junk, trash) | \"allInboxes\" (every account's Inbox together)",
         edits: false,
         run: folder_select,
     },
@@ -167,7 +167,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "List messages",
         group: "Home/Find",
         shortcut: None,
-        params: "folder?: number | role — default: the open folder\noffset?: number — skip this many, newest first\nlimit?: number — at most this many",
+        params: "folder?: number | role — default: the open folder (with All Inboxes open, every Inbox)\noffset?: number — skip this many, newest first\nlimit?: number — at most this many",
         edits: false,
         run: message_list,
     },
@@ -1158,8 +1158,22 @@ fn folder_list(s: &mut Session, _: &Value) -> Result<Value> {
 }
 
 fn folder_select(s: &mut Session, p: &Value) -> Result<Value> {
+    // Tinta: All Inboxes, as Outlook's: every account's Inbox in one list.
+    let all = p.get("folder").and_then(Value::as_str).is_some_and(|n| {
+        let n: String = n.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        n.eq_ignore_ascii_case("allinboxes")
+    });
+    if all {
+        let first = s.inboxes().first().copied().ok_or_else(|| Error::not_found("folder", "Inbox"))?;
+        s.folder = first;
+        s.all_inboxes = true;
+        s.view = View::Mail;
+        s.message = None;
+        return Ok(json!({ "folder": "allInboxes", "inboxes": s.inboxes().iter().map(|f| f.0).collect::<Vec<_>>() }));
+    }
     let f = folder_param(s, p, "folder")?.ok_or_else(|| Error::invalid("params", "folder is required"))?;
     s.folder = f;
+    s.all_inboxes = false;
     s.view = View::Mail;
     s.message = None;
     Ok(json!({ "folder": f.0 }))
@@ -1184,10 +1198,14 @@ fn folder_delete(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn message_list(s: &mut Session, p: &Value) -> Result<Value> {
-    let f = folder_param(s, p, "folder")?.unwrap_or(s.folder);
+    let f = folder_param(s, p, "folder")?;
     let offset = usize::try_from(u64_param(p, "offset")?.unwrap_or(0)).unwrap_or(usize::MAX);
     let limit = usize::try_from(u64_param(p, "limit")?.unwrap_or(u64::MAX)).unwrap_or(usize::MAX);
-    Ok(Value::Array(s.store.messages_in(f).into_iter().skip(offset).take(limit).map(summary).collect()))
+    let listed = match f {
+        Some(f) => s.store.messages_in(f),
+        None => s.listed(),
+    };
+    Ok(Value::Array(listed.into_iter().skip(offset).take(limit).map(summary).collect()))
 }
 
 fn message_select(s: &mut Session, p: &Value) -> Result<Value> {
