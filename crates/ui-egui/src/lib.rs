@@ -227,6 +227,10 @@ const WORK_HOURS: &str = "Work hours";
 const WORK_START: &str = "Day starts at";
 const WORK_END: &str = "Day ends at";
 const WORK_DEFAULT: &str = "Back to 08:00 – 17:00";
+const WORK_DAYS: &str = "Working days";
+const WEEK_STARTS: &str = "First day of the week";
+/// The weekdays as `calendar.workWeek` takes them.
+const WEEKDAY_IDS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 fn sync_interval_label(minutes: u32) -> String {
     match minutes {
@@ -2043,6 +2047,7 @@ impl App {
         let clock = |m: u16| format!("{:02}:{:02}", m / 60, m % 60);
         let (mut new_start, mut new_end) = (start, end);
         let mut reset = false;
+        let mut week: Option<Value> = None;
         ui.menu_button(format!("🕘 {} – {}", clock(start), clock(end)), |ui| {
             ui.label(RichText::new(tl(WORK_HOURS)).strong());
             egui::Grid::new("work-hours").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
@@ -2062,9 +2067,46 @@ impl App {
                 reset = true;
                 ui.close();
             }
+            ui.separator();
+            // Tinta: the working days (the Work Week view) and the day weeks start on.
+            ui.label(RichText::new(tl(WORK_DAYS)).strong());
+            let store = &self.session.store;
+            let mut days = store.work_days();
+            ui.horizontal(|ui| {
+                for i in 0..7u8 {
+                    let d = (store.week_start() + i) % 7;
+                    let mut on = days & (1 << d) != 0;
+                    let name = WEEKDAYS.get(usize::from(d)).copied().map_or("", tl);
+                    if ui.checkbox(&mut on, name).changed() {
+                        days = if on { days | 1 << d } else { days & !(1 << d) };
+                    }
+                }
+            });
+            if days != store.work_days() && days != 0 {
+                let names: Vec<&str> = (0..7u8).filter(|d| days & (1 << d) != 0).filter_map(|d| WEEKDAY_IDS.get(usize::from(d)).copied()).collect();
+                week = Some(json!({ "days": names }));
+            }
+            let mut first = store.week_start();
+            ui.horizontal(|ui| {
+                ui.label(tl(WEEK_STARTS));
+                egui::ComboBox::from_id_salt("week-start").selected_text(WEEKDAYS.get(usize::from(first)).copied().map_or("", tl)).show_ui(
+                    ui,
+                    |ui| {
+                        for d in 0..7u8 {
+                            ui.selectable_value(&mut first, d, WEEKDAYS.get(usize::from(d)).copied().map_or("", tl));
+                        }
+                    },
+                );
+            });
+            if first != store.week_start() {
+                week = WEEKDAY_IDS.get(usize::from(first)).map(|id| json!({ "firstDay": id }));
+            }
         })
         .response
         .on_hover_text(tl(WORK_HOURS));
+        if let Some(params) = week {
+            self.run("calendar.workWeek", params);
+        }
         if reset {
             self.run("calendar.workHours", json!({ "start": "default" }));
         } else if (new_start, new_end) != (start, end) {
@@ -3066,9 +3108,9 @@ impl App {
     fn month(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         let first = self.session.day.first_of_month();
-        let Ok(grid_start) = first.add_days(-i64::from(first.weekday().index())) else { return };
+        let grid_start = self.session.week_start_of(first);
         let today = self.session.today();
-        let names = WEEKDAYS.map(tl);
+        let names = week_names(&self.session);
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
         let cell_h = ((avail.y - 28.0) / 6.0).max(48.0);
@@ -3161,9 +3203,7 @@ impl App {
         const HOUR: f32 = 52.0;
         const ALL_DAY_ROW: f32 = 24.0;
         let t = self.tokens;
-        let (from, to) = self.session.calendar_range();
-        let count = usize::try_from(to.day_number().saturating_sub(from.day_number()).saturating_add(1)).unwrap_or(1).clamp(1, 7);
-        let days: Vec<Date> = (0..count).filter_map(|n| from.add_days(i64::try_from(n).unwrap_or(0)).ok()).collect();
+        let days: Vec<Date> = self.session.calendar_days();
         let now = self.session.local_now();
         let col_w = ((ui.available_width() - GUTTER) / days.len().max(1) as f32).max(60.0);
         let x_of = |left: f32, n: usize| left + GUTTER + col_w * n as f32;
@@ -3239,7 +3279,8 @@ impl App {
             let p = ui.painter_at(grid);
             for (n, day) in days.iter().enumerate() {
                 let x = x_of(grid.left(), n);
-                let weekend = day.weekday().index() >= 5;
+                // Tinta: the days off are the ones not chosen as working days.
+                let weekend = !self.session.store.is_work_day(day.weekday().index());
                 let column = egui::Rect::from_min_size(egui::pos2(x, grid.top()), vec2(col_w, grid.height()));
                 p.rect_filled(
                     column,
@@ -3402,7 +3443,16 @@ impl App {
             return;
         }
         let moved = pos.map(|pos| pos - drag.origin).unwrap_or_default();
-        let (days_moved, minutes_moved) = calendar_drag::offset(moved.x, moved.y, col_w, hour_h);
+        let (columns_moved, minutes_moved) = calendar_drag::offset(moved.x, moved.y, col_w, hour_h);
+        // Columns need not be days in a row (a work week of Monday, Wednesday and Friday).
+        let days_moved = days
+            .iter()
+            .position(|d| *d == drag.start.date)
+            .and_then(|from| {
+                let to = i64::try_from(from).ok()?.saturating_add(columns_moved).clamp(0, i64::try_from(days.len()).ok()? - 1);
+                Some(days.get(usize::try_from(to).ok()?)?.day_number() - days.get(from)?.day_number())
+            })
+            .unwrap_or(columns_moved);
         let target = drag.target(days_moved, minutes_moved);
         if !down {
             self.calendar_drag = None;
@@ -4082,6 +4132,12 @@ fn month_abbr(m: u8) -> &'static str {
 /// A day number before a month: `26`, but `26.` in German and Czech.
 fn day_num(d: Date) -> String {
     if matches!(i18n::current(), Language::De | Language::Cs) { format!("{}.", d.day()) } else { d.day().to_string() }
+}
+
+/// The short weekday names in the order the person's weeks run, from `Store::week_start`.
+fn week_names(s: &Session) -> [&'static str; 7] {
+    let first = usize::from(s.store.week_start());
+    std::array::from_fn(|i| WEEKDAYS.get((first + i) % 7).copied().map_or("", tl))
 }
 
 fn weekday_abbr(d: Date) -> &'static str {
@@ -5048,7 +5104,16 @@ mod tests {
     #[test]
     fn work_hours_are_translated() {
         for lang in crate::i18n::Language::ALL.into_iter().filter(|l| *l != crate::i18n::Language::En) {
-            for s in [super::WORK_HOURS, super::WORK_START, super::WORK_END, super::WORK_DEFAULT, "Work hours changed"] {
+            for s in [
+                super::WORK_HOURS,
+                super::WORK_START,
+                super::WORK_END,
+                super::WORK_DEFAULT,
+                "Work hours changed",
+                super::WORK_DAYS,
+                super::WEEK_STARTS,
+                "Work week changed",
+            ] {
                 assert!(crate::i18n::has(lang, s), "{lang:?}: {s}");
             }
         }
@@ -6362,5 +6427,60 @@ mod tests {
         // Undone like any edit.
         app.session.run("edit.undo", &Value::Null).unwrap();
         assert_eq!(span(&app), (12 * 60, 13 * 60));
+    }
+
+    #[test]
+    fn a_work_week_of_separate_days_shows_them_and_drags_between_them() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 23).unwrap(); // a Monday
+        let mut s = Session::new(ibercorreo_store::Store::new(), day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 8, 0, 0).unwrap());
+        s.run("calendar.timeZone", &json!({ "zone": "UTC" })).unwrap();
+        s.run("calendar.workWeek", &json!({ "days": ["mon", "wed", "fri"], "firstDay": "sunday" })).unwrap();
+        let id = s.run("event.add", &json!({ "summary": "Drag me", "start": "2026-11-23T10:00", "end": "2026-11-23T11:00" })).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewWorkWeek", &json!({})).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let texts = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1360.0, 860.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        texts(&mut app, vec![]);
+        let shown = texts(&mut app, vec![]);
+        let at = |name: &str| shown.iter().filter(|(t, _)| t == name).map(|(_, p)| *p).min_by(|a, b| a.x.total_cmp(&b.x));
+        let (mon, wed) = (at("Mon").expect("Monday's column"), at("Wed").expect("Wednesday's column"));
+        assert!(at("Tue").is_none() && at("Thu").is_none(), "only the working days are columns");
+        // Its title, dragged one column right, lands on Wednesday.
+        let grab = at("Drag me").unwrap() + vec2(10.0, 10.0);
+        let press = |pos: Pos2, pressed: bool| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        texts(&mut app, vec![Event::PointerMoved(grab), press(grab, true)]);
+        let to = grab + vec2(wed.x - mon.x, 0.0);
+        for step in 1..=4 {
+            texts(&mut app, vec![Event::PointerMoved(grab + (to - grab) * (step as f32 / 4.0))]);
+        }
+        texts(&mut app, vec![press(to, false)]);
+        texts(&mut app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        let ev = app.session.store.event(ibercorreo_core::EventId(id)).unwrap();
+        assert!(
+            matches!(ev.when, When::Timed { start, .. } if start.date == Date::new(2026, 11, 25).unwrap() && start.hour() == 10),
+            "{:?}",
+            ev.when
+        );
+        // The month and the small calendar start their weeks on Sunday.
+        app.session.run("calendar.viewMonth", &json!({})).unwrap();
+        let shown = texts(&mut app, vec![]);
+        let row: Vec<&str> = shown.iter().filter(|(t, _)| WEEKDAYS.contains(&t.as_str())).map(|(t, _)| t.as_str()).take(2).collect();
+        assert_eq!(row, ["Sun", "Mon"], "{shown:?}");
     }
 }

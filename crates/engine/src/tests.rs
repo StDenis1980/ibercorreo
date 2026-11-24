@@ -1186,6 +1186,48 @@ fn search_finds_folded_words_in_a_scope_and_follows_undo() {
 
 /// Tinta: an appointment moves and stretches as dragging it does, keeping its own zone.
 #[test]
+fn the_work_week_and_its_first_day_are_chosen() {
+    let mut s = session();
+    s.day = Date::new(2026, 11, 25).unwrap(); // a Wednesday
+    assert_eq!(s.run("calendar.workWeek", &json!({})).unwrap()["days"], json!(["monday", "tuesday", "wednesday", "thursday", "friday"]));
+    s.run("calendar.viewWorkWeek", &json!({})).unwrap();
+    assert_eq!(s.calendar_range(), (Date::new(2026, 11, 23).unwrap(), Date::new(2026, 11, 27).unwrap()));
+    // Tuesday to Saturday, weeks from Sunday.
+    let r = s.run("calendar.workWeek", &json!({"days": ["tue", "wed", "Thursday", "fr", "sat"], "firstDay": "sunday"})).unwrap();
+    assert_eq!(r["firstDay"], "sunday");
+    let days = s.calendar_days();
+    assert_eq!((days.len(), days[0], days[4]), (5, Date::new(2026, 11, 24).unwrap(), Date::new(2026, 11, 28).unwrap()));
+    s.run("calendar.viewWeek", &json!({})).unwrap();
+    assert_eq!(s.calendar_range(), (Date::new(2026, 11, 22).unwrap(), Date::new(2026, 11, 28).unwrap()), "Sunday to Saturday");
+    s.day = Date::new(2026, 11, 22).unwrap(); // the Sunday itself starts its week
+    assert_eq!(s.calendar_range().0, Date::new(2026, 11, 22).unwrap());
+    // Days that are not next to each other.
+    s.run("calendar.workWeek", &json!({"days": ["mon", "wed", "fri"], "firstDay": "default"})).unwrap();
+    s.run("calendar.viewWorkWeek", &json!({})).unwrap();
+    assert_eq!(s.calendar_days().iter().map(|d| d.day()).collect::<Vec<_>>(), vec![16, 18, 20]);
+    for bad in [
+        json!({"days": []}),
+        json!({"days": ["m"]}),
+        json!({"days": ["funday"]}),
+        json!({"days": "mon"}),
+        json!({"days": [1]}),
+        json!({"firstDay": 0}),
+        json!({"days": ["mon"], "firstDay": "x"}),
+        json!({"days": vec!["mon"; 8]}),
+    ] {
+        assert!(s.run("calendar.workWeek", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.work_days(), 0b10101, "a refused change keeps the days, even next to a good one");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!((s.store.work_days(), s.store.week_start()), (0b011_1110, 6), "undone like any edit");
+    s.run("calendar.workWeek", &json!({"days": "default", "firstDay": "default"})).unwrap();
+    assert_eq!((s.store.work_days(), s.store.week_start()), (0b001_1111, 0));
+    s.store.work_days = Some(0);
+    s.store.week_start = Some(9);
+    assert_eq!((s.store.work_days(), s.store.week_start()), (0b001_1111, 0), "nonsense saved falls back");
+}
+
+#[test]
 fn work_hours_are_chosen_and_checked() {
     let mut s = session();
     assert_eq!(s.run("calendar.workHours", &json!({})).unwrap(), json!({"start": "08:00", "end": "17:00", "default": true}));

@@ -433,6 +433,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: work_hours,
     },
     CommandSpec {
+        id: "calendar.workWeek",
+        label: "Work week",
+        group: "File/Options",
+        shortcut: None,
+        params: "days?: the working days, a list of weekday names ([\"mon\", \"tue\", …] or in full) or \"default\" (Monday to Friday) — the Work Week view shows them; firstDay?: the weekday weeks start on (\"monday\", \"sunday\", …) or \"default\" (Monday) — leave both out to just say which are chosen",
+        edits: true,
+        run: work_week,
+    },
+    CommandSpec {
         id: "account.syncInterval",
         label: "Send/Receive every",
         group: "Send-Receive/Send & Receive",
@@ -2033,6 +2042,66 @@ fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
         "system": s.system_zone().name(),
         "followsSystem": s.store.time_zone.is_none(),
     }))
+}
+
+const WEEKDAY_NAMES: [&str; 7] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+
+/// A weekday by its English name or its first two or more letters (`mo`, `mon`, `Monday`): 0 for
+/// Monday … 6 for Sunday.
+fn weekday_named(key: &'static str, v: &str) -> Result<u8> {
+    let v = v.trim().to_ascii_lowercase();
+    (v.len() >= 2)
+        .then(|| WEEKDAY_NAMES.iter().position(|n| n.starts_with(v.as_str())))
+        .flatten()
+        .and_then(|i| u8::try_from(i).ok())
+        .ok_or_else(|| Error::invalid(key, format!("a weekday (monday … sunday, or mon … sun), not {}", ibercorreo_core::clamp_text(&v, 16))))
+}
+
+fn is_default(v: &Value) -> bool {
+    v.as_str().is_some_and(|v| v.trim().eq_ignore_ascii_case("default"))
+}
+
+/// Tinta: the working days and the first day of the week (`Store::work_days`, `week_start`), as
+/// Outlook's Options › Calendar › Work time.
+fn work_week(s: &mut Session, p: &Value) -> Result<Value> {
+    // Both are read before either is kept, so a wrong one changes nothing.
+    let days: Option<Option<u8>> = match p.get("days") {
+        None | Some(Value::Null) => None,
+        Some(v) if is_default(v) => Some(None),
+        Some(Value::Array(list)) => {
+            if list.len() > 7 {
+                return Err(Error::invalid("days", "at most the seven days of the week"));
+            }
+            let mut bits = 0u8;
+            for d in list {
+                let name = d.as_str().ok_or_else(|| Error::invalid("days", "each day is a weekday name, such as \"mon\""))?;
+                bits |= 1 << weekday_named("days", name)?;
+            }
+            if bits == 0 {
+                return Err(Error::invalid("days", "name at least one working day"));
+            }
+            Some(Some(bits))
+        }
+        Some(_) => return Err(Error::invalid("days", "a list of weekday names, such as [\"mon\", \"tue\"], or \"default\"")),
+    };
+    let first: Option<Option<u8>> = match p.get("firstDay") {
+        None | Some(Value::Null) => None,
+        Some(v) if is_default(v) => Some(None),
+        Some(Value::String(v)) => Some(Some(weekday_named("firstDay", v)?)),
+        Some(_) => return Err(Error::invalid("firstDay", "a weekday name, such as \"sunday\", or \"default\"")),
+    };
+    if let Some(d) = days {
+        s.store.work_days = d;
+    }
+    if let Some(f) = first {
+        s.store.week_start = f;
+    }
+    if days.is_some() || first.is_some() {
+        s.status = "Work week changed".into();
+    }
+    let days: Vec<&str> = (0..7u8).filter(|d| s.store.is_work_day(*d)).filter_map(|d| WEEKDAY_NAMES.get(usize::from(d)).copied()).collect();
+    let first = WEEKDAY_NAMES.get(usize::from(s.store.week_start())).copied().unwrap_or("monday");
+    Ok(json!({ "days": days, "firstDay": first, "default": s.store.work_days.is_none() && s.store.week_start.is_none() }))
 }
 
 /// `HH:MM` as minutes after midnight, `24:00` included.

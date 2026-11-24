@@ -75,6 +75,8 @@ pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 80..=200;
 pub const DEFAULT_SYNC_MINUTES: u32 = 5;
 /// The working day when none is chosen, in minutes after midnight: 08:00 to 17:00, as Outlook.
 pub const DEFAULT_WORK_HOURS: (u16, u16) = (8 * 60, 17 * 60);
+/// The working days when none are chosen: Monday to Friday, one bit each from Monday.
+pub const DEFAULT_WORK_DAYS: u8 = 0b001_1111;
 /// The longest period that can be chosen: a day.
 pub const MAX_SYNC_MINUTES: u32 = 24 * 60;
 
@@ -114,6 +116,13 @@ pub struct Store {
     /// by the person; `None` (or a span that makes no sense) is [`DEFAULT_WORK_HOURS`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_hours: Option<(u16, u16)>,
+    /// Tinta: the working days, one bit each from Monday (bit 0) to Sunday (bit 6); `None` (or
+    /// no day at all) is [`DEFAULT_WORK_DAYS`], Monday to Friday.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_days: Option<u8>,
+    /// Tinta: the first day of the week, 0 for Monday … 6 for Sunday; `None` is Monday.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub week_start: Option<u8>,
     /// The colour theme (an id from [`THEMES`]), chosen by the person; `None` the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
@@ -525,6 +534,22 @@ impl Store {
     /// choice when it is a span within the day, else [`DEFAULT_WORK_HOURS`].
     pub fn work_hours(&self) -> (u16, u16) {
         self.work_hours.filter(|(start, end)| start < end && *end <= 24 * 60).unwrap_or(DEFAULT_WORK_HOURS)
+    }
+
+    /// The working days, one bit each from Monday (bit 0) to Sunday (bit 6): the person's choice
+    /// when it names at least one day, else [`DEFAULT_WORK_DAYS`].
+    pub fn work_days(&self) -> u8 {
+        self.work_days.map(|d| d & 0x7f).filter(|d| *d != 0).unwrap_or(DEFAULT_WORK_DAYS)
+    }
+
+    /// Whether `day` (0 Monday … 6 Sunday) is a working day.
+    pub fn is_work_day(&self, day: u8) -> bool {
+        day < 7 && self.work_days() & (1 << day) != 0
+    }
+
+    /// The first day of the week, 0 for Monday … 6 for Sunday.
+    pub fn week_start(&self) -> u8 {
+        self.week_start.filter(|d| *d < 7).unwrap_or(0)
     }
 
     /// The interface's size in percent, within [`ZOOM_RANGE`].

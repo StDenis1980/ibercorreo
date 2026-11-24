@@ -230,20 +230,38 @@ impl Session {
         commands::invite_info(self, m, &*self.store.content(id).ok()?)
     }
 
-    /// The first and last day the calendar shows: the day; Monday to Friday or Sunday of its week;
-    /// or the first and last of its month. Weeks start on Monday.
+    /// The first and last day the calendar shows: the day; the working days or the whole of its
+    /// week; or the first and last of its month.
     pub fn calendar_range(&self) -> (Date, Date) {
-        let monday = self.day.add_days(-i64::from(self.day.weekday().index())).unwrap_or(self.day);
-        let span = |from: Date, days: i64| (from, from.add_days(days).unwrap_or(from));
         match self.calendar_mode {
-            CalendarMode::Day => (self.day, self.day),
-            CalendarMode::WorkWeek => span(monday, 4),
-            CalendarMode::Week => span(monday, 6),
             CalendarMode::Month => {
                 let first = self.day.first_of_month();
-                span(first, i64::from(ibercorreo_core::date::days_in_month(first.year(), first.month())) - 1)
+                let days = i64::from(ibercorreo_core::date::days_in_month(first.year(), first.month())) - 1;
+                (first, first.add_days(days).unwrap_or(first))
+            }
+            _ => {
+                let days = self.calendar_days();
+                let first = days.first().copied().unwrap_or(self.day);
+                (first, days.last().copied().unwrap_or(first))
             }
         }
+    }
+
+    /// Tinta: the days the day and week views show as columns: the day; the working days of its
+    /// week (`Store::work_days`); or its whole week. Weeks start on `Store::week_start`.
+    pub fn calendar_days(&self) -> Vec<Date> {
+        let week: Vec<Date> = (0..7).filter_map(|n| self.week_start_of(self.day).add_days(n).ok()).collect();
+        match self.calendar_mode {
+            CalendarMode::Day | CalendarMode::Month => vec![self.day],
+            CalendarMode::Week => week,
+            CalendarMode::WorkWeek => week.into_iter().filter(|d| self.store.is_work_day(d.weekday().index())).collect(),
+        }
+    }
+
+    /// The first day of the week `day` falls in, as the person starts weeks (`Store::week_start`).
+    pub fn week_start_of(&self, day: Date) -> Date {
+        let back = (i64::from(day.weekday().index()) - i64::from(self.store.week_start())).rem_euclid(7);
+        day.add_days(-back).unwrap_or(day)
     }
 
     /// The zone times are shown in.

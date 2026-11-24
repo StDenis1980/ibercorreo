@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-24 · work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
+Status: 2026-11-24 · working days and the first day of the week (`calendar.workWeek`); work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -330,6 +330,11 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Outlook.com and Exchange Online file what SMTP sends themselves, so no second copy is saved in
   Sent; names and subjects in the message list end in "…" short of the date, the Bcc button
   keeps its translated width, and the status bar's texts stop short of the size slider.
+- 2026-11-24 — Working days and the first day of the week, as Outlook's Work time: chosen in
+  the same 🕘 menu, saved and undoable (`calendar.workWeek`). Work Week shows the working days
+  (also days not in a row, such as Monday, Wednesday and Friday, and an appointment dragged across
+  columns goes to the day it is dropped on); Week, Month and the small calendar start on the
+  chosen day; the days off are shaded.
 - 2026-11-24 — Work hours in the calendar, as Outlook's Work time: chosen on the calendar's
   ribbon in half hours (default 08:00–17:00), saved with the mailbox and undoable
   (`calendar.workHours`). The day and week views open an hour before the working day and shade
@@ -457,3 +462,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   that would not read on the theme fall back to its own.
 - 2026-11-24 — Calendar: appointments drag to move and stretch.
 - 2026-11-24 — Calendar: work hours.
+- 2026-11-24 — Calendar: working days and the first day of the week.
