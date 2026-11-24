@@ -1186,6 +1186,34 @@ fn search_finds_folded_words_in_a_scope_and_follows_undo() {
 
 /// Tinta: an appointment moves and stretches as dragging it does, keeping its own zone.
 #[test]
+fn work_hours_are_chosen_and_checked() {
+    let mut s = session();
+    assert_eq!(s.run("calendar.workHours", &json!({})).unwrap(), json!({"start": "08:00", "end": "17:00", "default": true}));
+    let r = s.run("calendar.workHours", &json!({"start": "07:30", "end": "15:00"})).unwrap();
+    assert_eq!((r["start"].as_str(), r["end"].as_str(), r["default"].as_bool()), (Some("07:30"), Some("15:00"), Some(false)));
+    assert_eq!(s.store.work_hours(), (450, 900));
+    assert_eq!(s.run("calendar.workHours", &json!({"end": "24:00"})).unwrap()["end"], "24:00", "the start is kept");
+    for bad in [
+        json!({"start": "18:00", "end": "09:00"}),
+        json!({"start": "25:00"}),
+        json!({"end": "24:30"}),
+        json!({"start": "9"}),
+        json!({"start": "09:60"}),
+        json!({"start": 9}),
+    ] {
+        assert!(s.run("calendar.workHours", &bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.store.work_hours(), (450, 1440), "a refused change changes nothing");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.store.work_hours(), (450, 900), "undone like any edit");
+    s.run("calendar.workHours", &json!({"start": "default"})).unwrap();
+    assert_eq!(s.store.work_hours(), (480, 1020));
+    // A saved span that makes no sense falls back to the default.
+    s.store.work_hours = Some((900, 300));
+    assert_eq!(s.store.work_hours(), (480, 1020));
+}
+
+#[test]
 fn an_appointment_moves_and_stretches() {
     let mut s = session();
     s.run("calendar.timeZone", &json!({"zone": "Europe/Madrid"})).unwrap();

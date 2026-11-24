@@ -222,6 +222,12 @@ fn rule_summary(r: &Value) -> String {
 /// The periods offered for the automatic Send/Receive, in minutes (0: none).
 const SYNC_INTERVALS: [u32; 8] = [0, 1, 2, 5, 10, 15, 30, 60];
 
+/// Tinta: the work hours picker's words.
+const WORK_HOURS: &str = "Work hours";
+const WORK_START: &str = "Day starts at";
+const WORK_END: &str = "Day ends at";
+const WORK_DEFAULT: &str = "Back to 08:00 – 17:00";
+
 fn sync_interval_label(minutes: u32) -> String {
     match minutes {
         0 => tl("Only by hand").to_string(),
@@ -1951,6 +1957,7 @@ impl App {
                 self.scroll_to_morning = true;
             }
             self.zone_picker(ui);
+            self.work_hours_picker(ui);
             let label = if self.syncing { "Syncing…" } else { "Send/Receive" };
             if self.tool(ui, Icon::Sync, label, !self.syncing).on_hover_text(tl("Sync mail, calendars and contacts (F9)")).clicked() {
                 self.sync_or_set_up("Set up your account to sync calendars.");
@@ -2029,6 +2036,46 @@ impl App {
     }
 
     /// The zone times are shown in: a button with its name and offset, opening a searchable list.
+    /// Tinta: the working day, as Outlook's Options › Calendar › Work time: where the day and
+    /// week views open, and the hours they shade.
+    fn work_hours_picker(&mut self, ui: &mut Ui) {
+        let (start, end) = self.session.store.work_hours();
+        let clock = |m: u16| format!("{:02}:{:02}", m / 60, m % 60);
+        let (mut new_start, mut new_end) = (start, end);
+        let mut reset = false;
+        ui.menu_button(format!("🕘 {} – {}", clock(start), clock(end)), |ui| {
+            ui.label(RichText::new(tl(WORK_HOURS)).strong());
+            egui::Grid::new("work-hours").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
+                for (label, value, id, range) in
+                    [(WORK_START, &mut new_start, "work-start", 0..=47u16), (WORK_END, &mut new_end, "work-end", 1..=48u16)]
+                {
+                    ui.label(tl(label));
+                    egui::ComboBox::from_id_salt(id).selected_text(clock(*value)).show_ui(ui, |ui| {
+                        for half in range {
+                            ui.selectable_value(value, half * 30, clock(half * 30));
+                        }
+                    });
+                    ui.end_row();
+                }
+            });
+            if self.session.store.work_hours.is_some() && ui.button(tl(WORK_DEFAULT)).clicked() {
+                reset = true;
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(tl(WORK_HOURS));
+        if reset {
+            self.run("calendar.workHours", json!({ "start": "default" }));
+        } else if (new_start, new_end) != (start, end) {
+            // A start past the end moves the end along, keeping the day's length where it can.
+            let end = if new_start >= new_end && new_start != start { (new_start + (end - start)).min(24 * 60) } else { new_end };
+            let start = if new_start >= end { end.saturating_sub(30) } else { new_start };
+            self.run("calendar.workHours", json!({ "start": clock(start), "end": clock(end) }));
+            self.scroll_to_morning = true;
+        }
+    }
+
     fn zone_picker(&mut self, ui: &mut Ui) {
         let zone = self.session.zone().clone();
         let label = format!("🌐 {} ({})", zone.name().replace('_', " "), zone.offset_label(self.session.now()));
@@ -3183,7 +3230,9 @@ impl App {
 
         let mut scroll = egui::ScrollArea::vertical().id_salt("time-grid").auto_shrink([false, false]);
         if std::mem::take(&mut self.scroll_to_morning) {
-            scroll = scroll.vertical_scroll_offset(7.0 * HOUR);
+            // Tinta: an hour before the working day starts, as 07:00 for the default 08:00.
+            let (work_start, _) = self.session.store.work_hours();
+            scroll = scroll.vertical_scroll_offset(HOUR * (f32::from(work_start) / 60.0 - 1.0).max(0.0));
         }
         scroll.show(ui, |ui| {
             let (grid, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0 * HOUR), Sense::click());
@@ -3203,6 +3252,14 @@ impl App {
                         t.card
                     },
                 );
+                // Tinta: the hours outside the working day, shaded like the weekend.
+                if !weekend && *day != self.session.day {
+                    let (work_start, work_end) = self.session.store.work_hours();
+                    let off = theme::mix(t.card, t.window, 0.6);
+                    let y = |minute: u16| grid.top() + HOUR * f32::from(minute) / 60.0;
+                    p.rect_filled(egui::Rect::from_x_y_ranges(column.x_range(), grid.top()..=y(work_start)), 0.0, off);
+                    p.rect_filled(egui::Rect::from_x_y_ranges(column.x_range(), y(work_end)..=grid.bottom()), 0.0, off);
+                }
                 p.line_segment([egui::pos2(x, grid.top()), egui::pos2(x, grid.bottom())], Stroke::new(0.5, t.border));
             }
             for hour in 0..24u8 {
@@ -4988,6 +5045,15 @@ fn one_line(painter: &egui::Painter, text: &str, font: egui::FontId, color: Colo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn work_hours_are_translated() {
+        for lang in crate::i18n::Language::ALL.into_iter().filter(|l| *l != crate::i18n::Language::En) {
+            for s in [super::WORK_HOURS, super::WORK_START, super::WORK_END, super::WORK_DEFAULT, "Work hours changed"] {
+                assert!(crate::i18n::has(lang, s), "{lang:?}: {s}");
+            }
+        }
+    }
+
     #[test]
     fn all_inboxes_is_translated() {
         for lang in crate::i18n::Language::ALL.into_iter().filter(|l| *l != crate::i18n::Language::En) {

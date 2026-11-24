@@ -424,6 +424,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: time_zone,
     },
     CommandSpec {
+        id: "calendar.workHours",
+        label: "Work hours",
+        group: "File/Options",
+        shortcut: None,
+        params: "start?: \"HH:MM\" — when the working day starts; end?: \"HH:MM\" (up to 24:00) — when it ends; start \"default\" for 08:00–17:00 — leave both out to just say which are chosen. The day and week views open at the start and shade the hours outside.",
+        edits: true,
+        run: work_hours,
+    },
+    CommandSpec {
         id: "account.syncInterval",
         label: "Send/Receive every",
         group: "Send-Receive/Send & Receive",
@@ -2024,6 +2033,41 @@ fn time_zone(s: &mut Session, p: &Value) -> Result<Value> {
         "system": s.system_zone().name(),
         "followsSystem": s.store.time_zone.is_none(),
     }))
+}
+
+/// `HH:MM` as minutes after midnight, `24:00` included.
+fn clock_minutes(key: &'static str, v: &str) -> Result<u16> {
+    let bad = || Error::invalid(key, format!("a time of day as HH:MM, 00:00 to 24:00, not {}", ibercorreo_core::clamp_text(v, 16)));
+    let (h, m) = v.trim().split_once(':').ok_or_else(bad)?;
+    let (h, m) = (h.parse::<u16>().map_err(|_| bad())?, m.parse::<u16>().map_err(|_| bad())?);
+    if m > 59 || h > 24 || (h == 24 && m > 0) {
+        return Err(bad());
+    }
+    Ok(h * 60 + m)
+}
+
+fn clock(minutes: u16) -> String {
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+/// Tinta: the working day in the calendar (`Store::work_hours`), as Outlook's "Work time".
+fn work_hours(s: &mut Session, p: &Value) -> Result<Value> {
+    let start = str_param(p, "start")?;
+    let end = str_param(p, "end")?;
+    if start.is_some_and(|v| v.trim().eq_ignore_ascii_case("default")) {
+        s.store.work_hours = None;
+    } else if start.is_some() || end.is_some() {
+        let (old_start, old_end) = s.store.work_hours();
+        let start = start.map(|v| clock_minutes("start", v)).transpose()?.unwrap_or(old_start);
+        let end = end.map(|v| clock_minutes("end", v)).transpose()?.unwrap_or(old_end);
+        if start >= end {
+            return Err(Error::invalid("end", format!("the working day must end after it starts ({} – {})", clock(start), clock(end))));
+        }
+        s.store.work_hours = Some((start, end));
+        s.status = "Work hours changed".into();
+    }
+    let (start, end) = s.store.work_hours();
+    Ok(json!({ "start": clock(start), "end": clock(end), "default": s.store.work_hours.is_none() }))
 }
 
 /// Show or choose the interface language. The front end decides which languages it can show and

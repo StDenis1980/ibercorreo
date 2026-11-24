@@ -73,6 +73,8 @@ pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 80..=200;
 
 /// Minutes between automatic Send/Receives unless the person chose otherwise.
 pub const DEFAULT_SYNC_MINUTES: u32 = 5;
+/// The working day when none is chosen, in minutes after midnight: 08:00 to 17:00, as Outlook.
+pub const DEFAULT_WORK_HOURS: (u16, u16) = (8 * 60, 17 * 60);
 /// The longest period that can be chosen: a day.
 pub const MAX_SYNC_MINUTES: u32 = 24 * 60;
 
@@ -108,6 +110,10 @@ pub struct Store {
     /// [`DEFAULT_SYNC_MINUTES`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_minutes: Option<u32>,
+    /// Tinta: the working day in the calendar, as minutes after midnight `[start, end]`, chosen
+    /// by the person; `None` (or a span that makes no sense) is [`DEFAULT_WORK_HOURS`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_hours: Option<(u16, u16)>,
     /// The colour theme (an id from [`THEMES`]), chosen by the person; `None` the first one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
@@ -513,6 +519,12 @@ impl Store {
     /// default; never more than [`MAX_SYNC_MINUTES`].
     pub fn sync_minutes(&self) -> u32 {
         self.sync_minutes.unwrap_or(DEFAULT_SYNC_MINUTES).min(MAX_SYNC_MINUTES)
+    }
+
+    /// The working day in the calendar, `(start, end)` in minutes after midnight: the person's
+    /// choice when it is a span within the day, else [`DEFAULT_WORK_HOURS`].
+    pub fn work_hours(&self) -> (u16, u16) {
+        self.work_hours.filter(|(start, end)| start < end && *end <= 24 * 60).unwrap_or(DEFAULT_WORK_HOURS)
     }
 
     /// The interface's size in percent, within [`ZOOM_RANGE`].
