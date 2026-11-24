@@ -445,3 +445,12 @@ fn one_occurrence_of_a_series_moves_and_changes_alone() {
     let series = call(&mut s, "update_event", json!({ "id": added["id"], "summary": "Yoga suave" })).unwrap();
     assert_eq!(series["summary"], "Yoga suave");
 }
+
+#[test]
+fn birthdays_are_listed_with_the_age_turned() {
+    let mut s = sample_server(Limits::default());
+    let list = call(&mut s, "list_birthdays", json!({})).unwrap();
+    let first = &list[0];
+    assert_eq!((first["name"].as_str(), first["age"].as_i64()), (Some("Олена Коваль"), Some(34)), "the sample's birthday today: {list}");
+    assert!(call(&mut s, "list_birthdays", json!({ "from": "2026-01-01", "to": "2027-06-01" })).is_err(), "at most 366 days");
+}

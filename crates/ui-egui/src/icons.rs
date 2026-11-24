@@ -61,6 +61,8 @@ pub enum Icon {
     Thread,
     /// Tinta: a paper clip (attach a file).
     Clip,
+    /// Tinta: a birthday cake, two tiers and a candle with its flame (birthdays).
+    Cake,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -161,6 +163,17 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Tag => {
             p.add(egui::Shape::closed_line(vec![at(-0.32, -0.2), at(0.1, -0.2), at(0.32, 0.0), at(0.1, 0.2), at(-0.32, 0.2)], w));
             p.circle_stroke(at(0.08, 0.0), s * 0.05, w);
+        }
+        Icon::Cake => {
+            // Two tiers, the lower wider, a wavy line of icing on the upper, and a candle.
+            let low = Rect::from_min_max(at(-0.32, 0.06), at(0.32, 0.3));
+            let high = Rect::from_min_max(at(-0.22, -0.1), at(0.22, 0.06));
+            p.rect_stroke(low, s * 0.04, w, StrokeKind::Middle);
+            p.rect_stroke(high, s * 0.04, w, StrokeKind::Middle);
+            let wave: Vec<Pos2> = (0..=8).map(|i| at(-0.22 + 0.055 * i as f32, if i % 2 == 0 { -0.02 } else { 0.02 })).collect();
+            p.add(egui::Shape::line(wave, w));
+            p.line_segment([at(0.0, -0.1), at(0.0, -0.24)], w);
+            p.circle_filled(at(0.0, -0.31), s * 0.045, color);
         }
         Icon::Clip => {
             // A clip upright: three legs joined by two loops at the foot and one at the head.

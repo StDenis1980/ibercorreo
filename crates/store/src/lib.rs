@@ -153,6 +153,9 @@ pub struct Store {
     /// still come).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hidden_calendars: Vec<u32>,
+    /// Tinta: the contacts' birthdays are left out of the calendar views.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hide_birthdays: bool,
     /// Tinta: senders (lowercase addresses) whose mail loads its pictures from the web without
     /// asking; [`MAX_PICTURE_SENDERS`] at most.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

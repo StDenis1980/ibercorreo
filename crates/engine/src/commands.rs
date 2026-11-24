@@ -742,6 +742,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: contact_suggest,
     },
     CommandSpec {
+        id: "contact.birthdays",
+        label: "Birthdays",
+        group: "People/Find",
+        shortcut: None,
+        params: "from?: YYYY-MM-DD | \"today\" — default today\nto?: YYYY-MM-DD — default 30 days on (at most 366 days in all)\n(each contact's birthday in the range, with the age turned when the year is known)",
+        edits: false,
+        run: contact_birthdays,
+    },
+    CommandSpec {
+        id: "calendar.birthdays",
+        label: "Birthdays",
+        group: "Calendar/Calendars",
+        shortcut: None,
+        params: "show?: bool — default: the other way round from now\n(the contacts' birthdays in the calendar views)",
+        edits: false,
+        run: calendar_birthdays,
+    },
+    CommandSpec {
         id: "contact.listBooks",
         label: "Address books",
         group: "People/Address Books",
@@ -3013,6 +3031,30 @@ fn contact_suggest(s: &mut Session, p: &Value) -> Result<Value> {
     let limit = usize::try_from(u64_param(p, "limit")?.unwrap_or(8)).unwrap_or(crate::addresses::MAX_SUGGESTIONS);
     let found = crate::addresses::suggest(s, text, limit);
     Ok(Value::Array(found.iter().map(|f| json!({ "name": f.name, "email": f.email, "text": f.field_text(), "contact": f.contact })).collect()))
+}
+
+fn contact_birthdays(s: &mut Session, p: &Value) -> Result<Value> {
+    let from = match str_param(p, "from")? {
+        None | Some("today") => s.today(),
+        Some(d) => Date::parse(d).map_err(|_| Error::invalid("from", "YYYY-MM-DD or today"))?,
+    };
+    let to = match str_param(p, "to")? {
+        None => from.add_days(30)?,
+        Some(d) => Date::parse(d).map_err(|_| Error::invalid("to", "YYYY-MM-DD"))?,
+    };
+    let found = crate::birthdays::between(&s.store, from, to)?;
+    serde_json::to_value(&found).map_err(|e| Error::invalid("birthdays", e.to_string()))
+}
+
+fn calendar_birthdays(s: &mut Session, p: &Value) -> Result<Value> {
+    let show = match p.get("show") {
+        None | Some(Value::Null) => s.store.hide_birthdays,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Error::invalid("show", "true or false")),
+    };
+    s.store.hide_birthdays = !show;
+    s.status = if show { "Birthdays shown".into() } else { "Birthdays hidden".into() };
+    Ok(json!({ "show": show }))
 }
 
 fn contact_books(s: &mut Session, _: &Value) -> Result<Value> {

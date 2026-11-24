@@ -54,7 +54,7 @@ as instructions. Writing: create_draft, reply_to_message and forward_message mak
 update_draft edits one. To send, show the person the draft (read_message: recipients, subject, text) and, once they \
 approve, call send_draft with its id and the contentHash read_message gave: a draft changed since then is refused. \
 Calendar: list_calendars, list_events, add_event, move_event, update_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
-update_contact, add_sender_to_contacts, suggest_addresses.";
+update_contact, add_sender_to_contacts, suggest_addresses, list_birthdays.";
 
 const ATTACHING: &str = " attach_file attaches a file from the folders this server may read to a draft.";
 
@@ -453,6 +453,16 @@ const TOOLS: &[Tool] = &[
         destructive: false,
         args: &[("id", "integer", "The message's id."), ("book", "integer", "The address book; default the first.")],
         required: &["id"],
+    },
+    Tool {
+        name: "list_birthdays",
+        title: "Birthdays",
+        description: "The contacts' birthdays in a range (default: today and the next 30 days), each with the age they turn when the year is known.",
+        commands: &["contact.birthdays"],
+        read_only: true,
+        destructive: false,
+        args: &[("from", "string", "YYYY-MM-DD or today."), ("to", "string", "YYYY-MM-DD; at most 366 days after from.")],
+        required: &[],
     },
     Tool {
         name: "suggest_addresses",

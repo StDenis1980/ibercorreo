@@ -11,6 +11,7 @@ mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod attach_reminder_ui;
+mod birthdays_ui;
 mod body_text;
 mod calendar_drag;
 mod categories_ui;
@@ -3157,6 +3158,8 @@ impl App {
         let mut drop_day: Option<Date> = None;
         let today = self.session.today();
         let names = week_names(&self.session);
+        // Tinta: the contacts' birthdays in the six weeks shown.
+        let birthdays = self.session.birthdays_between(grid_start, grid_start.add_days(41).unwrap_or(grid_start));
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
         let cell_h = ((avail.y - 28.0) / 6.0).max(48.0);
@@ -3208,6 +3211,18 @@ impl App {
                     }
                     let mut y = rect.top() + 32.0;
                     let mut chip_clicked = false;
+                    // Tinta: birthdays first, festive, with confetti by the day's number.
+                    for b in birthdays.iter().filter(|b| b.date == day) {
+                        if y + 20.0 > rect.bottom() {
+                            break;
+                        }
+                        if y == rect.top() + 32.0 {
+                            birthdays_ui::confetti(&p, Rect::from_min_size(rect.right_top() + vec2(-34.0, 6.0), vec2(26.0, 18.0)), b.contact);
+                        }
+                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 4.0, y), vec2(rect.width() - 8.0, 20.0));
+                        birthdays_ui::chip(&p, chip, &t, b);
+                        y += 22.0;
+                    }
                     for o in self.session.store.shown_events_on(day, self.session.zone()) {
                         let e = o.event;
                         if y + 20.0 > rect.bottom() {
@@ -3340,6 +3355,26 @@ impl App {
                     .collect()
             })
             .collect();
+        // Tinta: a ribbon of birthdays over the columns, each day's first one as a chip.
+        let first_day = days.first().copied().unwrap_or(self.session.day);
+        let birthdays = self.session.birthdays_between(first_day, days.last().copied().unwrap_or(first_day));
+        if !birthdays.is_empty() {
+            let (ribbon, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW + 4.0), Sense::hover());
+            let p = ui.painter_at(ribbon);
+            p.rect_filled(ribbon, 0.0, theme::mix(t.card, birthdays_ui::ROSE, 0.06));
+            for (n, day) in days.iter().enumerate() {
+                let on: Vec<_> = birthdays.iter().filter(|b| b.date == *day).collect();
+                let Some(b) = on.first() else { continue };
+                let chip =
+                    egui::Rect::from_min_size(egui::pos2(x_of(ribbon.left(), n) + 2.0, ribbon.top() + 3.0), vec2(col_w - 4.0, ALL_DAY_ROW - 2.0));
+                birthdays_ui::chip(&p, chip, &t, b);
+                if on.len() > 1 {
+                    let more = tf(birthdays_ui::MORE, &[("n", &(on.len() - 1).to_string())]);
+                    let tip = on.iter().map(|b| birthdays_ui::label(b)).collect::<Vec<_>>().join("\n");
+                    ui.interact(chip, ui.id().with(("birthdays", n)), Sense::hover()).on_hover_text(format!("{more}\n{tip}"));
+                }
+            }
+        }
         let rows = all_day.iter().map(Vec::len).max().unwrap_or(0).min(4);
         if rows > 0 {
             let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW * rows as f32 + 4.0), Sense::hover());
@@ -3613,6 +3648,8 @@ impl App {
         let day = self.session.day;
         ui.label(RichText::new(long_date(day)).heading().color(t.text));
         ui.add_space(8.0);
+        // Tinta: birthdays come first, each a card with Send wishes.
+        self.birthday_cards(ui, day);
         let events: Vec<_> = self.session.store.shown_events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
             ui.label(RichText::new(tl("No appointments")).color(t.text_weak));
@@ -3637,12 +3674,15 @@ impl App {
                             // Tinta: Edit, for this occurrence or the series when it repeats.
                             let repeats = e.rrule.is_some() && e.recurrence_id.is_none();
                             if repeats {
-                                if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT_SERIES, false).clicked() {
-                                    edit = Some((e.id, occurrence, Some(true)));
-                                }
-                                if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT_ONE, false).clicked() {
-                                    edit = Some((e.id, occurrence, Some(false)));
-                                }
+                                let resp = chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT, false);
+                                egui::Popup::menu(&resp).id(ui.id().with(("edit-series", e.id.0, occurrence.start_date().day_number()))).show(|ui| {
+                                    if ui.button(tl(series_ui::EDIT_ONE)).clicked() {
+                                        edit = Some((e.id, occurrence, Some(false)));
+                                    }
+                                    if ui.button(tl(series_ui::EDIT_SERIES)).clicked() {
+                                        edit = Some((e.id, occurrence, Some(true)));
+                                    }
+                                });
                             } else if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT, false).clicked() {
                                 edit = Some((e.id, occurrence, None));
                             }
@@ -3776,6 +3816,29 @@ impl App {
                     ui.close();
                 }
             });
+        }
+        // Tinta: the contacts' birthdays, a row of their own with the cake.
+        let shown = !self.session.store.hide_birthdays;
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        let p = ui.painter();
+        if resp.hovered() {
+            p.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.6));
+        }
+        let square = Rect::from_center_size(egui::pos2(rect.left() + 16.0, rect.center().y), vec2(14.0, 14.0));
+        if shown {
+            p.rect_filled(square, 3.0, birthdays_ui::ROSE);
+            icons::paint(p, square.shrink(1.5), Icon::Check, Color32::WHITE);
+        } else {
+            p.rect_stroke(square, 3.0, Stroke::new(1.5, birthdays_ui::ROSE), StrokeKind::Inside);
+        }
+        let text_color = if shown { t.text } else { t.text_weak };
+        let g = p.layout_no_wrap(tl(birthdays_ui::BIRTHDAYS).to_string(), egui::FontId::proportional(theme::BODY), text_color);
+        let text_x = rect.left() + 32.0;
+        let cake = Rect::from_center_size(egui::pos2(text_x + g.size().x + 16.0, rect.center().y), vec2(16.0, 16.0));
+        p.galley(egui::pos2(text_x, rect.center().y - g.size().y / 2.0), g, text_color);
+        icons::paint(p, cake, Icon::Cake, birthdays_ui::ROSE);
+        if resp.on_hover_text(tl(birthdays_ui::SHOW_TIP)).clicked() {
+            self.run("calendar.birthdays", json!({ "show": !shown }));
         }
         if let Some(p) = act {
             self.run("calendar.show", p);
@@ -6887,5 +6950,57 @@ mod tests {
         assert_eq!(app.session.store.event(EventId(id)).unwrap().summary, "Weekly review");
         assert_eq!(app.session.store.event(copy.id).unwrap().summary, "Weekly", "the changed occurrence keeps its own");
         assert_eq!(app.session.store.events().len(), 2);
+    }
+
+    #[test]
+    fn birthdays_show_festively_and_a_click_writes_wishes() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap();
+        let mut store = ibercorreo_store::Store::new();
+        let mut olena = ibercorreo_core::Contact::new("Olena Koval");
+        olena.emails = vec![ibercorreo_core::Address::new(Some("Olena Koval"), "olena@example.com.ua").unwrap()];
+        olena.birthday = Date::new(1992, 11, 24).ok();
+        store.add_contact(olena);
+        let mut s = Session::new(store, day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 9, 0, 0).unwrap());
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewMonth", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1500.0, 900.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for _ in 0..3 {
+            frame(&mut app, vec![]);
+        }
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Olena · 34"), "the month's chip: {texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "turns 34 today"), "the agenda's card");
+        let wishes = texts.iter().find(|(t, _)| t == birthdays_ui::WISHES).map(|(_, p)| *p).expect("Send wishes");
+        let at = wishes + vec2(4.0, 4.0);
+        let press = |pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![Event::PointerMoved(at), press(true)]);
+        frame(&mut app, vec![press(false)]);
+        let draft = app.session.store.all_messages().find(|m| m.subject == birthdays_ui::SUBJECT).expect("a birthday message");
+        assert_eq!(draft.to.first().map(|a| a.email.as_str()), Some("olena@example.com.ua"));
+        // Hidden from the calendar list's row: gone from the views.
+        app.run("calendar.birthdays", json!({ "show": false }));
+        app.run("view.calendar", json!({}));
+        for _ in 0..2 {
+            frame(&mut app, vec![]);
+        }
+        let texts = frame(&mut app, vec![]);
+        assert!(!texts.iter().any(|(t, _)| t == "Olena · 34" || t == "turns 34 today"), "hidden");
+        assert!(texts.iter().any(|(t, _)| t == birthdays_ui::BIRTHDAYS), "the row stays to show them again");
     }
 }

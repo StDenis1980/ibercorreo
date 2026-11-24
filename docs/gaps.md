@@ -147,14 +147,19 @@ Status: 2026-11-24 · Pick from the top.
     CardDAV address when it differs from the CalDAV one; creating, renaming and deleting address
     books (on the server too); `sync-collection` (RFC 6578) instead of a full listing on every
     change; cards written back as 3.0 even when the server held 4.0; contact groups and lists, photos
-    shown, postal addresses and web sites edited, birthdays in the calendar, and an export button in the
+    shown, postal addresses and web sites edited, and an export button in the
     window (export is a command). A multi-part organization (`ORG:Company;Department`) is kept
     as one text ("Company, Department").
     Add to contacts sits beside a message's sender (and on its context menu, with Copy address),
     and a sender already there is not added twice (`contact.addSender`); To, Cc and Bcc offer
     addresses while they are typed, contacts first, then the people written to (`contact.suggest`,
     2026-11-24). Missing there: contact groups offered as one recipient, and forgetting an
-    address offered.
+    address offered. Birthdays show in the calendar as Outlook's Birthdays calendar does
+    (2026-11-24): a rose chip with a cake and confetti and the age turned, in the month's cells, a
+    ribbon over the day and week views, a dot in the small month, a card in the agenda with Send
+    wishes, and in My Day; the calendar list shows or hides them (`calendar.birthdays`,
+    `contact.birthdays`, MCP `list_birthdays`). They are not appointments: no reminder, and
+    nothing goes to a server.
 15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
     ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
     dates) and the All mailboxes / Current mailbox / Current folder scope. The index is kept
