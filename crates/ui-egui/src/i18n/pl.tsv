@@ -143,7 +143,7 @@
 	All mailboxes	Wszystkie skrzynki pocztowe
 	Current mailbox	Bieżąca skrzynka pocztowa
 	Current folder	Bieżący folder
-	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Słowa są wyszukiwane od początku, bez względu na znaki diakrytyczne. "dokładna fraza", -słowo, aby wykluczyć, OR dla jednego z dwóch. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent	Słowa są wyszukiwane od początku, bez względu na znaki diakrytyczne. "dokładna fraza", -słowo, aby wykluczyć, OR dla jednego z dwóch. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent
 	Search people	Szukaj osób
 	Search: Lisbon, Kyiv, New York…	Szukaj: Lizbona, Kijów, Nowy Jork…
 	Select a message to read it	Zaznacz wiadomość, aby ją przeczytać

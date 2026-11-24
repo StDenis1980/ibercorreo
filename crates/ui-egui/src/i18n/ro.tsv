@@ -143,7 +143,7 @@
 	All mailboxes	Toate cutiile poștale
 	Current mailbox	Cutia poștală curentă
 	Current folder	Folderul curent
-	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Cuvintele se potrivesc de la început, fără diacritice. "frază exactă", -cuvânt pentru excludere, OR pentru oricare. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent	Cuvintele se potrivesc de la început, fără diacritice. "frază exactă", -cuvânt pentru excludere, OR pentru oricare. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent
 	Search people	Căutare persoane
 	Search: Lisbon, Kyiv, New York…	Căutare: Lisabona, Kiev, New York…
 	Select a message to read it	Selectați un mesaj pentru a-l citi

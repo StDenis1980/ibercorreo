@@ -147,8 +147,10 @@ Status: 2026-11-24 · Pick from the top.
     after a Send/Receive. Missing: searching
     attachment contents, the server's search (IMAP `SEARCH`) for mail not downloaded, highlighting
     the words found, a Search ribbon tab with filter buttons, search history and saved searches
-    (search folders), relevance order (results are newest first), `in:folder` and `size:`, and
-    date words (`yesterday`, `last week`).16. **Rules (M3.5).** Client-side rules on new Inbox mail and on demand: a search-syntax
+    (search folders), relevance order (results are newest first) and `size:` (the size of a
+    message is not kept). Date words (`received:yesterday`, `"last week"`, `"минулого місяця"`,
+    `"semana pasada"`…) and `in:` a folder by name or role came 2026-11-24; in rules they are
+    still words.16. **Rules (M3.5).** Client-side rules on new Inbox mail and on demand: a search-syntax
     condition; mark read, flag, move, delete, stop. Missing: server-side rules (Sieve,
     ManageSieve RFC 5804; Exchange inbox rules with M4) so mail is sorted while the app is closed,
     forward/redirect and auto-reply actions, categories, "except if" conditions as their own
@@ -242,3 +244,4 @@ Status: 2026-11-24 · Pick from the top.
 - 2026-11-17 — gaps 7 and 15: the search index kept on disk.
 - 2026-11-24 — gaps 1 and 2 narrowed (M3.4): All Inboxes, deceptive links, merged cells; gap 17: `.pst`/`.msg` attachment files kept and exported.
 - 2026-11-24 — gap 8: the forgotten-attachment reminder.
+- 2026-11-24 — gap 15: date words and `in:` in search.

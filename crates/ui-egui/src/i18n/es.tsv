@@ -141,7 +141,7 @@
 	All mailboxes	Todos los buzones
 	Current mailbox	Buzón actual
 	Current folder	Carpeta actual
-	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:	Las palabras se buscan desde su inicio, sin tener en cuenta los acentos. "frase exacta", -palabra para excluir, OR para cualquiera de las dos. También de: para: asunto: cuerpo: adjunto:. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:
+	Words match from their start, accents ignored. "exact phrase", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent	Las palabras se buscan desde su inicio, sin tener en cuenta los acentos. "frase exacta", -palabra para excluir, OR para cualquiera de las dos. También de: para: asunto: cuerpo: adjunto:. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent
 	Search people	Buscar personas
 	Search: Lisbon, Kyiv, New York…	Buscar: Lisboa, Kiev, Nueva York…
 	Select a message to read it	Seleccione un mensaje para leerlo

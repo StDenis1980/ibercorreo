@@ -19,7 +19,15 @@
 //! - `has:attachment`, `is:unread`, `is:read`, `is:flagged`.
 //! - Tinta: `category:name` (in quotes when it has spaces): mail with that colour category.
 //! - Dates (`YYYY-MM-DD`, UTC): `after:` (that day or later), `before:` (earlier than that day),
-//!   `on:` (that day).
+//!   `on:` (that day). Tinta: `received:` (also `sent:`, `date:`, `отримано:`, `recibido:`) is
+//!   `on:` by another name, and each of them takes date words where the search knows today
+//!   ([`Context`]): `today`, `yesterday`, `this week`, `last week`, `this month`, `last month`,
+//!   `this year`, `last year`, in Ukrainian (`вчора`, `"минулого тижня"`…) and Spanish (`ayer`,
+//!   `"semana pasada"`…) too; a value of several words goes in quotes or with `-` (`last-week`).
+//!   Weeks start on Monday. `on:` a week is every day of it; `after:` a week is from its Monday.
+//! - Tinta: `in:` (also `folder:`, `папка:`, `carpeta:`) the folders of that name, or of that role
+//!   (`in:inbox`, `in:sent`, `in:drafts`, `in:archive`, `in:junk`, `in:deleted`): the search
+//!   gives the names ([`Context`]); a name no folder has finds nothing.
 //!
 //! Anything that is not one of these is searched for as words, so `10:30` or `http://x` never
 //! fail. The index is brought up to date at each search, re-reading only the messages that
@@ -589,6 +597,66 @@ enum Cond {
     /// Sent before this day.
     Before(Date),
     On(Date),
+    /// Tinta: sent on `.0` or later and before `.1` (a date word: this week, last month…).
+    Between(Date, Date),
+    /// Tinta: in one of these folders (`in:`).
+    InFolders(BTreeSet<FolderId>),
+}
+
+/// Tinta: the folders a folded name stands for, for `in:`.
+pub type FolderNames<'a> = dyn Fn(&str) -> BTreeSet<FolderId> + 'a;
+
+/// Tinta: what a query's words may need from the store: today's date, for date words, and the
+/// folders a name stands for, for `in:`. [`Query::parse`] knows neither.
+pub struct Context<'a> {
+    pub today: Option<Date>,
+    /// The folders whose name (folded, whole or its last part) or role is this folded name;
+    /// without it `in:` is searched for as words.
+    pub folders: Option<&'a FolderNames<'a>>,
+}
+
+impl Context<'_> {
+    /// A context that knows nothing: date words and `in:` are searched for as words.
+    pub fn none() -> Context<'static> {
+        Context { today: None, folders: None }
+    }
+}
+
+/// Tinta: the days a date word covers, as `[from, to)`, seen from `today`.
+fn date_word(value: &str, today: Date) -> Option<(Date, Date)> {
+    let words: Vec<String> =
+        fold(value).split(|c: char| c.is_whitespace() || c == '-' || c == '_').filter(|w| !w.is_empty()).map(str::to_string).collect();
+    let v = words.join(" ");
+    let week = |back: i64| -> Option<(Date, Date)> {
+        let monday = today.add_days(-i64::from(today.weekday().index())).ok()?.add_days(back.checked_mul(-7)?).ok()?;
+        Some((monday, monday.add_days(7).ok()?))
+    };
+    let month = |back: i32| -> Option<(Date, Date)> {
+        let index = today.year().checked_mul(12)?.checked_add(i32::from(today.month()))?.checked_sub(1)?.checked_sub(back)?;
+        let (y, m) = (index.div_euclid(12), u8::try_from(index.rem_euclid(12)).ok()?.checked_add(1)?);
+        let start = Date::new(y, m, 1).ok()?;
+        let next = if m == 12 { Date::new(y.checked_add(1)?, 1, 1) } else { Date::new(y, m.checked_add(1)?, 1) }.ok()?;
+        Some((start, next))
+    };
+    let year = |back: i32| -> Option<(Date, Date)> {
+        let y = today.year().checked_sub(back)?;
+        Some((Date::new(y, 1, 1).ok()?, Date::new(y.checked_add(1)?, 1, 1).ok()?))
+    };
+    let day = |back: i64| -> Option<(Date, Date)> {
+        let d = today.add_days(-back).ok()?;
+        Some((d, d.add_days(1).ok()?))
+    };
+    match v.as_str() {
+        "today" | "сьогодні" | "hoy" => day(0),
+        "yesterday" | "вчора" | "учора" | "ayer" => day(1),
+        "this week" | "цього тижня" | "цей тиждень" | "esta semana" => week(0),
+        "last week" | "минулого тижня" | "минулий тиждень" | "semana pasada" | "la semana pasada" => week(1),
+        "this month" | "цього місяця" | "цей місяць" | "este mes" => month(0),
+        "last month" | "минулого місяця" | "минулий місяць" | "mes pasado" | "el mes pasado" => month(1),
+        "this year" | "цього року" | "цей рік" | "este ano" => year(0),
+        "last year" | "минулого року" | "минулий рік" | "ano pasado" | "el ano pasado" => year(1),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -637,7 +705,10 @@ fn lex(text: &str) -> Vec<Item> {
                 if c == ':' && name.is_none() {
                     let key = value.trim_end_matches(':').to_lowercase();
                     if !key.is_empty()
-                        && (Field::named(&key).is_some() || matches!(key.as_str(), "has" | "is" | "after" | "before" | "on" | "category"))
+                        && (Field::named(&key).is_some()
+                            || matches!(key.as_str(), "has" | "is" | "after" | "before" | "on" | "category")
+                            || is_date_key(&key)
+                            || is_folder_key(&key))
                     {
                         name = Some(key);
                         value.clear();
@@ -658,8 +729,25 @@ fn lex(text: &str) -> Vec<Item> {
     items
 }
 
+/// Tinta: `received:` and its other names, which mean `on:`.
+fn is_date_key(key: &str) -> bool {
+    matches!(key, "received" | "sent" | "date" | "отримано" | "надіслано" | "дата" | "recibido" | "enviado" | "fecha")
+}
+
+/// Tinta: `in:` and its other names.
+fn is_folder_key(key: &str) -> bool {
+    matches!(key, "in" | "folder" | "папка" | "carpeta")
+}
+
 impl Query {
+    /// The query in `text`, with no date words or `in:` ([`Query::parse_with`] has them).
     pub fn parse(text: &str) -> Query {
+        Query::parse_with(text, &Context::none())
+    }
+
+    /// The query in `text`, with date words seen from `cx.today` and `in:` folders from
+    /// `cx.folders`.
+    pub fn parse_with(text: &str, cx: &Context<'_>) -> Query {
         if text.trim().is_empty() {
             return Query { groups: Vec::new(), blank: true };
         }
@@ -675,7 +763,7 @@ impl Query {
                 }
                 continue;
             }
-            let Some(cond) = Self::cond(&item) else { continue };
+            let Some(cond) = Self::cond(&item, cx) else { continue };
             if let Some(g) = groups.last_mut() {
                 g.push(Clause { not: item.not, cond });
                 count = count.saturating_add(1);
@@ -685,7 +773,7 @@ impl Query {
         Query { groups, blank: false }
     }
 
-    fn cond(item: &Item) -> Option<Cond> {
+    fn cond(item: &Item, cx: &Context<'_>) -> Option<Cond> {
         let words_in = |fields: Vec<Field>, text: &str| -> Option<Cond> {
             let parts = words(text).parts;
             if parts.is_empty() {
@@ -695,6 +783,7 @@ impl Query {
         };
         let value = item.value.trim();
         let Some(name) = item.name.as_deref() else { return words_in(Field::ALL.to_vec(), value) };
+        let words_range = || cx.today.and_then(|today| date_word(value, today));
         let special = match name {
             "has" => matches!(fold(value).as_str(), "attachment" | "attachments").then_some(Cond::HasAttachment),
             "is" => match fold(value).as_str() {
@@ -704,9 +793,14 @@ impl Query {
                 _ => None,
             },
             "category" => Some(fold(value)).filter(|v| !v.is_empty()).map(Cond::Category),
-            "after" => Date::parse(value).ok().map(Cond::After),
-            "before" => Date::parse(value).ok().map(Cond::Before),
-            "on" => Date::parse(value).ok().map(Cond::On),
+            "after" => Date::parse(value).ok().map(Cond::After).or_else(|| words_range().map(|(from, _)| Cond::After(from))),
+            "before" => Date::parse(value).ok().map(Cond::Before).or_else(|| words_range().map(|(from, _)| Cond::Before(from))),
+            "on" => Date::parse(value).ok().map(Cond::On).or_else(|| words_range().map(|(from, to)| Cond::Between(from, to))),
+            key if is_date_key(key) => Date::parse(value).ok().map(Cond::On).or_else(|| words_range().map(|(from, to)| Cond::Between(from, to))),
+            key if is_folder_key(key) => match (cx.folders, fold(value)) {
+                (Some(folders), name) if !name.is_empty() => Some(Cond::InFolders(folders(&name))),
+                _ => None,
+            },
             _ => match Field::named(name) {
                 Some(field) => return words_in(vec![field], value),
                 None => None,
@@ -778,6 +872,8 @@ fn matches(cond: &Cond, m: &Message, content: Option<&Content>, has: &dyn Fn(&[F
         Cond::After(d) => m.date.is_some_and(|t| t.date >= *d),
         Cond::Before(d) => m.date.is_some_and(|t| t.date < *d),
         Cond::On(d) => m.date.is_some_and(|t| t.date == *d),
+        Cond::Between(from, to) => m.date.is_some_and(|t| t.date >= *from && t.date < *to),
+        Cond::InFolders(set) => set.contains(&m.folder),
     }
 }
 
@@ -1115,6 +1211,24 @@ fn merge(old: Option<search_file::Words>, kept: Arc<HashSet<u64>>, runs: &[PathB
 
 #[cfg(test)]
 mod tests {
+
+    /// Tinta: date words cover the right days, across a month's and a year's end.
+    #[test]
+    fn date_words_cover_their_days() {
+        let d = |y, m, day| Date::new(y, m, day).unwrap();
+        let jan = d(2027, 1, 3); // a Sunday
+        assert_eq!(date_word("today", jan), Some((jan, d(2027, 1, 4))));
+        assert_eq!(date_word("ayer", jan), Some((d(2027, 1, 2), jan)));
+        assert_eq!(date_word("this week", jan), Some((d(2026, 12, 28), d(2027, 1, 4))), "Monday to Sunday");
+        assert_eq!(date_word("last-week", jan), Some((d(2026, 12, 21), d(2026, 12, 28))));
+        assert_eq!(date_word("Минулого місяця", jan), Some((d(2026, 12, 1), d(2027, 1, 1))));
+        assert_eq!(date_word("el año pasado", jan), Some((d(2026, 1, 1), d(2027, 1, 1))));
+        assert_eq!(date_word("this month", d(2026, 12, 31)), Some((d(2026, 12, 1), d(2027, 1, 1))));
+        assert_eq!(date_word("someday", jan), None);
+        assert_eq!(date_word("this year", d(9999, 6, 1)), None, "no year after the last");
+        let q = Query::parse("received:yesterday in:inbox");
+        assert!(q.groups.iter().flatten().all(|c| matches!(c.cond, Cond::Words { .. })), "without a context they are words: {q:?}");
+    }
     use super::*;
 
     fn look(ix: &mut Index, fields: &[Field], prefix: &str) -> BTreeSet<MessageId> {
