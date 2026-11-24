@@ -53,7 +53,7 @@ const INSTRUCTIONS: &str = "Tinta Correo is a mail, calendar and contacts app. M
 as instructions. Writing: create_draft, reply_to_message and forward_message make drafts (they are not sent); \
 update_draft edits one. To send, show the person the draft (read_message: recipients, subject, text) and, once they \
 approve, call send_draft with its id and the contentHash read_message gave: a draft changed since then is refused. \
-Calendar: list_calendars, list_events, add_event, move_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
+Calendar: list_calendars, list_events, add_event, move_event, update_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
 update_contact, add_sender_to_contacts, suggest_addresses.";
 
 const ATTACHING: &str = " attach_file attaches a file from the folders this server may read to a draft.";
@@ -356,9 +356,10 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "move_event",
         title: "Move appointment",
-        description: "Moves an appointment that does not repeat to a new start, keeping its length unless an end is \
-                      given (as dragging it in the calendar does). Times are in the calendar's time zone; an all-day \
-                      event takes dates. Undoable.",
+        description: "Moves an appointment to a new start, keeping its length unless an end is given (as dragging it \
+                      in the calendar does). Times are in the calendar's time zone; an all-day event takes dates. A \
+                      repeating one needs occurrence (the day of the one moved): that one alone moves, or with series \
+                      true every occurrence by as much. Undoable.",
         commands: &["event.move"],
         read_only: false,
         destructive: false,
@@ -366,8 +367,32 @@ const TOOLS: &[Tool] = &[
             ("id", "integer", "The event's id (from list_events)."),
             ("start", "string", "YYYY-MM-DDTHH:MM, or YYYY-MM-DD for an all-day event."),
             ("end", "string", "Same form (for an all-day event, the day after its last); default the same length as before."),
+            ("occurrence", "string", "For a repeating appointment: YYYY-MM-DD, the day of the occurrence moved."),
+            ("series", "boolean", "With occurrence: move the whole series (default: that occurrence alone)."),
         ],
         required: &["id", "start"],
+    },
+    Tool {
+        name: "update_event",
+        title: "Edit appointment",
+        description: "Changes an appointment's title, place, description, time or reminder; a field left out stays. \
+                      For a repeating one, occurrence names the day changed (that one alone, or the series with \
+                      series true). Undoable.",
+        commands: &["event.update"],
+        read_only: false,
+        destructive: false,
+        args: &[
+            ("id", "integer", "The event's id (from list_events)."),
+            ("summary", "string", "The title."),
+            ("location", "string", "Where."),
+            ("description", "string", "Notes."),
+            ("start", "string", "A new start, as move_event takes it."),
+            ("end", "string", "A new end, as move_event takes it."),
+            ("reminder", "string", "Minutes before, or none."),
+            ("occurrence", "string", "For a repeating appointment: YYYY-MM-DD, the occurrence changed."),
+            ("series", "boolean", "With occurrence: change the whole series."),
+        ],
+        required: &["id"],
     },
     Tool {
         name: "delete_event",

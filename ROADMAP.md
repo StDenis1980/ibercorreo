@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-24 · Save as… on attachments; Paste attaches copied files and pictures to a draft; Add to contacts beside a sender and addresses offered in To, Cc and Bcc (`contact.addSender`, `contact.suggest`); all-day events and month chips drag; working days and the first day of the week (`calendar.workWeek`); work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
+Status: 2026-11-24 · repeating appointments drag and edit, one occurrence or the series (`event.update`, MCP `update_event`); Save as… on attachments; Paste attaches copied files and pictures to a draft; Add to contacts beside a sender and addresses offered in To, Cc and Bcc (`contact.addSender`, `contact.suggest`); all-day events and month chips drag; working days and the first day of the week (`calendar.workWeek`); work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -330,6 +330,13 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Outlook.com and Exchange Online file what SMTP sends themselves, so no second copy is saved in
   Sent; names and subjects in the message list end in "…" short of the date, the Bcc button
   keeps its translated width, and the status bar's texts stop short of the size slider.
+- 2026-11-24 — Repeating appointments, as in Outlook: one dragged in the day, week or month view
+  asks "this occurrence or the whole series"; Edit on the agenda's card (for a series: this
+  occurrence or the series) opens the appointment form filled in. One occurrence becomes a
+  changed occurrence (`RECURRENCE-ID`) sent with its series' resource; a series moved to another
+  day keeps its plain weekdays in step (`BYDAY=MO` → `TU`), its deleted and changed days move with
+  it, and a rule naming days of the month moves only within its day. `event.move` takes
+  `occurrence` and `series`; `event.update` (MCP `update_event`) is new.
 - 2026-11-24 — Save as… beside each attachment's Save: the system's Save dialog chooses the
   folder and the name (it opens in Downloads with the attachment's name, and asks before
   replacing a file); the file is written beside its place first, so a failed write leaves no half
@@ -485,3 +492,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-24 — Contacts: Add to contacts and addresses offered while typing.
 - 2026-11-24 — Attachments: Paste copied files and pictures.
 - 2026-11-24 — Attachments: Save as….
+- 2026-11-24 — Calendar: repeating appointments drag and edit, this occurrence or the series.

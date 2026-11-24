@@ -601,9 +601,18 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Move appointment",
         group: "Appointment/Actions",
         shortcut: None,
-        params: "id?: number — default: the selected event\nstart: YYYY-MM-DDTHH:MM — the new start, as the calendar shows times; YYYY-MM-DD for an all-day event\nend?: same form — default: the same length as before (for an all-day event, the day after its last, as in event.add)\nOnly an appointment that does not repeat moves this way (Tinta: dragging it in the calendar)",
+        params: "id?: number — default: the selected event\nstart: YYYY-MM-DDTHH:MM — the new start, as the calendar shows times; YYYY-MM-DD for an all-day event\nend?: same form — default: the same length as before (for an all-day event, the day after its last, as in event.add)\noccurrence?: YYYY-MM-DD — for a repeating appointment (required): the day of the occurrence moved, as the calendar shows it\nseries?: bool — with occurrence: move every occurrence by as much (default false: that one only, which becomes a changed occurrence)\n(Tinta: dragging it in the calendar)",
         edits: true,
         run: event_move,
+    },
+    CommandSpec {
+        id: "event.update",
+        label: "Edit appointment",
+        group: "Appointment/Actions",
+        shortcut: None,
+        params: "id?: number — default: the selected event\nsummary?, location?, description?: string — left out stays as it is\nstart?, end?: as event.move — a new time\nreminder?: minutes before | \"none\"\noccurrence?: YYYY-MM-DD — for a repeating appointment: the occurrence changed, as the calendar shows it; it becomes a changed occurrence\nseries?: bool — with occurrence: change the whole series instead (a new time moves every occurrence by as much)",
+        edits: true,
+        run: event_update,
     },
     CommandSpec {
         id: "event.setReminder",
@@ -1177,6 +1186,7 @@ fn event_json(e: &Event, when: When) -> Value {
         "id": e.id.0, "summary": e.summary, "start": start, "end": end, "allDay": all_day, "location": e.location,
         "calendar": e.calendar, "repeat": e.rrule, "repeatUnderstood": e.rrule.is_none() || e.rule().is_some(),
         "timeZone": e.tzid, "timeZoneUnderstood": e.tzid.is_none() || e.zone().is_some(), "reminders": e.reminders,
+        "occurrenceOf": e.recurrence_id.map(|d| d.to_string()),
     })
 }
 
@@ -2665,12 +2675,23 @@ fn event_move(s: &mut Session, p: &Value) -> Result<Value> {
     let start_text = required_str(p, "start")?;
     let view = s.zone().clone();
     let e = s.store.event(id)?;
-    if e.rrule.is_some() || e.recurrence_id.is_some() {
-        return Err(Error::invalid(
-            "event",
-            "a repeating appointment or one of its occurrences cannot be moved this way yet; open it and change its time",
-        ));
-    }
+    // Tinta: a repeating appointment moves one occurrence (which becomes a changed one) or the
+    // whole series, as the person chose.
+    let id = if e.rrule.is_some() && e.recurrence_id.is_none() {
+        let day = occurrence_param(p)?.ok_or_else(|| {
+            Error::invalid("occurrence", "the appointment repeats: say which occurrence moves (YYYY-MM-DD), and series: true to move them all")
+        })?;
+        if p.get("series").and_then(Value::as_bool).unwrap_or(false) {
+            crate::series::move_series(s, id, day, start_text, str_param(p, "end")?)?;
+            s.day = Date::parse(start_text.get(..10).unwrap_or(start_text)).unwrap_or(s.day);
+            let e = s.store.event(id)?;
+            return Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())));
+        }
+        crate::series::detach(s, id, day)?
+    } else {
+        id
+    };
+    let e = s.store.event(id)?;
     // Tinta: an all-day event moves by whole days.
     if let When::AllDay { start: old_start, end: old_end } = e.when {
         let start = Date::parse(start_text).map_err(|_| Error::invalid("start", "an all-day event moves to a date: YYYY-MM-DD"))?;
@@ -2720,6 +2741,70 @@ fn event_move(s: &mut Session, p: &Value) -> Result<Value> {
     s.store.event_mut(id)?.when = when;
     s.event = Some(id);
     s.day = start.date;
+    let e = s.store.event(id)?;
+    Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
+}
+
+/// The `occurrence` param: a day as the calendar shows it.
+fn occurrence_param(p: &Value) -> Result<Option<Date>> {
+    str_param(p, "occurrence")?.map(|d| Date::parse(d).map_err(|_| Error::invalid("occurrence", "a day: YYYY-MM-DD"))).transpose()
+}
+
+/// Tinta: change an appointment, one occurrence of a series (which becomes a changed one) or the
+/// whole series, in one undo step.
+fn event_update(s: &mut Session, p: &Value) -> Result<Value> {
+    let mut id = match u64_param(p, "id")? {
+        Some(id) => EventId(id),
+        None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
+    };
+    let e = s.store.event(id)?;
+    let day = occurrence_param(p)?;
+    let series = p.get("series").and_then(Value::as_bool).unwrap_or(false);
+    let repeats = e.rrule.is_some() && e.recurrence_id.is_none();
+    if day.is_some() && !repeats {
+        return Err(Error::invalid("occurrence", "the appointment does not repeat; leave occurrence out"));
+    }
+    let mut texts = Vec::new();
+    for key in ["summary", "location", "description"] {
+        if let Some(v) = str_param(p, key)? {
+            texts.push((key, ibercorreo_core::clamp_text(v.trim(), 4096).to_string()));
+        }
+    }
+    if texts.iter().any(|(k, v)| *k == "summary" && v.is_empty()) {
+        return Err(Error::invalid("summary", "an appointment needs a title"));
+    }
+    // Times first: moving one occurrence makes its changed copy.
+    if let Some(start) = str_param(p, "start")? {
+        let mut m = serde_json::Map::new();
+        m.insert("id".into(), json!(id.0));
+        m.insert("start".into(), json!(start));
+        if let Some(end) = str_param(p, "end")? {
+            m.insert("end".into(), json!(end));
+        }
+        if let Some(day) = day {
+            m.insert("occurrence".into(), json!(day.to_string()));
+            m.insert("series".into(), json!(series));
+        }
+        let moved = event_move(s, &Value::Object(m))?;
+        id = EventId(moved.get("id").and_then(Value::as_u64).unwrap_or(id.0));
+    } else if let (Some(day), false) = (day, series) {
+        id = crate::series::detach(s, id, day)?;
+    }
+    if let Some(r) = p.get("reminder").filter(|v| !v.is_null()) {
+        event_set_reminder(s, &json!({ "id": id.0, "reminder": r }))?;
+    }
+    if !texts.is_empty() {
+        let e = s.store.event_mut(id)?;
+        for (key, v) in texts {
+            match key {
+                "summary" => e.summary = v,
+                "location" => e.location = v,
+                _ => e.description = v,
+            }
+        }
+    }
+    s.event = Some(id);
+    s.status = "Appointment changed".into();
     let e = s.store.event(id)?;
     Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
 }

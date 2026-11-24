@@ -15,6 +15,7 @@ pub mod instance;
 pub mod mailto;
 pub mod pst;
 pub mod sample;
+pub mod series;
 
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;

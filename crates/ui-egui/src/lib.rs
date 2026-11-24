@@ -26,6 +26,7 @@ mod link_ui;
 mod partial_ui;
 mod pictures_ui;
 mod rich_table;
+mod series_ui;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
@@ -36,7 +37,7 @@ use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, Rect, RichT
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
-use ibercorreo_core::{AccountId, Content, Date, FolderId, FolderRole, MessageId};
+use ibercorreo_core::{AccountId, Content, Date, EventId, FolderId, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, SearchScope, Session, View};
 use serde_json::{Value, json};
 
@@ -71,6 +72,9 @@ struct EventForm {
     reminder: String,
     /// The calendar chosen; `None`: the one used last.
     calendar: Option<u32>,
+    /// Tinta: the appointment changed (not a new one): its id, and for a series the day of the
+    /// occurrence opened and whether the whole series changes.
+    editing: Option<(EventId, Option<Date>, bool)>,
 }
 
 /// Rules (Home ▸ Rules…): the list, and the rule being made or edited.
@@ -589,6 +593,8 @@ pub struct App {
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
     confirm_delete: Option<MessageId>,
+    /// Tinta: an occurrence of a series dropped elsewhere, waiting for "this one or the series".
+    series_move: Option<series_ui::PendingMove>,
     /// Tinta: the Categories window.
     categories_form: categories_ui::CategoriesForm,
     /// Tinta: the message list's conversations.
@@ -851,6 +857,7 @@ impl App {
             calendar_day_drag: None,
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
+            series_move: None,
             categories_form: categories_ui::CategoriesForm::default(),
             conversations: conversations_ui::Conversations::default(),
             body_asked: None,
@@ -1448,6 +1455,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         self.delete_window(ui);
+        self.series_window(ui);
         self.link_window(ui);
         self.attach_reminder_window(ui);
         self.categories_window(ui);
@@ -3214,8 +3222,8 @@ impl App {
                             }
                             _ => format!("{repeat}{}", e.summary),
                         };
-                        // Tinta: an appointment that does not repeat drags to another day.
-                        if e.rrule.is_none() && e.recurrence_id.is_none() {
+                        // Tinta: an appointment drags to another day (a repeating one asks which).
+                        {
                             let r = ui.interact(chip, ui.id().with(("month-chip", e.id.0, day.day_number())), Sense::click_and_drag());
                             if r.drag_started() {
                                 self.calendar_day_drag = Some(calendar_drag::DayDrag { id: e.id, from: day });
@@ -3268,8 +3276,12 @@ impl App {
         self.calendar_day_drag = None;
         let Some(to) = target.filter(|d| *d != drag.from) else { return };
         let shift = to.day_number() - drag.from.day_number();
-        let Ok(e) = self.session.store.event(drag.id) else { return };
-        let start = match e.when.in_zone(e.zone().as_ref(), self.session.zone()) {
+        // The occurrence picked up: for a series, not its first one.
+        let Some(shown) = self.session.store.events_on(drag.from, self.session.zone()).into_iter().find(|o| o.event.id == drag.id).map(|o| o.when)
+        else {
+            return;
+        };
+        let start = match shown {
             When::AllDay { start, .. } => start.add_days(shift).ok().map(|d| d.to_string()),
             When::Timed { start, .. } => start
                 .date
@@ -3279,7 +3291,7 @@ impl App {
                 .map(calendar_drag::param),
         };
         if let Some(start) = start {
-            self.run("event.move", json!({ "id": drag.id.0, "start": start }));
+            self.move_dropped(drag.id, shown.start_date(), start, None);
         }
     }
 
@@ -3324,7 +3336,7 @@ impl App {
                     .shown_events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
-                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar, o.event.id, o.event.rrule.is_none() && o.event.recurrence_id.is_none()))
+                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar, o.event.id, true))
                     .collect()
             })
             .collect();
@@ -3472,9 +3484,9 @@ impl App {
                     } else {
                         format!("{}\n{times}\n📍 {}", e.summary, e.location)
                     };
-                    // Tinta: a timed appointment that does not repeat drags to move, and its bottom
-                    // edge drags to change its end (the edge only on the day it ends).
-                    let movable = e.rrule.is_none() && e.recurrence_id.is_none() && matches!(when, When::Timed { .. });
+                    // Tinta: a timed appointment drags to move, and its bottom edge drags to change its
+                    // end (the edge only on the day it ends); a repeating one asks which moves.
+                    let movable = matches!(when, When::Timed { .. });
                     let sense = if movable { Sense::click_and_drag() } else { Sense::click() };
                     let r = ui.interact(rect, ui.id().with(("event", e.id.0, n)), sense);
                     let r = if self.calendar_drag.is_none() { r.on_hover_text(tip) } else { r };
@@ -3561,7 +3573,7 @@ impl App {
         if !down {
             self.calendar_drag = None;
             if let Some((start, end)) = target.filter(|(s, e)| (*s, *e) != (drag.start, drag.end)) {
-                self.run("event.move", json!({ "id": drag.id.0, "start": calendar_drag::param(start), "end": calendar_drag::param(end) }));
+                self.move_dropped(drag.id, drag.start.date, calendar_drag::param(start), Some(calendar_drag::param(end)));
             }
             return;
         }
@@ -3605,6 +3617,7 @@ impl App {
         if events.is_empty() {
             ui.label(RichText::new(tl("No appointments")).color(t.text_weak));
         }
+        let mut edit: Option<(EventId, When, Option<bool>)> = None;
         for (e, occurrence) in events {
             let when = match occurrence {
                 When::AllDay { .. } => tl("All day").to_string(),
@@ -3621,6 +3634,18 @@ impl App {
                         ui.label(RichText::new(when).small().color(t.accent));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
+                            // Tinta: Edit, for this occurrence or the series when it repeats.
+                            let repeats = e.rrule.is_some() && e.recurrence_id.is_none();
+                            if repeats {
+                                if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT_SERIES, false).clicked() {
+                                    edit = Some((e.id, occurrence, Some(true)));
+                                }
+                                if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT_ONE, false).clicked() {
+                                    edit = Some((e.id, occurrence, Some(false)));
+                                }
+                            } else if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT, false).clicked() {
+                                edit = Some((e.id, occurrence, None));
+                            }
                             if e.rrule.is_some() {
                                 let series = chrome::words(tl("🗑 Series"));
                                 if chrome::button(ui, &t, chrome::Kind::Danger, Some(Icon::Trash), series, true)
@@ -3662,6 +3687,39 @@ impl App {
             ui.painter().rect_filled(Rect::from_min_size(r.left_top() + vec2(0.0, 8.0), vec2(4.0, (r.height() - 16.0).max(4.0))), 2.0, color);
             ui.add_space(8.0);
         }
+        if let Some((id, occurrence, series)) = edit {
+            self.edit_appointment(id, occurrence, series);
+        }
+    }
+
+    /// Tinta: the appointment form, filled in from appointment `id` as `occurrence` shows it; for
+    /// a series, `series` says whether the whole series changes or this occurrence alone.
+    fn edit_appointment(&mut self, id: EventId, occurrence: When, series: Option<bool>) {
+        let Ok(e) = self.session.store.event(id) else { return };
+        let (start, end) = match occurrence {
+            When::AllDay { start, end } => {
+                let last = end.add_days(-1).unwrap_or(start);
+                (start.to_string(), if last == start { String::new() } else { end.to_string() })
+            }
+            When::Timed { start, end, .. } => (calendar_drag::param(start), calendar_drag::param(end)),
+        };
+        let reminder = match e.reminders.first() {
+            None => "none".to_string(),
+            Some(15) => String::new(),
+            Some(m) => m.to_string(),
+        };
+        let day = series.map(|_| occurrence.start_date());
+        self.event_form = EventForm {
+            open: true,
+            summary: e.summary.clone(),
+            start,
+            end,
+            location: e.location.clone(),
+            repeat: String::new(),
+            reminder,
+            calendar: Some(e.calendar),
+            editing: Some((id, day, series.unwrap_or(false))),
+        };
     }
 
     /// The calendars, with their colours; the ones synced from a server are marked. A click on
@@ -3739,7 +3797,9 @@ impl App {
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
         let default_calendar = self.last_calendar.filter(|id| calendars.iter().any(|c| c.0 == *id)).or_else(|| calendars.first().map(|c| c.0));
         let mut cancel = false;
-        chrome::dialog(ui.ctx(), &t, "new-appointment", tl("New Appointment"), 520.0, &mut open, |ui, part| {
+        let editing = self.event_form.editing;
+        let title = if editing.is_some() { tl(series_ui::EDIT_TITLE) } else { tl("New Appointment") };
+        chrome::dialog(ui.ctx(), &t, "new-appointment", title, 520.0, &mut open, |ui, part| {
             use chrome::{Kind, Part, form_row};
             if part == Part::Footer {
                 ui.horizontal(|ui| {
@@ -3769,6 +3829,9 @@ impl App {
                     }
                 });
             });
+            if editing.is_some() {
+                return;
+            }
             if calendars.len() > 1 {
                 form_row(ui, &t, "Calendar", None, |ui| {
                     let chosen = f.calendar.or(default_calendar);
@@ -3795,7 +3858,23 @@ impl App {
         if cancel {
             open = false;
         }
-        if save {
+        if save && let Some((id, day, series)) = editing {
+            let f = &self.event_form;
+            let mut p = json!({ "id": id.0, "summary": f.summary, "start": f.start, "location": f.location });
+            if let Some(o) = p.as_object_mut() {
+                if !f.end.trim().is_empty() {
+                    o.insert("end".into(), Value::String(f.end.clone()));
+                }
+                o.insert("reminder".into(), if f.reminder.is_empty() { json!(15) } else { Value::String(f.reminder.clone()) });
+                if let Some(day) = day {
+                    o.insert("occurrence".into(), json!(day.to_string()));
+                    o.insert("series".into(), json!(series));
+                }
+            }
+            if self.run("event.update", p).is_some() {
+                open = false;
+            }
+        } else if save {
             let f = &self.event_form;
             let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location, "repeat": f.repeat });
             if !f.reminder.is_empty()
@@ -6734,5 +6813,79 @@ mod tests {
         let texts = frame(&mut app, vec![]);
         assert!(!texts.iter().any(|(t, _)| t == "Rui Carvalho   rui@example.pt"), "Esc closes the list");
         assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("Marta Iglesias <marta@example.es>, ru"));
+    }
+
+    #[test]
+    fn a_repeating_appointment_asks_this_one_or_the_series_and_edits_either() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap();
+        let mut s = Session::new(ibercorreo_store::Store::new(), day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 8, 0, 0).unwrap());
+        s.run("calendar.timeZone", &json!({ "zone": "UTC" })).unwrap();
+        let id = s
+            .run("event.add", &json!({ "summary": "Weekly", "start": "2026-11-17T10:00", "end": "2026-11-17T11:00", "repeat": "weekly" }))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewDay", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        app.scroll_to_morning = true;
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1360.0, 860.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let find = |texts: &[(String, Pos2)], text: &str| texts.iter().filter(|(t, _)| t == text).map(|(_, p)| *p).min_by(|a, b| a.x.total_cmp(&b.x));
+        for _ in 0..6 {
+            frame(&mut app, vec![]);
+        }
+        let title = find(&frame(&mut app, vec![]), "⟳ Weekly").expect("the occurrence is drawn");
+        let press = |pos: Pos2, pressed: bool| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let click = |app: &mut App, at: Pos2| {
+            frame(app, vec![Event::PointerMoved(at), press(at, true)]);
+            frame(app, vec![press(at, false)]);
+            frame(app, vec![]);
+        };
+        // Dragged two hours later: the window asks which.
+        let grab = title + vec2(10.0, 10.0);
+        frame(&mut app, vec![Event::PointerMoved(grab), press(grab, true)]);
+        for step in 1..=4 {
+            frame(&mut app, vec![Event::PointerMoved(grab + vec2(0.0, 26.0 * step as f32))]);
+        }
+        frame(&mut app, vec![press(grab + vec2(0.0, 104.0), false)]);
+        let texts = frame(&mut app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        assert!(app.series_move.is_some() && texts.iter().any(|(t, _)| t == series_ui::ASK), "asked");
+        assert_eq!(app.session.store.events().len(), 1, "nothing moved before the answer");
+        let this_one = find(&texts, series_ui::THIS_ONE).expect("This occurrence");
+        click(&mut app, this_one + vec2(4.0, 4.0));
+        assert!(app.series_move.is_none());
+        let copy = app.session.store.events().iter().find(|e| e.recurrence_id == Some(day)).cloned().expect("a changed occurrence");
+        assert!(matches!(copy.when, When::Timed { start, .. } if start.hour() == 12), "{:?}", copy.when);
+        // Edit the series from the agenda's occurrence: its title, the whole series.
+        let next = Date::new(2026, 12, 1).unwrap();
+        let shown = app.session.store.events_on(next, app.session.zone()).into_iter().find(|o| o.event.id.0 == id).map(|o| o.when).unwrap();
+        app.edit_appointment(EventId(id), shown, Some(true));
+        app.event_form.summary = "Weekly review".into();
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == series_ui::EDIT_TITLE), "the edit form");
+        assert!(!texts.iter().any(|(t, _)| t == "Repeat"), "no repeat choice while editing");
+        let save = texts.iter().filter(|(t, _)| t == "Save").map(|(_, p)| *p).max_by(|a, b| a.y.total_cmp(&b.y)).expect("Save");
+        click(&mut app, save + vec2(4.0, 4.0));
+        assert!(!app.event_form.open, "{}", app.session.status);
+        assert_eq!(app.session.store.event(EventId(id)).unwrap().summary, "Weekly review");
+        assert_eq!(app.session.store.event(copy.id).unwrap().summary, "Weekly", "the changed occurrence keeps its own");
+        assert_eq!(app.session.store.events().len(), 2);
     }
 }

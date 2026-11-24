@@ -54,8 +54,11 @@ Status: 2026-11-24 · Pick from the top.
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
    session) they last only until the app closes. No OAuth yet (M3).
 4. **Recurring events** expand (`DAILY`…`YEARLY` with `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `BYSETPOS`,
-   `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). Missing: editing one
-   occurrence in the window (only deleting it), sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
+   `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). One occurrence is
+   changed (Edit this occurrence) or dragged by itself, which makes it a changed occurrence sent
+   with its series, or the whole series is edited or moved by as much (its plain weekdays shift
+   with it; a rule naming days of the month moves only within its day) (2026-11-24). Missing:
+   sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
    once), `RDATE`, and exceptions matched by day only (one occurrence a day at most).
 5. **Time zones** work: events in a zone (IANA, Windows names as Outlook writes them, vendor
    ids) and in UTC show in the zone chosen (default: the computer's), repeating events follow
@@ -102,8 +105,8 @@ Status: 2026-11-24 · Pick from the top.
     day and their bottom edge stretches them; the work hours are chosen on the ribbon (the grid
     opens an hour before they start and shades the rest), with the working days (the Work Week
     view) and the first day of the week; all-day events drag in the strip above the hours, and any
-    appointment that does not repeat drags to another day in the month. Missing: dragging a
-    repeating appointment (it needs the "this one or the series" question).
+    appointment drags to another day in the month. A repeating appointment dragged asks "this
+    occurrence or the whole series" (2026-11-24). Missing: a second time-zone column.
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
