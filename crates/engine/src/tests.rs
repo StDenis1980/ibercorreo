@@ -1184,6 +1184,52 @@ fn search_finds_folded_words_in_a_scope_and_follows_undo() {
     assert_eq!(s.run("search.messages", &json!({"query": "nandu"})).unwrap().as_array().unwrap().len(), 1);
 }
 
+/// Tinta: date words seen from today, and `in:` a folder by name or role.
+#[test]
+fn search_takes_date_words_and_folders() {
+    let mut s = session();
+    // Tuesday 24 November 2026, midday.
+    s.set_now(DateTime::new(Date::new(2026, 11, 24).unwrap(), 11, 0, 0).unwrap());
+    let inbox = s.store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+    let sent = s.store.folder_by_role(AccountId(0), FolderRole::Sent).unwrap();
+    for (date, subject, folder) in [
+        ("Mon, 23 Nov 2026 09:00:00 +0000", "Quokka yesterday", inbox),
+        ("Wed, 18 Nov 2026 09:00:00 +0000", "Quokka last week", inbox),
+        ("Thu, 15 Oct 2026 09:00:00 +0000", "Quokka last month", sent),
+    ] {
+        let raw = format!("From: ana@example.org\r\nTo: me@example.com\r\nDate: {date}\r\nSubject: {subject}\r\n\r\nHola.\r\n");
+        s.store.import_eml(raw.as_bytes(), folder).unwrap();
+    }
+    let found = |s: &mut Session, q: &str| -> Vec<String> {
+        let mut v: Vec<String> = s
+            .run("search.messages", &json!({"query": format!("quokka {q}"), "scope": "all"}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| m["subject"].as_str().unwrap().to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(found(&mut s, "received:yesterday"), ["Quokka yesterday"]);
+    assert_eq!(found(&mut s, "отримано:вчора"), ["Quokka yesterday"]);
+    assert_eq!(found(&mut s, "received:this-week"), ["Quokka yesterday"], "weeks start on Monday");
+    assert_eq!(found(&mut s, "on:\"last week\""), ["Quokka last week"]);
+    assert_eq!(found(&mut s, "recibido:\"semana pasada\""), ["Quokka last week"]);
+    assert_eq!(found(&mut s, "received:\"минулого місяця\""), ["Quokka last month"]);
+    assert_eq!(found(&mut s, "after:\"last week\""), ["Quokka last week", "Quokka yesterday"]);
+    assert_eq!(found(&mut s, "before:this-month"), ["Quokka last month"]);
+    assert_eq!(found(&mut s, "received:2026-11-18"), ["Quokka last week"]);
+    assert_eq!(found(&mut s, "in:sent"), ["Quokka last month"]);
+    assert_eq!(found(&mut s, "папка:вхідні").len(), 2);
+    let name = s.store.folder(inbox).unwrap().name.clone();
+    assert_eq!(found(&mut s, &format!("in:\"{name}\"")).len(), 2, "by its name");
+    assert_eq!(found(&mut s, "-in:inbox"), ["Quokka last month"]);
+    assert!(found(&mut s, "in:nowhere").is_empty(), "a folder no one has finds nothing");
+    assert_eq!(found(&mut s, "received:someday").len(), 0, "an unknown date word is searched as words");
+}
+
 #[test]
 fn rules_are_made_listed_reordered_and_run_on_a_folder_with_undo() {
     let mut s = session();

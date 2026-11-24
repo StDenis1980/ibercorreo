@@ -312,7 +312,7 @@ impl Session {
     pub fn search_results(&self, query: &str) -> Vec<&ibercorreo_core::Message> {
         if self.all_inboxes && self.search_scope == SearchScope::Folder {
             let inboxes = self.inboxes();
-            let mut found = self.store.search_in(query, ibercorreo_store::search::Scope::All);
+            let mut found = self.store.search_on(query, ibercorreo_store::search::Scope::All, Some(self.today()));
             found.retain(|m| inboxes.contains(&m.folder));
             return found;
         }
@@ -324,7 +324,7 @@ impl Session {
             },
             SearchScope::Folder => ibercorreo_store::search::Scope::Folder(self.folder),
         };
-        self.store.search_in(query, scope)
+        self.store.search_on(query, scope, Some(self.today()))
     }
 
     pub fn can_undo(&self) -> bool {

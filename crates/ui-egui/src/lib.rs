@@ -192,7 +192,7 @@ impl ContactForm {
 /// A folder's name as shown: folders with a role (Inbox, Sent…) in the interface language,
 /// others as the server names them.
 /// The search box's tooltip: what a query can say.
-const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:";
+const SEARCH_HELP: &str = "Words match from their start, accents ignored. \"exact phrase\", -word to leave out, OR for either. from: to: cc: subject: body: attachment:, has:attachment, is:unread, is:flagged, after:2026-10-01, before:, on:, received:yesterday, in:sent";
 
 /// A rule's condition and actions in one line, for the Rules list.
 fn rule_summary(r: &Value) -> String {

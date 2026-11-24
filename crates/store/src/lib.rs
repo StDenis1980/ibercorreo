@@ -685,7 +685,14 @@ impl Store {
     /// query matches every message in scope; one with nothing to look for (only punctuation)
     /// matches none.
     pub fn search_in(&self, query: &str, scope: search::Scope) -> Vec<&Message> {
-        let query = search::Query::parse(query);
+        self.search_on(query, scope, None)
+    }
+
+    /// Tinta: [`Store::search_in`] with date words seen from `today` and `in:` folder names
+    /// ([`search::Context`]).
+    pub fn search_on(&self, query: &str, scope: search::Scope, today: Option<Date>) -> Vec<&Message> {
+        let folders = |name: &str| self.folders_named(name);
+        let query = search::Query::parse_with(query, &search::Context { today, folders: Some(&folders) });
         let allowed = |folder: FolderId| match scope {
             search::Scope::All => true,
             search::Scope::Folder(f) => folder == f,
@@ -694,6 +701,29 @@ impl Store {
         let mut v = search::run(&self.search_cache, &self.stamps, &self.messages, &mut self.saved.reader(), &allowed, &query);
         v.sort_by(|a, b| b.date.cmp(&a.date).then(b.id.cmp(&a.id)));
         v
+    }
+
+    /// Tinta: the folders `in:` a folded `name` stands for: those whose name, or its last part
+    /// after `/`, folds to it, and those of the role it names (`inbox`, `sent`, `drafts`,
+    /// `archive`, `junk` or `spam`, `deleted` or `trash`, also in Ukrainian and Spanish).
+    fn folders_named(&self, name: &str) -> std::collections::BTreeSet<FolderId> {
+        let role = match name {
+            "inbox" | "вхідні" | "entrada" | "bandeja de entrada" => Some(FolderRole::Inbox),
+            "sent" | "надіслані" | "enviados" => Some(FolderRole::Sent),
+            "drafts" | "чернетки" | "borradores" => Some(FolderRole::Drafts),
+            "archive" | "архів" | "archivo" => Some(FolderRole::Archive),
+            "junk" | "spam" | "небажана пошта" | "спам" | "correo no deseado" => Some(FolderRole::Junk),
+            "deleted" | "trash" | "видалені" | "eliminados" | "papelera" => Some(FolderRole::Trash),
+            "outbox" | "вихідні" | "bandeja de salida" => Some(FolderRole::Outbox),
+            _ => None,
+        };
+        self.folders
+            .iter()
+            .filter(|f| {
+                Some(f.role) == role || search::fold(&f.name) == name || f.name.rsplit('/').next().is_some_and(|leaf| search::fold(leaf) == name)
+            })
+            .map(|f| f.id)
+            .collect()
     }
 
     pub fn message(&self, id: MessageId) -> Result<&Message> {
