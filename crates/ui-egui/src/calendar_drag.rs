@@ -3,7 +3,7 @@
 //! or shorter. Times snap to 15 minutes; the result goes through `event.move`, so it can be
 //! undone like any edit. Repeating and all-day appointments do not drag yet (the engine says why).
 
-use ibercorreo_core::{DateTime, EventId};
+use ibercorreo_core::{Date, DateTime, EventId};
 
 /// What the pointer is doing to an appointment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +24,16 @@ pub(crate) struct Drag {
     pub end: DateTime,
     /// Where the pointer was pressed.
     pub origin: egui::Pos2,
+}
+
+/// Tinta: an appointment dragged to another day: an all-day event in the strip above the hours,
+/// or any appointment that does not repeat in the month view. It keeps its length and, when it
+/// has one, its time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DayDrag {
+    pub id: EventId,
+    /// The day it was picked up on.
+    pub from: Date,
 }
 
 /// The step a drag snaps to, in minutes.
@@ -77,7 +87,6 @@ pub(crate) fn param(t: DateTime) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ibercorreo_core::Date;
 
     fn t(day: u8, h: u8, m: u8) -> DateTime {
         DateTime::new(Date::new(2026, 11, day).unwrap(), h, m, 0).unwrap()

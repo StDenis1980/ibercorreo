@@ -111,3 +111,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-24 — dragging appointments in the calendar.
 - 2026-11-24 — work hours in the calendar.
 - 2026-11-24 — working days and the first day of the week.
+- 2026-11-24 — dragging all-day events and appointments in the month.

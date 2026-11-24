@@ -96,7 +96,9 @@ Status: 2026-11-24 · Pick from the top.
 10. **Calendar views**: day, work week, week and month work. Appointments drag to another time or
     day and their bottom edge stretches them; the work hours are chosen on the ribbon (the grid
     opens an hour before they start and shades the rest), with the working days (the Work Week
-    view) and the first day of the week. Missing: dragging a repeating or all-day appointment.
+    view) and the first day of the week; all-day events drag in the strip above the hours, and any
+    appointment that does not repeat drags to another day in the month. Missing: dragging a
+    repeating appointment (it needs the "this one or the series" question).
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
@@ -249,3 +251,4 @@ Status: 2026-11-24 · Pick from the top.
 - 2026-11-24 — gap 10: appointments drag to move and stretch.
 - 2026-11-24 — gap 10: work hours.
 - 2026-11-24 — gap 10: working days and the first day of the week.
+- 2026-11-24 — gap 10: all-day events and month chips drag.

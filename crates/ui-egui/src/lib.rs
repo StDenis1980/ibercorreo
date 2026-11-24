@@ -222,6 +222,10 @@ fn rule_summary(r: &Value) -> String {
 /// The periods offered for the automatic Send/Receive, in minutes (0: none).
 const SYNC_INTERVALS: [u32; 8] = [0, 1, 2, 5, 10, 15, 30, 60];
 
+/// One all-day event in the strip above the hours: its title, the day, its calendar, its id and
+/// whether it drags (it does not repeat).
+type AllDayChip = (String, Date, u32, ibercorreo_core::EventId, bool);
+
 /// Tinta: the work hours picker's words.
 const WORK_HOURS: &str = "Work hours";
 const WORK_START: &str = "Day starts at";
@@ -574,6 +578,8 @@ pub struct App {
     attach_wanted: Option<MessageId>,
     /// Tinta: the appointment being dragged in the day or week view.
     calendar_drag: Option<calendar_drag::Drag>,
+    /// Tinta: an appointment being dragged to another day (all-day strip, month).
+    calendar_day_drag: Option<calendar_drag::DayDrag>,
     /// Tinta: the pictures the message being read carries (`cid:`).
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
@@ -835,6 +841,7 @@ impl App {
             attachment_requests: Vec::new(),
             attach_wanted: None,
             calendar_drag: None,
+            calendar_day_drag: None,
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
             categories_form: categories_ui::CategoriesForm::default(),
@@ -3109,6 +3116,7 @@ impl App {
         let t = self.tokens;
         let first = self.session.day.first_of_month();
         let grid_start = self.session.week_start_of(first);
+        let mut drop_day: Option<Date> = None;
         let today = self.session.today();
         let names = week_names(&self.session);
         let avail = ui.available_size();
@@ -3161,6 +3169,7 @@ impl App {
                         );
                     }
                     let mut y = rect.top() + 32.0;
+                    let mut chip_clicked = false;
                     for o in self.session.store.shown_events_on(day, self.session.zone()) {
                         let e = o.event;
                         if y + 20.0 > rect.bottom() {
@@ -3175,6 +3184,14 @@ impl App {
                             }
                             _ => format!("{repeat}{}", e.summary),
                         };
+                        // Tinta: an appointment that does not repeat drags to another day.
+                        if e.rrule.is_none() && e.recurrence_id.is_none() {
+                            let r = ui.interact(chip, ui.id().with(("month-chip", e.id.0, day.day_number())), Sense::click_and_drag());
+                            if r.drag_started() {
+                                self.calendar_day_drag = Some(calendar_drag::DayDrag { id: e.id, from: day });
+                            }
+                            chip_clicked |= r.clicked();
+                        }
                         p.rect_filled(chip, 3.0, self.calendar_color(e.calendar).gamma_multiply(0.85));
                         p.with_clip_rect(chip).text(
                             chip.left_center() + vec2(6.0, 0.0),
@@ -3185,14 +3202,54 @@ impl App {
                         );
                         y += 22.0;
                     }
-                    if resp.clicked() {
+                    if resp.clicked() || chip_clicked {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
                     }
                     if resp.double_clicked() {
                         self.event_form = EventForm { open: true, start: format!("{day}T09:00"), ..EventForm::default() };
                     }
+                    if self.calendar_day_drag.is_some() && ui.input(|i| i.pointer.latest_pos()).is_some_and(|pos| rect.contains(pos)) {
+                        drop_day = Some(day);
+                        p.rect_stroke(rect.shrink(1.0), 3.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
+                    }
                 }
             });
+        }
+        if self.calendar_day_drag.is_some() {
+            self.drop_on_day(ui, drop_day);
+        }
+    }
+
+    /// Tinta: while an appointment is dragged to another day, the grabbing hand; when the button
+    /// is let go over `target`, it moves there by whole days (`event.move`), keeping its time and
+    /// length. Escape, or letting go elsewhere, leaves it where it was.
+    fn drop_on_day(&mut self, ui: &Ui, target: Option<Date>) {
+        let Some(drag) = self.calendar_day_drag else { return };
+        let (down, escape) = ui.input(|i| (i.pointer.primary_down(), i.key_pressed(Key::Escape)));
+        if escape {
+            self.calendar_day_drag = None;
+            return;
+        }
+        if down {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            ui.ctx().request_repaint();
+            return;
+        }
+        self.calendar_day_drag = None;
+        let Some(to) = target.filter(|d| *d != drag.from) else { return };
+        let shift = to.day_number() - drag.from.day_number();
+        let Ok(e) = self.session.store.event(drag.id) else { return };
+        let start = match e.when.in_zone(e.zone().as_ref(), self.session.zone()) {
+            When::AllDay { start, .. } => start.add_days(shift).ok().map(|d| d.to_string()),
+            When::Timed { start, .. } => start
+                .date
+                .add_days(shift)
+                .ok()
+                .and_then(|d| ibercorreo_core::DateTime::new(d, start.hour(), start.minute(), 0).ok())
+                .map(calendar_drag::param),
+        };
+        if let Some(start) = start {
+            self.run("event.move", json!({ "id": drag.id.0, "start": start }));
         }
     }
 
@@ -3229,7 +3286,7 @@ impl App {
         }
 
         // The all-day strip: one row per all-day appointment of the busiest day.
-        let all_day: Vec<Vec<(String, Date, u32)>> = days
+        let all_day: Vec<Vec<AllDayChip>> = days
             .iter()
             .map(|d| {
                 self.session
@@ -3237,7 +3294,7 @@ impl App {
                     .shown_events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
-                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar))
+                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar, o.event.id, o.event.rrule.is_none() && o.event.recurrence_id.is_none()))
                     .collect()
             })
             .collect();
@@ -3247,14 +3304,19 @@ impl App {
             let p = ui.painter_at(strip);
             p.rect_filled(strip, 0.0, theme::mix(t.card, t.window, 0.6));
             for (n, list) in all_day.iter().enumerate() {
-                for (row, (summary, day, calendar)) in list.iter().take(rows).enumerate() {
+                for (row, (summary, day, calendar, id, movable)) in list.iter().take(rows).enumerate() {
                     let chip = egui::Rect::from_min_size(
                         egui::pos2(x_of(strip.left(), n) + 2.0, strip.top() + 2.0 + ALL_DAY_ROW * row as f32),
                         vec2(col_w - 4.0, ALL_DAY_ROW - 2.0),
                     );
-                    let r = ui.interact(chip, ui.id().with(("all-day", n, row)), Sense::click()).on_hover_text(summary.as_str());
+                    let sense = if *movable { Sense::click_and_drag() } else { Sense::click() };
+                    let r = ui.interact(chip, ui.id().with(("all-day", n, row)), sense).on_hover_text(summary.as_str());
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
+                    }
+                    // Tinta: dragged to another day's column.
+                    if *movable && r.drag_started() {
+                        self.calendar_day_drag = Some(calendar_drag::DayDrag { id: *id, from: *day });
                     }
                     p.rect_filled(chip, 3.0, soft(self.calendar_color(*calendar), t.card));
                     p.with_clip_rect(chip).text(
@@ -3265,6 +3327,18 @@ impl App {
                         t.text,
                     );
                 }
+            }
+            // The column under the pointer, outlined while a chip is dragged; dropped there.
+            if self.calendar_day_drag.is_some() {
+                let target = ui.input(|i| i.pointer.latest_pos()).and_then(|pos| {
+                    let n = ((pos.x - strip.left() - GUTTER) / col_w).floor();
+                    (n >= 0.0).then(|| days.get(n as usize).map(|d| (n as usize, *d))).flatten()
+                });
+                if let Some((n, _)) = target {
+                    let column = egui::Rect::from_min_size(egui::pos2(x_of(strip.left(), n), strip.top()), vec2(col_w, strip.height()));
+                    p.rect_stroke(column.shrink(1.0), 3.0, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+                }
+                self.drop_on_day(ui, target.map(|(_, d)| d));
             }
         }
 
@@ -6482,5 +6556,84 @@ mod tests {
         let shown = texts(&mut app, vec![]);
         let row: Vec<&str> = shown.iter().filter(|(t, _)| WEEKDAYS.contains(&t.as_str())).map(|(t, _)| t.as_str()).take(2).collect();
         assert_eq!(row, ["Sun", "Mon"], "{shown:?}");
+    }
+
+    #[test]
+    fn all_day_events_and_month_chips_drag_to_another_day() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap(); // a Tuesday
+        let mut s = Session::new(ibercorreo_store::Store::new(), day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 8, 0, 0).unwrap());
+        s.run("calendar.timeZone", &json!({ "zone": "UTC" })).unwrap();
+        let fiesta = s.run("event.add", &json!({ "summary": "Fiesta", "start": "2026-11-24", "end": "2026-11-26" })).unwrap()["id"].as_u64().unwrap();
+        let cita = s.run("event.add", &json!({ "summary": "Cita", "start": "2026-11-10T09:30", "end": "2026-11-10T10:15" })).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let weekly =
+            s.run("event.add", &json!({ "summary": "Clase", "start": "2026-11-12T18:00", "repeat": "weekly" })).unwrap()["id"].as_u64().unwrap();
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewWeek", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let texts = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1360.0, 860.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let press = |pos: Pos2, pressed: bool| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let drag = |app: &mut App, from: Pos2, to: Pos2| {
+            texts(app, vec![Event::PointerMoved(from), press(from, true)]);
+            for step in 1..=4 {
+                texts(app, vec![Event::PointerMoved(from + (to - from) * (step as f32 / 4.0))]);
+            }
+            texts(app, vec![press(to, false)]);
+            texts(app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        };
+        let first =
+            |shown: &[(String, Pos2)], name: &str| shown.iter().filter(|(t, _)| t == name).map(|(_, p)| *p).min_by(|a, b| a.x.total_cmp(&b.x));
+        let start_of = |app: &App, id: u64| app.session.store.event(ibercorreo_core::EventId(id)).unwrap().when;
+        for _ in 0..6 {
+            texts(&mut app, vec![]);
+        }
+        let shown = texts(&mut app, vec![]);
+        // The all-day chip, two columns right (Tuesday to Thursday): the same two days.
+        let (tue, thu) = (first(&shown, "Tue").unwrap(), first(&shown, "Thu").unwrap());
+        let grab = first(&shown, "Fiesta").unwrap() + vec2(6.0, 4.0);
+        drag(&mut app, grab, grab + vec2(thu.x - tue.x, 0.0));
+        assert_eq!(start_of(&app, fiesta), When::AllDay { start: Date::new(2026, 11, 26).unwrap(), end: Date::new(2026, 11, 28).unwrap() });
+        // In the month, the 09:30 appointment on the 10th, one row down: the 17th, same time.
+        app.session.run("calendar.viewMonth", &json!({})).unwrap();
+        for _ in 0..6 {
+            texts(&mut app, vec![]);
+        }
+        let shown = texts(&mut app, vec![]);
+        let chip = first(&shown, "09:30 Cita").expect("the appointment in the month");
+        // The month's own day numbers, not the small calendar's: the 10 nearest the chip, and the
+        // 17 below it.
+        let nearest =
+            |name: &str, to: Pos2| shown.iter().filter(|(t, _)| t == name).map(|(_, p)| *p).min_by(|a, b| a.distance(to).total_cmp(&b.distance(to)));
+        let ten = nearest("10", chip).unwrap();
+        let seventeen = nearest("17", ten + vec2(0.0, 100.0)).unwrap();
+        drag(&mut app, chip + vec2(4.0, 2.0), chip + vec2(4.0, 2.0) + (seventeen - ten));
+        assert!(
+            matches!(start_of(&app, cita), When::Timed { start, end, .. } if start == ibercorreo_core::DateTime::new(Date::new(2026, 11, 17).unwrap(), 9, 30, 0).unwrap() && end.minute() == 15),
+            "{:?}",
+            start_of(&app, cita)
+        );
+        // A repeating one stays where it is.
+        let shown = texts(&mut app, vec![]);
+        let clase = first(&shown, "18:00 ⟳ Clase").expect("the repeating one");
+        drag(&mut app, clase + vec2(4.0, 2.0), clase + vec2(4.0, 2.0) + (seventeen - ten));
+        assert!(matches!(start_of(&app, weekly), When::Timed { start, .. } if start.date == Date::new(2026, 11, 12).unwrap()));
+        app.session.run("edit.undo", &Value::Null).unwrap();
+        assert!(matches!(start_of(&app, cita), When::Timed { start, .. } if start.date == Date::new(2026, 11, 10).unwrap()), "undone");
     }
 }

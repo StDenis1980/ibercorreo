@@ -133,7 +133,7 @@ with `"partial": true` and has no text yet; `message.download` asks for it at th
 | `delete_message` (`id`) | `message.delete` (Trash; in Trash, for good) | no (destructive) |
 | `list_calendars`, `list_events` (`date?` or `from`+`to`) | `calendar.list`, `event.list` | yes |
 | `add_event` (`summary`, `start`, …), `delete_event` (`id`, `occurrence?`) | `event.add`, `event.delete` | no |
-| `move_event` (`id`, `start`, `end?`: keeps the length without one; not a repeating or all-day one) | `event.move` | no |
+| `move_event` (`id`, `start`, `end?`: keeps the length without one; dates for an all-day event; not a repeating one) | `event.move` | no |
 | `list_contacts` (`query?`, `book?`), `get_contact` (`id`) | `contact.list`, `contact.get` | yes |
 | `add_contact` (`name`, …), `update_contact` (`id`, …) | `contact.add`, `contact.update` | no |
 
@@ -178,3 +178,4 @@ should mark every `read_message` and `search_messages` result.
   window; `send_draft` behind `--allow-send` and the draft's content hash; `--allow-commands`,
   `--max-messages`.
 - 2026-11-24 — `move_event`: an appointment to a new time, keeping its length.
+- 2026-11-24 — `move_event` moves all-day events too.

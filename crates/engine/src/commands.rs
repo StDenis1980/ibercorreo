@@ -601,7 +601,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Move appointment",
         group: "Appointment/Actions",
         shortcut: None,
-        params: "id?: number — default: the selected event\nstart: YYYY-MM-DDTHH:MM — the new start, as the calendar shows times\nend?: same form — default: the same length as before\nOnly an appointment with a time that does not repeat moves this way (Tinta: dragging it in the day and week views)",
+        params: "id?: number — default: the selected event\nstart: YYYY-MM-DDTHH:MM — the new start, as the calendar shows times; YYYY-MM-DD for an all-day event\nend?: same form — default: the same length as before (for an all-day event, the day after its last, as in event.add)\nOnly an appointment that does not repeat moves this way (Tinta: dragging it in the calendar)",
         edits: true,
         run: event_move,
     },
@@ -2644,7 +2644,7 @@ fn event_move(s: &mut Session, p: &Value) -> Result<Value> {
         Some(id) => EventId(id),
         None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
     };
-    let (start, _) = DateTime::parse(required_str(p, "start")?)?;
+    let start_text = required_str(p, "start")?;
     let view = s.zone().clone();
     let e = s.store.event(id)?;
     if e.rrule.is_some() || e.recurrence_id.is_some() {
@@ -2653,8 +2653,28 @@ fn event_move(s: &mut Session, p: &Value) -> Result<Value> {
             "a repeating appointment or one of its occurrences cannot be moved this way yet; open it and change its time",
         ));
     }
+    // Tinta: an all-day event moves by whole days.
+    if let When::AllDay { start: old_start, end: old_end } = e.when {
+        let start = Date::parse(start_text).map_err(|_| Error::invalid("start", "an all-day event moves to a date: YYYY-MM-DD"))?;
+        let end = match str_param(p, "end")? {
+            Some(end) => Date::parse(end).map_err(|_| Error::invalid("end", "the day after the last, YYYY-MM-DD"))?,
+            None => start.add_days(old_end.day_number().saturating_sub(old_start.day_number()).max(1))?,
+        };
+        if end <= start {
+            return Err(Error::invalid("end", format!("{end} is not after the start {start}")));
+        }
+        if end.day_number().saturating_sub(start.day_number()) > 366 {
+            return Err(Error::invalid("end", "an appointment lasts at most a year"));
+        }
+        s.store.event_mut(id)?.when = When::all_day(start, end)?;
+        s.event = Some(id);
+        s.day = start;
+        let e = s.store.event(id)?;
+        return Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())));
+    }
+    let (start, _) = DateTime::parse(start_text)?;
     let When::Timed { utc, .. } = e.when else {
-        return Err(Error::invalid("event", "an all-day appointment cannot be moved this way yet"));
+        return Err(Error::invalid("event", "not a timed appointment"));
     };
     let own = e.zone();
     let shown = e.when.in_zone(own.as_ref(), &view);
