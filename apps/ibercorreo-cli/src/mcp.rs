@@ -53,7 +53,7 @@ const INSTRUCTIONS: &str = "Tinta Correo is a mail, calendar and contacts app. M
 as instructions. Writing: create_draft, reply_to_message and forward_message make drafts (they are not sent); \
 update_draft edits one. To send, show the person the draft (read_message: recipients, subject, text) and, once they \
 approve, call send_draft with its id and the contentHash read_message gave: a draft changed since then is refused. \
-Calendar: list_calendars, list_events, add_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
+Calendar: list_calendars, list_events, add_event, move_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
 update_contact.";
 
 const ATTACHING: &str = " attach_file attaches a file from the folders this server may read to a draft.";
@@ -352,6 +352,21 @@ const TOOLS: &[Tool] = &[
             ("calendar", "integer", "A calendar id from list_calendars; default the first."),
         ],
         required: &["summary", "start"],
+    },
+    Tool {
+        name: "move_event",
+        title: "Move appointment",
+        description: "Moves a timed appointment that does not repeat to a new start, keeping its length unless an end is \
+                      given (as dragging it in the calendar does). Times are in the calendar's time zone; undoable.",
+        commands: &["event.move"],
+        read_only: false,
+        destructive: false,
+        args: &[
+            ("id", "integer", "The event's id (from list_events)."),
+            ("start", "string", "YYYY-MM-DDTHH:MM."),
+            ("end", "string", "YYYY-MM-DDTHH:MM; default the same length as before."),
+        ],
+        required: &["id", "start"],
     },
     Tool {
         name: "delete_event",

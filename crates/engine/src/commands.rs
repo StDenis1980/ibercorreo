@@ -579,6 +579,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: event_delete,
     },
     CommandSpec {
+        id: "event.move",
+        label: "Move appointment",
+        group: "Appointment/Actions",
+        shortcut: None,
+        params: "id?: number — default: the selected event\nstart: YYYY-MM-DDTHH:MM — the new start, as the calendar shows times\nend?: same form — default: the same length as before\nOnly an appointment with a time that does not repeat moves this way (Tinta: dragging it in the day and week views)",
+        edits: true,
+        run: event_move,
+    },
+    CommandSpec {
         id: "event.setReminder",
         label: "Reminder",
         group: "Appointment/Options",
@@ -2507,6 +2516,61 @@ fn reminder_snooze(s: &mut Session, p: &Value) -> Result<Value> {
         s.store.mark_reminder(uid, *start, Some(until), now);
     }
     Ok(json!({ "snoozed": picked.len(), "until": format!("{until}Z") }))
+}
+
+/// Minutes since 1970-01-01T00:00 of a wall-clock time (seconds dropped).
+fn minutes_of(t: DateTime) -> i64 {
+    t.to_unix().div_euclid(60)
+}
+
+/// Tinta: move or stretch an appointment, as dragging it does. `start` and `end` are times as the
+/// calendar shows them; the event keeps its own zone (or UTC, or floating) and gets the same
+/// instants in it.
+fn event_move(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = match u64_param(p, "id")? {
+        Some(id) => EventId(id),
+        None => s.event.ok_or_else(|| Error::invalid("params", "no event is selected; pass id"))?,
+    };
+    let (start, _) = DateTime::parse(required_str(p, "start")?)?;
+    let view = s.zone().clone();
+    let e = s.store.event(id)?;
+    if e.rrule.is_some() || e.recurrence_id.is_some() {
+        return Err(Error::invalid(
+            "event",
+            "a repeating appointment or one of its occurrences cannot be moved this way yet; open it and change its time",
+        ));
+    }
+    let When::Timed { utc, .. } = e.when else {
+        return Err(Error::invalid("event", "an all-day appointment cannot be moved this way yet"));
+    };
+    let own = e.zone();
+    let shown = e.when.in_zone(own.as_ref(), &view);
+    let end = match str_param(p, "end")? {
+        Some(end) => DateTime::parse(end)?.0,
+        None => {
+            let When::Timed { start: old_start, end: old_end, .. } = shown else { return Err(Error::invalid("event", "not a timed appointment")) };
+            let length = minutes_of(old_end).saturating_sub(minutes_of(old_start));
+            DateTime::from_unix(minutes_of(start).saturating_add(length).saturating_mul(60))?
+        }
+    };
+    if minutes_of(end) <= minutes_of(start) {
+        return Err(Error::invalid("end", format!("{end} is not after the start {start}")));
+    }
+    if minutes_of(end).saturating_sub(minutes_of(start)) > 366 * 24 * 60 {
+        return Err(Error::invalid("end", "an appointment lasts at most a year"));
+    }
+    // Back from the calendar's zone to the event's own.
+    let back = |t: DateTime| match (utc, own.as_ref()) {
+        (true, _) => view.to_utc(t),
+        (false, Some(own)) if *own != view => own.from_utc(view.to_utc(t)),
+        _ => t,
+    };
+    let when = When::timed(back(start), back(end), utc)?;
+    s.store.event_mut(id)?.when = when;
+    s.event = Some(id);
+    s.day = start.date;
+    let e = s.store.event(id)?;
+    Ok(event_json(e, e.when.in_zone(e.zone().as_ref(), s.zone())))
 }
 
 fn event_set_reminder(s: &mut Session, p: &Value) -> Result<Value> {
