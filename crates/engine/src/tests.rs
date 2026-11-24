@@ -1475,6 +1475,23 @@ fn a_draft_can_not_carry_more_than_a_message_holds() {
     assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 1);
 }
 
+/// Tinta: a draft that says a file is attached but has none is flagged; with the file it is not.
+#[test]
+fn a_draft_that_promises_a_file_says_it_has_none() {
+    let mut s = session();
+    let id = s.run("message.compose", &json!({"to": "ana@example.org", "subject": "Octubre", "body": "Hola Ana,\nte adjunto la factura."})).unwrap()
+        ["id"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(s.run("message.read", &json!({"id": id})).unwrap()["forgotAttachment"], json!(true));
+    s.run("message.attach", &json!({"id": id, "name": "factura.pdf", "data": ibercorreo_mime::base64(b"%PDF-1.7")})).unwrap();
+    assert_eq!(s.run("message.read", &json!({"id": id})).unwrap()["forgotAttachment"], json!(false));
+    let plain = s.run("message.compose", &json!({"to": "ana@example.org", "body": "Nos vemos el lunes."})).unwrap()["id"].as_u64().unwrap();
+    assert_eq!(s.run("message.read", &json!({"id": plain})).unwrap()["forgotAttachment"], json!(false));
+    s.run("message.send", &json!({"id": plain})).unwrap();
+    assert!(s.run("message.read", &json!({"id": plain})).unwrap().get("forgotAttachment").is_none(), "only for drafts");
+}
+
 #[test]
 fn forwarding_carries_the_attachments_kept() {
     let mut s = session();

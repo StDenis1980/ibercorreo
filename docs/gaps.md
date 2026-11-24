@@ -85,10 +85,13 @@ Status: 2026-11-24 · Pick from the top.
    are kept with the mailbox like those that arrive, and they go out over SMTP, Microsoft Graph
    and EWS as `multipart/mixed`. A forward carries the original's kept attachments (2026-11-17).
    A draft carries at most 100 files and about 44 MiB in all; Microsoft Graph sends at most 4 MB
-   per message. Missing: choosing where to save, downloading the attachments of mail that arrived
-   before, keeping those of `.pst`/`.msg` imports and the export, pasting a file or picture from
-   the clipboard, pictures inside the text of a message written here, a warning before sending a
-   message that mentions an attachment but has none, the Tinta PDF, Texto and Calculo hand-off.
+   per message. The files of `.pst`/`.msg` imports are kept and go out in the mbox export
+   (2026-11-24). Send asks first when the words of a draft say a file is attached but it has none
+   (in the interface's 13 languages; quoted text and a reply's subject do not count), and
+   `message.read` says so as `forgotAttachment` (2026-11-24). Missing: choosing where to save,
+   downloading the attachments of mail that arrived before, pasting a file or picture from the
+   clipboard, pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
+   hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
     move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
@@ -238,3 +241,4 @@ Status: 2026-11-24 · Pick from the top.
 - 2026-11-13 — gap 8: attachment contents kept; `save_attachment` over MCP.
 - 2026-11-17 — gaps 7 and 15: the search index kept on disk.
 - 2026-11-24 — gaps 1 and 2 narrowed (M3.4): All Inboxes, deceptive links, merged cells; gap 17: `.pst`/`.msg` attachment files kept and exported.
+- 2026-11-24 — gap 8: the forgotten-attachment reminder.

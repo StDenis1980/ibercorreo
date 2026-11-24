@@ -449,3 +449,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Todas as caixas de entrada
 	The Inbox of every account in one list	A caixa de entrada de todas as contas nunha soa lista
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Esqueceu o anexo?
+	Your message says a file is attached, but it has no attachment.	A mensaxe di que leva un ficheiro anexo, pero non ten ningún.
+	Send anyway	Enviar igualmente
+	Don't send	Non enviar

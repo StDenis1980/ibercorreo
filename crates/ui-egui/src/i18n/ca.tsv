@@ -449,3 +449,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Totes les safates d'entrada
 	The Inbox of every account in one list	La safata d'entrada de tots els comptes en una sola llista
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Heu oblidat l'adjunt?
+	Your message says a file is attached, but it has no attachment.	El missatge diu que porta un fitxer adjunt, però no en té cap.
+	Send anyway	Envia igualment
+	Don't send	No l'enviïs

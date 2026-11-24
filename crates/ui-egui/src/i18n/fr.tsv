@@ -451,3 +451,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Toutes les boîtes de réception
 	The Inbox of every account in one list	La boîte de réception de tous les comptes dans une seule liste
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Avez-vous oublié la pièce jointe ?
+	Your message says a file is attached, but it has no attachment.	Le message indique qu'un fichier est joint, mais il n'a aucune pièce jointe.
+	Send anyway	Envoyer quand même
+	Don't send	Ne pas envoyer

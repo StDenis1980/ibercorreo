@@ -450,3 +450,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Všechny doručené
 	The Inbox of every account in one list	Doručená pošta všech účtů v jednom seznamu
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Nezapomněli jste na přílohu?
+	Your message says a file is attached, but it has no attachment.	Zpráva uvádí, že je přiložen soubor, ale nemá žádnou přílohu.
+	Send anyway	Přesto odeslat
+	Don't send	Neodesílat

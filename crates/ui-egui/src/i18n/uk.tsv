@@ -445,3 +445,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Усі вхідні
 	The Inbox of every account in one list	«Вхідні» всіх акаунтів в одному списку
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Забули вкладення?
+	Your message says a file is attached, but it has no attachment.	У листі сказано, що до нього додано файл, але вкладення немає.
+	Send anyway	Усе одно надіслати
+	Don't send	Не надсилати

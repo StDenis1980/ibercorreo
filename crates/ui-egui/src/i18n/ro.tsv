@@ -450,3 +450,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Toate mesajele primite
 	The Inbox of every account in one list	Mesajele primite din toate conturile într-o singură listă
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Ați uitat atașamentul?
+	Your message says a file is attached, but it has no attachment.	Mesajul spune că are un fișier atașat, dar nu are niciun atașament.
+	Send anyway	Trimite oricum
+	Don't send	Nu trimite
