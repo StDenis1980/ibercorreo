@@ -1,7 +1,7 @@
 # Tinta Correo — Preview 4
 
 > **Status:** 2026-11-24 · draft for the Preview 4 release (10 December 2026), version 0.3.0 ·
-> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) #96 (the forgotten-attachment reminder) #97 (date words and folders in search) #98 (dragging appointments in the calendar) #99 (work hours in the calendar) and #100 (working days and the first day of the week).
+> **Revision history:** 2026-11-16 created (changes from Preview 3, v0.2.0 of 12 November, to #86); 2026-11-17 added the suite-wide Tinta Office look (pdfcraft#60, wordcraft#75, gridcraft#55, deckcraft#38); 2026-11-18 added #90 (attachments in drafts, search index on disk, faster Send, Outlook.com Sent copy, layout fixes); 2026-11-24 added #92 (a new account's Inbox first) #93 (asking before a deceptive link; merged cells and cell backgrounds in tables) #94 (All Inboxes) #95 (attachment files from `.pst` and `.msg`, and in the mbox export) #96 (the forgotten-attachment reminder) #97 (date words and folders in search) #98 (dragging appointments in the calendar) #99 (work hours in the calendar) #100 (working days and the first day of the week) and #101 (dragging all-day events and in the month).
 > Updated until the freeze on 7 December.
 
 Release notes for the GitHub release and the site, in Spanish, Ukrainian and English. Changes since
@@ -33,7 +33,8 @@ Novedades:
   `carpeta:enviados` o `in:inbox` para buscar solo en una carpeta.
 - **Arrastrar citas en el calendario:** en las vistas de día y semana, arrastre una cita a otra hora
   u otro día, o su borde inferior para que termine antes o después (de 15 en 15 minutos; Ctrl+Z lo
-  deshace). Las citas periódicas y de todo el día aún no se arrastran.
+  deshace). Los eventos de todo el día se arrastran a otro día en la franja superior, y en la vista
+  de mes cualquier cita se arrastra a otro día con la misma hora. Las citas periódicas aún no.
 - **Horario laboral en el calendario:** elija con 🕘 cuándo empieza y termina su jornada (por
   defecto 08:00–17:00); las vistas de día y semana se abren una hora antes y sombrean el resto.
 - **Días laborables y primer día de la semana:** en el mismo menú 🕘; la semana laboral muestra
@@ -82,7 +83,8 @@ verá un aviso (o use una contraseña de aplicación); aún no se puede exportar
   і `папка:надіслані` чи `in:inbox`, щоб шукати лише в одній папці.
 - **Перетягування зустрічей у календарі:** у вигляді дня й тижня зустріч можна перетягнути на
   інший час чи день, а її нижній край — щоб вона закінчувалася раніше чи пізніше (крок 15 хвилин;
-  Ctrl+Z повертає). Повторювані зустрічі й події на весь день поки не перетягуються.
+  Ctrl+Z повертає). Події на весь день перетягуються на інший день у смузі вгорі, а у вигляді місяця
+  будь-яку зустріч можна перенести на інший день з тим самим часом. Повторювані поки ні.
 - **Робочі години в календарі:** кнопкою 🕘 виберіть, коли починається й закінчується робочий
   день (типово 08:00–17:00); вигляд дня й тижня відкривається за годину до початку, решта затінена.
 - **Робочі дні й перший день тижня:** у тому ж меню 🕘; робочий тиждень показує вибрані дні
@@ -130,7 +132,8 @@ What's new:
   `in:sent` or `folder:Projects` to search one folder only.
 - **Drag appointments in the calendar:** in the day and week views, drag an appointment to another
   time or day, or its bottom edge to end it earlier or later (15-minute steps; Ctrl+Z undoes it).
-  Repeating and all-day appointments don't drag yet.
+  All-day events drag to another day in the strip above the hours, and in the month view any
+  appointment drags to another day at the same time. Repeating ones don't drag yet.
 - **Work hours in the calendar:** choose with 🕘 when your working day starts and ends (08:00–17:00
   by default); the day and week views open an hour before and shade the rest.
 - **Working days and the first day of the week:** in the same 🕘 menu; Work Week shows the chosen
