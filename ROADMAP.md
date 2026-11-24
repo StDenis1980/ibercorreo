@@ -1,6 +1,6 @@
 # Tinta Correo — roadmap summary
 
-Status: 2026-11-24 · all-day events and month chips drag; working days and the first day of the week (`calendar.workWeek`); work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
+Status: 2026-11-24 · Add to contacts beside a sender and addresses offered in To, Cc and Bcc (`contact.addSender`, `contact.suggest`); all-day events and month chips drag; working days and the first day of the week (`calendar.workWeek`); work hours in the calendar (`calendar.workHours`); appointments drag to move and stretch in the day and week views (`event.move`, MCP `move_event`); search takes date words and `in:` folders; a reminder before sending a message that promises a file it has not; attachment files from `.pst` and `.msg`, and in the mbox export; search index kept on disk (a big mailbox in a tenth of the memory); files attached to drafts (Attach file, drop on the window, forwards carry attachments, MCP `attach_file`); M6.2i header first over Exchange and Graph too; M6.2h mail header first, its text when opened; M6.2g conversations; M6.2f colour categories; M6.2e tables and colours in HTML mail; M6.2d pictures on the web on request; M6.2c pictures inside HTML mail, two-step delete, Microsoft admin-approval help; M4 (Exchange) done up to a real-server check; M5 (Outlook migration) started: M5.1 `.msg` import, M5.1b compressed-RTF bodies, M5.2 `.pst` mail (also from the window), M5.2b `.pst` calendar and contacts, M5.3 export (engine, CLI) and the Outlook migration guide; M6.1 MCP server (`ibercorreo-cli mcp`); M6.2 new look (themes, size, dialogs, folder tree); `save_attachment` over MCP (M6.1b); Open and Save on attachments in the window (M6.2b)
 
 **Stage:** M1 and M2 done. Mail, calendar and people in one window, with calendars and contacts kept in step with a CalDAV/CardDAV server; an IMAP/SMTP account set up in the window sends and receives in the background, and HTML mail is shown formatted and safe.
 
@@ -330,6 +330,12 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
   Outlook.com and Exchange Online file what SMTP sends themselves, so no second copy is saved in
   Sent; names and subjects in the message list end in "…" short of the date, the Bcc button
   keeps its translated width, and the status bar's texts stop short of the size slider.
+- 2026-11-24 — Add to contacts beside the sender of the message being read (and on the sender's
+  context menu, with Copy address); a sender already in the contacts shows "In your contacts".
+  To, Cc and Bcc offer addresses while they are typed, as in Outlook: contacts first, then the
+  people written to, the most written to first; ↑ ↓ choose, Enter or Tab puts one in, Esc
+  closes. `contact.addSender` and `contact.suggest` (MCP `add_sender_to_contacts`,
+  `suggest_addresses`).
 - 2026-11-24 — All-day events drag to another day in the strip above the hours, and in the month
   any appointment that does not repeat drags to another day, keeping its time and length; the
   day under the pointer is outlined, Escape leaves it. `event.move` (and MCP `move_event`) takes
@@ -468,3 +474,4 @@ Detail: [docs/roadmap.md](docs/roadmap.md) (milestones), [docs/gaps.md](docs/gap
 - 2026-11-24 — Calendar: work hours.
 - 2026-11-24 — Calendar: working days and the first day of the week.
 - 2026-11-24 — Calendar: all-day events and month chips drag.
+- 2026-11-24 — Contacts: Add to contacts and addresses offered while typing.

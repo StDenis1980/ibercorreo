@@ -1,6 +1,6 @@
 # Tinta Correo MCP server
 
-Status: 2026-11-24 · `move_event`
+Status: 2026-11-24 · `add_sender_to_contacts`, `suggest_addresses`
 
 `ibercorreo-cli mcp` lets an AI assistant work with Tinta Correo's mail, calendar and contacts
 over the [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0
@@ -136,6 +136,8 @@ with `"partial": true` and has no text yet; `message.download` asks for it at th
 | `move_event` (`id`, `start`, `end?`: keeps the length without one; dates for an all-day event; not a repeating one) | `event.move` | no |
 | `list_contacts` (`query?`, `book?`), `get_contact` (`id`) | `contact.list`, `contact.get` | yes |
 | `add_contact` (`name`, …), `update_contact` (`id`, …) | `contact.add`, `contact.update` | no |
+| `add_sender_to_contacts` (`id`, `book?`: a sender already there is not added again) | `contact.addSender` | no |
+| `suggest_addresses` (`text`, `limit?`: contacts first, then the people written to) | `contact.suggest` | yes |
 
 Each tool's `annotations` carry `readOnlyHint` and `destructiveHint` as above (`openWorldHint` on
 `send_draft`). `folder` is an id from `list_folders` or a role (`inbox`, `drafts`, `sent`,
@@ -179,3 +181,4 @@ should mark every `read_message` and `search_messages` result.
   `--max-messages`.
 - 2026-11-24 — `move_event`: an appointment to a new time, keeping its length.
 - 2026-11-24 — `move_event` moves all-day events too.
+- 2026-11-24 — `add_sender_to_contacts` and `suggest_addresses`.

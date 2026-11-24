@@ -420,3 +420,15 @@ fn an_appointment_moves_and_keeps_its_length() {
     assert!(call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-05T16:30", "end": "2031-03-05T16:00" })).is_err());
     assert!(call(&mut s, "move_event", json!({ "id": u64::MAX, "start": "2031-03-05T16:30" })).is_err());
 }
+
+#[test]
+fn a_sender_becomes_a_contact_and_addresses_are_suggested() {
+    let mut s = sample_server(Limits::default());
+    let found = call(&mut s, "search_messages", json!({ "query": "from:help@example.org" })).unwrap();
+    let id = found["messages"][0]["id"].clone();
+    let added = call(&mut s, "add_sender_to_contacts", json!({ "id": id })).unwrap();
+    assert_eq!((added["name"].as_str(), added["existing"].as_bool()), (Some("Support desk"), Some(false)));
+    assert_eq!(call(&mut s, "add_sender_to_contacts", json!({ "id": id })).unwrap()["existing"], true);
+    let offered = call(&mut s, "suggest_addresses", json!({ "text": "supp" })).unwrap();
+    assert_eq!(offered[0]["email"], "help@example.org");
+}

@@ -6,6 +6,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod address_complete_ui;
 mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
@@ -576,6 +577,8 @@ pub struct App {
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
     /// Tinta: the draft the person asked to attach files to (the shell shows the file picker).
     attach_wanted: Option<MessageId>,
+    /// The addresses offered under the recipient field being typed.
+    completion: address_complete_ui::Completion,
     /// Tinta: the appointment being dragged in the day or week view.
     calendar_drag: Option<calendar_drag::Drag>,
     /// Tinta: an appointment being dragged to another day (all-day strip, month).
@@ -840,6 +843,7 @@ impl App {
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
             attach_wanted: None,
+            completion: address_complete_ui::Completion::default(),
             calendar_drag: None,
             calendar_day_drag: None,
             inline_images: inline_images::InlineImages::default(),
@@ -2840,9 +2844,15 @@ impl App {
         };
         ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(24.0).strong().color(t.text));
         ui.add_space(12.0);
+        let mut add_sender = false;
         ui.horizontal(|ui| {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
-            ui.label(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text));
+            let sender = ui.add(egui::Label::new(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text)).sense(egui::Sense::click()));
+            // Tinta: the sender saved in the contacts in one step, as in Outlook.
+            if let Some(from) = &m.from {
+                add_sender |= address_complete_ui::sender_menu(&sender, &self.session, &from.email);
+                add_sender |= address_complete_ui::add_sender_button(ui, &t, &self.session, &from.email);
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new(m.date.map(|d| self.session.zone().from_utc(d).to_string().replace('T', " ")).unwrap_or_default())
@@ -2958,6 +2968,9 @@ impl App {
         if toggle_plain {
             self.run("view.plainText", json!({}));
         }
+        if add_sender {
+            self.run("contact.addSender", json!({}));
+        }
         if let Some(p) = pictures_choice {
             self.run("message.loadPictures", p);
         }
@@ -3021,8 +3034,15 @@ impl App {
                     };
                     let room = (ui.available_width() - toggle_w).max(80.0);
                     let size = if label == "Subject" { theme::SUBTITLE } else { theme::BODY };
-                    let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(egui::FontId::proportional(size)).desired_width(room);
-                    changed |= ui.add(edit).lost_focus();
+                    let font = egui::FontId::proportional(size);
+                    if label == "Subject" {
+                        let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(font).desired_width(room);
+                        changed |= ui.add(edit).lost_focus();
+                    } else {
+                        // Tinta: addresses offered while a recipient is typed.
+                        let (resp, put) = address_complete_ui::field(ui, &t, &self.session, &mut self.completion, (d.id, label), field, (font, room));
+                        changed |= resp.lost_focus() || put;
+                    }
                     if bcc_toggle {
                         let tip = tl("Blind copies: they get the message, the others don't see them");
                         if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Bcc", true).on_hover_text(tip).clicked() {
@@ -6635,5 +6655,74 @@ mod tests {
         assert!(matches!(start_of(&app, weekly), When::Timed { start, .. } if start.date == Date::new(2026, 11, 12).unwrap()));
         app.session.run("edit.undo", &Value::Null).unwrap();
         assert!(matches!(start_of(&app, cita), When::Timed { start, .. } if start.date == Date::new(2026, 11, 10).unwrap()), "undone");
+    }
+
+    #[test]
+    fn a_sender_is_added_in_one_click_and_recipients_are_completed() {
+        use egui::{Event, Key, PointerButton, Pos2};
+        let mut store = ibercorreo_store::Store::new();
+        let mut marta = ibercorreo_core::Contact::new("Marta Iglesias");
+        marta.emails = vec![ibercorreo_core::Address::new(Some("Marta Iglesias"), "marta@example.es").unwrap()];
+        store.add_contact(marta);
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+        m.from = Some(ibercorreo_core::Address::new(Some("Rui Carvalho"), "rui@example.pt").unwrap());
+        m.set_subject("Olá");
+        let rui = store.add_message(m).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        s.message = Some(rui);
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1500.0, 900.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for _ in 0..3 {
+            frame(&mut app, vec![]);
+        }
+        // Add to contacts beside the sender, then a note that they are one.
+        let texts = frame(&mut app, vec![]);
+        let (_, at) = texts.iter().find(|(t, _)| t == "Add to contacts").cloned().expect("the button is shown");
+        let at = at + vec2(4.0, 4.0);
+        let press = |pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![Event::PointerMoved(at), press(true)]);
+        frame(&mut app, vec![press(false)]);
+        assert!(app.session.store.all_contacts().iter().any(|c| c.name == "Rui Carvalho"), "{}", app.session.status);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t.ends_with("In your contacts")), "{texts:?}");
+
+        // A new message: typing in To offers the contacts, Enter puts one in.
+        app.run("message.compose", json!({}));
+        frame(&mut app, vec![]);
+        let id = app.draft.as_ref().map(|d| d.id).expect("a draft is open");
+        ctx.memory_mut(|m| m.request_focus(address_complete_ui::field_id((id, "To"))));
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![Event::Text("ma".into())]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Marta Iglesias   marta@example.es"), "{texts:?}");
+        assert!(!texts.iter().any(|(t, _)| t.contains("rui@example.pt")), "only what matches");
+        let enter = Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut app, vec![enter]);
+        frame(&mut app, vec![]);
+        assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("Marta Iglesias <marta@example.es>, "));
+        let saved = app.session.store.message(MessageId(id)).unwrap();
+        assert_eq!(saved.to.first().map(|a| a.email.as_str()), Some("marta@example.es"), "the draft is saved with it");
+        // The next address goes after it: the list opens for it alone.
+        frame(&mut app, vec![Event::Text("ru".into())]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Rui Carvalho   rui@example.pt"), "{texts:?}");
+        let esc = Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut app, vec![esc]);
+        let texts = frame(&mut app, vec![]);
+        assert!(!texts.iter().any(|(t, _)| t == "Rui Carvalho   rui@example.pt"), "Esc closes the list");
+        assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("Marta Iglesias <marta@example.es>, ru"));
     }
 }

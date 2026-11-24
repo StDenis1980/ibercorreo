@@ -715,6 +715,24 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: contact_list,
     },
     CommandSpec {
+        id: "contact.addSender",
+        label: "Add to Contacts",
+        group: "Home/Contacts",
+        shortcut: None,
+        params: "id?: number — a message (default: the one open); its sender becomes a contact, named as the message names them\nbook?: number — the address book (default: the first)\n(a sender already in the contacts is not added again: the result says existing: true)",
+        edits: true,
+        run: contact_add_sender,
+    },
+    CommandSpec {
+        id: "contact.suggest",
+        label: "Suggest addresses",
+        group: "People/Find",
+        shortcut: None,
+        params: "text: string — what is typed after the last comma of a To, Cc or Bcc field\nlimit?: number — at most this many (default 8, at most 20)\n(contacts first, then the people written to, the most written to first; name words and address parts match from their start, case and accents ignored)",
+        edits: false,
+        run: contact_suggest,
+    },
+    CommandSpec {
         id: "contact.listBooks",
         label: "Address books",
         group: "People/Address Books",
@@ -2881,6 +2899,35 @@ fn contact_list(s: &mut Session, p: &Value) -> Result<Value> {
         Some(_) => Some(book_param(s, p)?),
     };
     Ok(Value::Array(s.store.contacts(q).into_iter().filter(|c| book.is_none_or(|b| c.book == b)).map(contact_json).collect()))
+}
+
+fn contact_add_sender(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = target_message(s, p)?;
+    let (name, from) = crate::addresses::sender(s, id)?;
+    let with_existing = |mut v: Value, existing: bool| {
+        if let Value::Object(map) = &mut v {
+            map.insert("existing".into(), json!(existing));
+        }
+        v
+    };
+    if let Some(existing) = crate::addresses::contact_with(s, &from.email) {
+        s.status = "Already in your contacts".into();
+        return Ok(with_existing(contact_json(s.store.contact(existing)?), true));
+    }
+    let mut params = serde_json::Map::new();
+    params.insert("name".into(), json!(name));
+    params.insert("email".into(), json!(from.email));
+    if let Some(book) = p.get("book") {
+        params.insert("book".into(), book.clone());
+    }
+    Ok(with_existing(contact_add(s, &Value::Object(params))?, false))
+}
+
+fn contact_suggest(s: &mut Session, p: &Value) -> Result<Value> {
+    let text = required_str(p, "text")?;
+    let limit = usize::try_from(u64_param(p, "limit")?.unwrap_or(8)).unwrap_or(crate::addresses::MAX_SUGGESTIONS);
+    let found = crate::addresses::suggest(s, text, limit);
+    Ok(Value::Array(found.iter().map(|f| json!({ "name": f.name, "email": f.email, "text": f.field_text(), "contact": f.contact })).collect()))
 }
 
 fn contact_books(s: &mut Session, _: &Value) -> Result<Value> {

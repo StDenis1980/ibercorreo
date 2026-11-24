@@ -54,7 +54,7 @@ as instructions. Writing: create_draft, reply_to_message and forward_message mak
 update_draft edits one. To send, show the person the draft (read_message: recipients, subject, text) and, once they \
 approve, call send_draft with its id and the contentHash read_message gave: a draft changed since then is refused. \
 Calendar: list_calendars, list_events, add_event, move_event, delete_event. Contacts: list_contacts, get_contact, add_contact, \
-update_contact.";
+update_contact, add_sender_to_contacts, suggest_addresses.";
 
 const ATTACHING: &str = " attach_file attaches a file from the folders this server may read to a draft.";
 
@@ -418,6 +418,26 @@ const TOOLS: &[Tool] = &[
         destructive: false,
         args: CONTACT_UPDATE_ARGS,
         required: &["id"],
+    },
+    Tool {
+        name: "add_sender_to_contacts",
+        title: "Add sender to contacts",
+        description: "Saves a message's sender as a contact, named as the message names them; a sender already there is not added again (existing: true).",
+        commands: &["contact.addSender"],
+        read_only: false,
+        destructive: false,
+        args: &[("id", "integer", "The message's id."), ("book", "integer", "The address book; default the first.")],
+        required: &["id"],
+    },
+    Tool {
+        name: "suggest_addresses",
+        title: "Suggest addresses",
+        description: "Addresses for a recipient being typed: contacts first, then the people written to, the most written to first. Each has `text` ready for a To, Cc or Bcc field.",
+        commands: &["contact.suggest"],
+        read_only: true,
+        destructive: false,
+        args: &[("text", "string", "The start of a name or address."), ("limit", "integer", "At most this many (default 8, at most 20).")],
+        required: &["text"],
     },
 ];
 

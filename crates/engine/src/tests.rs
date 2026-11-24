@@ -1696,3 +1696,56 @@ fn files_are_read_to_attach_only_when_they_are_files() {
     assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_sender_becomes_a_contact_and_addresses_are_suggested() {
+    let mut s = session();
+    let from = |s: &Session, email: &str| s.store.all_messages().find(|m| m.from.as_ref().is_some_and(|a| a.email == email)).map(|m| m.id.0).unwrap();
+    // The support desk is not a contact yet: one step adds it, named as the message names it.
+    let help = from(&s, "help@example.org");
+    let before = s.store.contact_count();
+    let c = s.run("contact.addSender", &json!({"id": help})).unwrap();
+    assert_eq!((c["name"].as_str(), c["existing"].as_bool()), (Some("Support desk"), Some(false)));
+    assert_eq!(c["emails"][0], "help@example.org");
+    assert_eq!(s.store.contact_count(), before + 1);
+    // Again, or a sender already there (any case): no copy.
+    assert_eq!(s.run("contact.addSender", &json!({"id": help})).unwrap()["existing"], true);
+    assert_eq!(s.status, "Already in your contacts");
+    let marta = from(&s, "marta@example.es");
+    s.message = Some(MessageId(marta));
+    assert_eq!(s.run("contact.addSender", &json!({})).unwrap()["existing"], true, "the open message by default");
+    assert_eq!(s.store.contact_count(), before + 1);
+    for _ in 0..3 {
+        if s.store.contact_count() > before {
+            s.run("edit.undo", &Value::Null).unwrap();
+        }
+    }
+    assert_eq!(s.store.contact_count(), before, "undone");
+    // A draft has no sender to add.
+    let draft = s.run("message.compose", &json!({})).unwrap()["id"].as_u64().unwrap();
+    s.store.message_mut(MessageId(draft)).unwrap().from = None;
+    assert!(s.run("contact.addSender", &json!({"id": draft})).is_err());
+
+    // Suggestions: contacts first, from the start of a name word or an address part, accents ignored.
+    let text = |v: &Value| v.as_array().unwrap().iter().map(|x| x["text"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "igle"})).unwrap()), ["Marta Iglesias <marta@example.es>"]);
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "ОЛЕ"})).unwrap()), ["Олена Коваль <olena@example.com.ua>"]);
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "rui@"})).unwrap()), ["Rui Carvalho <rui@example.pt>"]);
+    assert!(text(&s.run("contact.suggest", &json!({"text": "arta"})).unwrap()).is_empty(), "not from the middle of a word");
+    assert!(text(&s.run("contact.suggest", &json!({"text": "  "})).unwrap()).is_empty());
+    // Then the people written to, the most written to first; never the person's own address.
+    let sent = s.store.folders().into_iter().find(|f| f.role == FolderRole::Sent).unwrap().id;
+    for (to, n) in [("Martín Ruiz <martin@example.es>", 1), ("María López <maria@example.es>", 3), ("Denys <denys@example.com>", 2)] {
+        for _ in 0..n {
+            let mut m = Message::new(MessageId(0), sent);
+            m.to = vec![ibercorreo_core::Address::parse_list(to).unwrap().remove(0)];
+            s.store.add_message(m).unwrap();
+        }
+    }
+    let found = s.run("contact.suggest", &json!({"text": "MAR"})).unwrap();
+    assert_eq!(text(&found), ["Marta Iglesias <marta@example.es>", "María López <maria@example.es>", "Martín Ruiz <martin@example.es>"]);
+    assert_eq!((found[0]["contact"].is_u64(), found[1]["contact"].is_null()), (true, true));
+    assert!(text(&s.run("contact.suggest", &json!({"text": "denys"})).unwrap()).is_empty(), "own address left out");
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "mar", "limit": 1})).unwrap()).len(), 1);
+    assert!(s.run("contact.suggest", &json!({})).is_err());
+}
