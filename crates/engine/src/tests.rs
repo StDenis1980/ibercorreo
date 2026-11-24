@@ -1284,11 +1284,26 @@ fn an_appointment_moves_and_stretches() {
         "09:00 in Lisbon is 10:00 in Madrid: {:?}",
         ev.when
     );
-    // Repeating and all-day appointments are not moved this way.
+    // Repeating appointments are not moved this way; an all-day one moves by whole days.
     let weekly = s.run("event.add", &json!({"summary": "Clase", "start": "2026-10-22T18:00", "repeat": "weekly"})).unwrap()["id"].as_u64().unwrap();
     assert!(s.run("event.move", &json!({"id": weekly, "start": "2026-10-22T19:00"})).is_err());
     let day = s.run("event.add", &json!({"summary": "Fiesta", "start": "2026-10-24"})).unwrap()["id"].as_u64().unwrap();
-    assert!(s.run("event.move", &json!({"id": day, "start": "2026-10-25T10:00"})).is_err());
+    assert!(s.run("event.move", &json!({"id": day, "start": "2026-10-25T10:00"})).is_err(), "a date, not a time");
+    let m = s.run("event.move", &json!({"id": day, "start": "2026-10-27"})).unwrap();
+    assert_eq!((m["start"].as_str(), m["end"].as_str(), m["allDay"].as_bool()), (Some("2026-10-27"), Some("2026-10-28"), Some(true)));
+    let m = s.run("event.move", &json!({"id": day, "start": "2026-10-27", "end": "2026-10-30"})).unwrap();
+    assert_eq!(m["end"], "2026-10-30", "stretched to three days");
+    let m = s.run("event.move", &json!({"id": day, "start": "2026-11-02"})).unwrap();
+    assert_eq!(m["end"], "2026-11-05", "keeps its three days");
+    for bad in [
+        json!({"id": day, "start": "2026-11-02", "end": "2026-11-02"}),
+        json!({"id": day, "start": "2026-11-02", "end": "2028-01-01"}),
+        json!({"id": day, "start": "nope"}),
+    ] {
+        assert!(s.run("event.move", &bad).is_err(), "{bad}");
+    }
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(s.store.event(EventId(day)).unwrap().when.start_date().to_string(), "2026-10-27", "undone like any edit");
     assert!(s.run("event.move", &json!({"id": id, "start": "not a time"})).is_err());
 }
 

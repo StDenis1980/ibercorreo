@@ -356,15 +356,16 @@ const TOOLS: &[Tool] = &[
     Tool {
         name: "move_event",
         title: "Move appointment",
-        description: "Moves a timed appointment that does not repeat to a new start, keeping its length unless an end is \
-                      given (as dragging it in the calendar does). Times are in the calendar's time zone; undoable.",
+        description: "Moves an appointment that does not repeat to a new start, keeping its length unless an end is \
+                      given (as dragging it in the calendar does). Times are in the calendar's time zone; an all-day \
+                      event takes dates. Undoable.",
         commands: &["event.move"],
         read_only: false,
         destructive: false,
         args: &[
             ("id", "integer", "The event's id (from list_events)."),
-            ("start", "string", "YYYY-MM-DDTHH:MM."),
-            ("end", "string", "YYYY-MM-DDTHH:MM; default the same length as before."),
+            ("start", "string", "YYYY-MM-DDTHH:MM, or YYYY-MM-DD for an all-day event."),
+            ("end", "string", "Same form (for an all-day event, the day after its last); default the same length as before."),
         ],
         required: &["id", "start"],
     },
