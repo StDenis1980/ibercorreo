@@ -410,3 +410,13 @@ fn attach_file_reads_only_inside_the_read_root_and_changes_the_hash() {
         .collect();
     assert_eq!(names, ["factura.pdf", "Factura 11-2026.pdf"]);
 }
+
+#[test]
+fn an_appointment_moves_and_keeps_its_length() {
+    let mut s = sample_server(Limits::default());
+    let added = call(&mut s, "add_event", json!({ "summary": "Dentista", "start": "2031-03-04T10:00", "end": "2031-03-04T10:45" })).unwrap();
+    let moved = call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-05T16:30" })).unwrap();
+    assert_eq!((moved["start"].as_str(), moved["end"].as_str()), (Some("2031-03-05T16:30"), Some("2031-03-05T17:15")));
+    assert!(call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-05T16:30", "end": "2031-03-05T16:00" })).is_err());
+    assert!(call(&mut s, "move_event", json!({ "id": u64::MAX, "start": "2031-03-05T16:30" })).is_err());
+}

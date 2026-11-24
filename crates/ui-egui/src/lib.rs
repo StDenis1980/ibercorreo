@@ -11,6 +11,7 @@ mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod attach_reminder_ui;
 mod body_text;
+mod calendar_drag;
 mod categories_ui;
 mod chrome;
 mod compose_files_ui;
@@ -561,6 +562,8 @@ pub struct App {
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
     /// Tinta: the draft the person asked to attach files to (the shell shows the file picker).
     attach_wanted: Option<MessageId>,
+    /// Tinta: the appointment being dragged in the day or week view.
+    calendar_drag: Option<calendar_drag::Drag>,
     /// Tinta: the pictures the message being read carries (`cid:`).
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
@@ -821,6 +824,7 @@ impl App {
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
             attach_wanted: None,
+            calendar_drag: None,
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
             categories_form: categories_ui::CategoriesForm::default(),
@@ -3266,9 +3270,35 @@ impl App {
                     } else {
                         format!("{}\n{times}\n📍 {}", e.summary, e.location)
                     };
-                    let r = ui.interact(rect, ui.id().with(("event", e.id.0, n)), Sense::click()).on_hover_text(tip);
+                    // Tinta: a timed appointment that does not repeat drags to move, and its bottom
+                    // edge drags to change its end (the edge only on the day it ends).
+                    let movable = e.rrule.is_none() && e.recurrence_id.is_none() && matches!(when, When::Timed { .. });
+                    let sense = if movable { Sense::click_and_drag() } else { Sense::click() };
+                    let r = ui.interact(rect, ui.id().with(("event", e.id.0, n)), sense);
+                    let r = if self.calendar_drag.is_none() { r.on_hover_text(tip) } else { r };
                     if r.clicked() {
                         self.run("calendar.goto", json!({ "date": day.to_string() }));
+                    }
+                    if let (true, When::Timed { start: shown_start, end: shown_end, .. }) = (movable, *when) {
+                        let grab = |mode| calendar_drag::Drag { id: e.id, mode, start: shown_start, end: shown_end, origin: egui::Pos2::ZERO };
+                        if r.hovered() && self.calendar_drag.is_none() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                        }
+                        if r.drag_started() {
+                            let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(rect.center());
+                            self.calendar_drag = Some(calendar_drag::Drag { origin, ..grab(calendar_drag::Mode::Move) });
+                        }
+                        if shown_end.date == *day {
+                            let edge = egui::Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - 6.0), rect.right_bottom());
+                            let er = ui.interact(edge, ui.id().with(("event-end", e.id.0, n)), Sense::drag());
+                            if er.hovered() && self.calendar_drag.is_none() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                            }
+                            if er.drag_started() {
+                                let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(edge.center());
+                                self.calendar_drag = Some(calendar_drag::Drag { origin, ..grab(calendar_drag::Mode::Resize) });
+                            }
+                        }
                     }
                     let color = self.calendar_color(e.calendar);
                     p.rect_filled(rect, 3.0, soft(color, t.card));
@@ -3299,7 +3329,60 @@ impl App {
                     p.line_segment([egui::pos2(x, y), egui::pos2(x + col_w, y)], Stroke::new(1.5, t.flag));
                 }
             }
+            self.calendar_drag_preview(ui, &p, grid, &days, col_w, HOUR, GUTTER);
         });
+    }
+
+    /// Tinta: while an appointment is dragged, where it would go; when the button is let go, it
+    /// moves there (`event.move`). Escape leaves it where it was.
+    #[allow(clippy::too_many_arguments)]
+    fn calendar_drag_preview(&mut self, ui: &Ui, p: &egui::Painter, grid: Rect, days: &[Date], col_w: f32, hour_h: f32, gutter: f32) {
+        let Some(drag) = self.calendar_drag else { return };
+        let t = self.tokens;
+        let (pos, down, escape) = ui.input(|i| (i.pointer.latest_pos(), i.pointer.primary_down(), i.key_pressed(Key::Escape)));
+        if escape {
+            self.calendar_drag = None;
+            return;
+        }
+        let moved = pos.map(|pos| pos - drag.origin).unwrap_or_default();
+        let (days_moved, minutes_moved) = calendar_drag::offset(moved.x, moved.y, col_w, hour_h);
+        let target = drag.target(days_moved, minutes_moved);
+        if !down {
+            self.calendar_drag = None;
+            if let Some((start, end)) = target.filter(|(s, e)| (*s, *e) != (drag.start, drag.end)) {
+                self.run("event.move", json!({ "id": drag.id.0, "start": calendar_drag::param(start), "end": calendar_drag::param(end) }));
+            }
+            return;
+        }
+        ui.ctx().set_cursor_icon(match drag.mode {
+            calendar_drag::Mode::Move => egui::CursorIcon::Grabbing,
+            calendar_drag::Mode::Resize => egui::CursorIcon::ResizeVertical,
+        });
+        let Some((start, end)) = target else { return };
+        let y_of = |minute: u16| grid.top() + hour_h * f32::from(minute) / 60.0;
+        // The target drawn on each day it covers that is shown.
+        for (n, day) in days.iter().enumerate() {
+            if *day < start.date || *day > end.date || (*day == end.date && end.minute_of_day() == 0 && end.date > start.date) {
+                continue;
+            }
+            let top = if *day == start.date { y_of(start.minute_of_day()) } else { grid.top() };
+            let bottom = if *day == end.date { y_of(end.minute_of_day()) } else { grid.bottom() };
+            let x = grid.left() + gutter + col_w * n as f32;
+            let ghost = egui::Rect::from_min_max(egui::pos2(x + 2.0, top + 1.0), egui::pos2(x + col_w - 4.0, bottom.max(top + 12.0) - 1.0));
+            p.rect_filled(ghost, 3.0, t.accent_soft.gamma_multiply(0.7));
+            p.rect_stroke(ghost, 3.0, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+            if *day == start.date {
+                let label = format!("{:02}:{:02} – {:02}:{:02}", start.hour(), start.minute(), end.hour(), end.minute());
+                p.with_clip_rect(ghost).text(
+                    ghost.left_top() + vec2(8.0, 4.0),
+                    egui::Align2::LEFT_TOP,
+                    label,
+                    egui::FontId::proportional(13.0),
+                    t.text,
+                );
+            }
+        }
+        ui.ctx().request_repaint();
     }
 
     fn agenda(&mut self, ui: &mut Ui) {
@@ -6148,5 +6231,70 @@ mod tests {
         });
         out.textures_delta.clear();
         assert_eq!(app.take_links(), ["https://example.org/app-passwords", "file:///C:/reports"]);
+    }
+
+    /// Tinta: an appointment dragged down two hours in the day view moves there, and one
+    /// dragged by its bottom edge ends later.
+    #[test]
+    fn dragging_an_appointment_moves_it_and_its_edge_stretches_it() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap();
+        let mut s = Session::new(ibercorreo_store::Store::new(), day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 8, 0, 0).unwrap());
+        s.run("calendar.timeZone", &json!({ "zone": "UTC" })).unwrap();
+        let id = s.run("event.add", &json!({ "summary": "Drag me", "start": "2026-11-24T10:00", "end": "2026-11-24T11:00" })).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewDay", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        app.scroll_to_morning = true;
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1360.0, 860.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            // The day's grid draws it furthest left (the to-do bar may name it too).
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) if t.galley.job.text == "Drag me" => Some(t.pos),
+                    _ => None,
+                })
+                .min_by(|a, b| a.x.total_cmp(&b.x))
+        };
+        frame(&mut app, vec![]);
+        let title = frame(&mut app, vec![]).expect("the appointment is drawn");
+        let span = |app: &App| match app.session.store.event(ibercorreo_core::EventId(id)).unwrap().when {
+            When::Timed { start, end, .. } => (start.minute_of_day(), end.minute_of_day()),
+            When::AllDay { .. } => (0, 0),
+        };
+        // Pressed inside it, moved down 104 points (two hours of 52), let go.
+        let grab = title + vec2(10.0, 10.0);
+        let press = |pos: Pos2, pressed: bool| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![Event::PointerMoved(grab), press(grab, true)]);
+        for step in 1..=4 {
+            frame(&mut app, vec![Event::PointerMoved(grab + vec2(0.0, 26.0 * step as f32))]);
+        }
+        assert!(app.calendar_drag.is_some(), "dragging");
+        let to = grab + vec2(0.0, 104.0);
+        frame(&mut app, vec![press(to, false)]);
+        frame(&mut app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        assert_eq!(span(&app), (12 * 60, 13 * 60), "moved two hours later, the same length");
+        assert!(app.calendar_drag.is_none());
+        // Its bottom edge, dragged down half an hour.
+        let title = frame(&mut app, vec![]).expect("drawn where it went");
+        let edge = egui::pos2(title.x + 10.0, title.y - 4.0 + 52.0 - 3.0);
+        frame(&mut app, vec![Event::PointerMoved(edge), press(edge, true)]);
+        for step in 1..=3 {
+            frame(&mut app, vec![Event::PointerMoved(edge + vec2(0.0, 9.0 * step as f32))]);
+        }
+        frame(&mut app, vec![press(edge + vec2(0.0, 26.0), false)]);
+        frame(&mut app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        assert_eq!(span(&app), (12 * 60, 13 * 60 + 30), "ends half an hour later");
+        // Undone like any edit.
+        app.session.run("edit.undo", &Value::Null).unwrap();
+        assert_eq!(span(&app), (12 * 60, 13 * 60));
     }
 }

@@ -93,8 +93,9 @@ Status: 2026-11-24 · Pick from the top.
    clipboard, pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
    hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
-10. **Calendar views**: day, work week, week and month work. Missing: dragging an appointment to
-    move or stretch it, a working-hours setting (the grid opens at 07:00), a week starting on
+10. **Calendar views**: day, work week, week and month work. Appointments drag to another time or
+    day and their bottom edge stretches them. Missing: dragging a repeating or all-day one, a
+    working-hours setting (the grid opens at 07:00), a week starting on
     Sunday.
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
@@ -245,3 +246,4 @@ Status: 2026-11-24 · Pick from the top.
 - 2026-11-24 — gaps 1 and 2 narrowed (M3.4): All Inboxes, deceptive links, merged cells; gap 17: `.pst`/`.msg` attachment files kept and exported.
 - 2026-11-24 — gap 8: the forgotten-attachment reminder.
 - 2026-11-24 — gap 15: date words and `in:` in search.
+- 2026-11-24 — gap 10: appointments drag to move and stretch.

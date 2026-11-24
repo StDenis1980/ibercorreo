@@ -1184,6 +1184,44 @@ fn search_finds_folded_words_in_a_scope_and_follows_undo() {
     assert_eq!(s.run("search.messages", &json!({"query": "nandu"})).unwrap().as_array().unwrap().len(), 1);
 }
 
+/// Tinta: an appointment moves and stretches as dragging it does, keeping its own zone.
+#[test]
+fn an_appointment_moves_and_stretches() {
+    let mut s = session();
+    s.run("calendar.timeZone", &json!({"zone": "Europe/Madrid"})).unwrap();
+    let e = s.run("event.add", &json!({"summary": "Gestoría", "start": "2026-10-22T10:00", "end": "2026-10-22T11:30"})).unwrap();
+    let id = e["id"].as_u64().unwrap();
+    // Moved: the same length, on another day.
+    let m = s.run("event.move", &json!({"id": id, "start": "2026-10-23T16:15"})).unwrap();
+    assert_eq!((m["start"].as_str().unwrap(), m["end"].as_str().unwrap()), ("2026-10-23T16:15", "2026-10-23T17:45"));
+    assert_eq!(s.day, Date::new(2026, 10, 23).unwrap());
+    // Stretched: a new end.
+    let m = s.run("event.move", &json!({"id": id, "start": "2026-10-23T16:15", "end": "2026-10-23T18:00"})).unwrap();
+    assert_eq!(m["end"], "2026-10-23T18:00");
+    assert!(s.run("event.move", &json!({"id": id, "start": "2026-10-23T16:15", "end": "2026-10-23T16:15"})).is_err(), "no empty span");
+    s.run("edit.undo", &Value::Null).unwrap();
+    assert_eq!(
+        s.run("event.list", &json!({"date": "2026-10-23"})).unwrap().as_array().unwrap().iter().find(|e| e["id"] == id).unwrap()["end"],
+        "2026-10-23T17:45"
+    );
+    // Seen from another zone, the instants are kept in the event's own zone.
+    s.run("calendar.timeZone", &json!({"zone": "Europe/Lisbon"})).unwrap();
+    s.run("event.move", &json!({"id": id, "start": "2026-10-23T09:00"})).unwrap();
+    let ev = s.store.event(EventId(id)).unwrap();
+    assert_eq!(ev.tzid.as_deref(), Some("Europe/Madrid"));
+    assert!(
+        matches!(ev.when, ibercorreo_core::calendar::When::Timed { start, .. } if start.hour() == 10),
+        "09:00 in Lisbon is 10:00 in Madrid: {:?}",
+        ev.when
+    );
+    // Repeating and all-day appointments are not moved this way.
+    let weekly = s.run("event.add", &json!({"summary": "Clase", "start": "2026-10-22T18:00", "repeat": "weekly"})).unwrap()["id"].as_u64().unwrap();
+    assert!(s.run("event.move", &json!({"id": weekly, "start": "2026-10-22T19:00"})).is_err());
+    let day = s.run("event.add", &json!({"summary": "Fiesta", "start": "2026-10-24"})).unwrap()["id"].as_u64().unwrap();
+    assert!(s.run("event.move", &json!({"id": day, "start": "2026-10-25T10:00"})).is_err());
+    assert!(s.run("event.move", &json!({"id": id, "start": "not a time"})).is_err());
+}
+
 /// Tinta: date words seen from today, and `in:` a folder by name or role.
 #[test]
 fn search_takes_date_words_and_folders() {
