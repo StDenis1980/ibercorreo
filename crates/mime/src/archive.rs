@@ -34,6 +34,12 @@ fn names(d: Date) -> (&'static str, &'static str) {
 /// read when they import an mbox). The same message always gives the same bytes. Lines end in
 /// CRLF.
 pub fn archived(m: &Message, content: &Content) -> String {
+    archived_with_files(m, content, &[])
+}
+
+/// Tinta: [`archived`], with `files` attached after the text as in [`crate::write_with_files`]
+/// (`multipart/mixed`, each file in base64).
+pub fn archived_with_files(m: &Message, content: &Content, files: &[crate::OutFile<'_>]) -> String {
     let mut s = String::new();
     if let Some(from) = &m.from {
         header(&mut s, "From", &address_list(std::slice::from_ref(from)));
@@ -56,39 +62,63 @@ pub fn archived(m: &Message, content: &Content) -> String {
     }
     let mozilla = u16::from(m.seen) | if m.flagged { 0x0004 } else { 0 };
     header(&mut s, "X-Mozilla-Status", &format!("{mozilla:04x}"));
+    if files.is_empty() {
+        body(&mut s, m, content);
+        return s;
+    }
+    let boundary = format!("=_tinta_correo_mixed_{}", m.id.0);
+    header(&mut s, "Content-Type", &format!("multipart/mixed; boundary=\"{boundary}\""));
+    s.push_str("\r\n");
+    s.push_str(&format!("--{boundary}\r\n"));
+    body(&mut s, m, content);
+    for f in files {
+        s.push_str(&format!("--{boundary}\r\n"));
+        crate::file_part(&mut s, f);
+    }
+    s.push_str(&format!("--{boundary}--\r\n"));
+    s
+}
+
+/// The content headers and text of an archived message's body: the text, or the text, the
+/// formatted body and the calendar as alternatives.
+fn body(s: &mut String, m: &Message, content: &Content) {
     let html = content.rich.as_ref().map(to_html);
     let invite = content.invite.as_deref().map(|cal| clamp_text(cal, MAX_INVITE_BYTES));
     if html.is_none() && invite.is_none() {
-        text_part(&mut s, "text/plain; charset=utf-8", &content.body, None);
-        return s;
+        text_part(s, "text/plain; charset=utf-8", &content.body, None);
+        return;
     }
     // The text, the formatted body and the calendar as alternatives, richest last (RFC 2046
     // §5.1.4, RFC 6047 §2.4). The boundary comes from the message id, which is the same every time.
     let boundary = format!("=_tinta_correo_{}", m.id.0);
-    header(&mut s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
+    header(s, "Content-Type", &format!("multipart/alternative; boundary=\"{boundary}\""));
     s.push_str("\r\n");
     s.push_str(&format!("--{boundary}\r\n"));
-    text_part(&mut s, "text/plain; charset=utf-8", &content.body, Some(&boundary));
+    text_part(s, "text/plain; charset=utf-8", &content.body, Some(&boundary));
     if let Some(html) = &html {
         s.push_str(&format!("--{boundary}\r\n"));
-        text_part(&mut s, "text/html; charset=utf-8", html, Some(&boundary));
+        text_part(s, "text/html; charset=utf-8", html, Some(&boundary));
     }
     if let Some(cal) = invite {
         s.push_str(&format!("--{boundary}\r\n"));
-        text_part(&mut s, &format!("text/calendar; charset=utf-8; method={}", calendar_method(cal)), cal, Some(&boundary));
+        text_part(s, &format!("text/calendar; charset=utf-8; method={}", calendar_method(cal)), cal, Some(&boundary));
     }
     s.push_str(&format!("--{boundary}--\r\n"));
-    s
 }
 
 /// Adds `m` to the mbox text `out`: a `From ` line with the sender and the date, the message with
 /// LF line ends, every line that starts with `From ` after any number of `>` quoted with one more
 /// `>` (mboxrd, so a reader can undo it exactly), and a blank line.
 pub fn push_mbox(out: &mut String, m: &Message, content: &Content) {
+    push_mbox_with_files(out, m, content, &[]);
+}
+
+/// Tinta: [`push_mbox`], with `files` attached ([`archived_with_files`]).
+pub fn push_mbox_with_files(out: &mut String, m: &Message, content: &Content, files: &[crate::OutFile<'_>]) {
     let sender = m.from.as_ref().map(|a| a.email.as_str()).filter(|e| !e.is_empty() && !e.chars().any(|c| c.is_whitespace() || c.is_control()));
     let when = m.date.map(asctime).unwrap_or_else(|| "Thu Jan  1 00:00:00 1970".to_string());
     out.push_str(&format!("From {} {when}\n", sender.unwrap_or("MAILER-DAEMON")));
-    for line in archived(m, content).split("\r\n") {
+    for line in archived_with_files(m, content, files).split("\r\n") {
         if line.trim_start_matches('>').starts_with("From ") {
             out.push('>');
         }

@@ -70,6 +70,23 @@ pub fn read(store_path: &Path, hash: &str) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Tinta: write `bytes` into the folder of the store saved at `store_path` now (through a
+/// temporary file; one already there is left as it is); returns its name. For files read on
+/// another thread, like the attachments of a `.pst` archive, which would not all fit in memory.
+pub fn write_one(store_path: &Path, bytes: &[u8]) -> Result<String> {
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(Error::TooLarge { what: "attachment file", size: bytes.len(), limit: MAX_FILE_BYTES });
+    }
+    let name = hash(bytes);
+    let dir = dir(store_path);
+    std::fs::create_dir_all(&dir).map_err(|e| storage(&dir, e))?;
+    let file = dir.join(&name);
+    if !file.exists() {
+        crate::shards::write_file(&file, bytes)?;
+    }
+    Ok(name)
+}
+
 /// Attachment files kept and not saved yet. Shared by a store and its copies (an undo snapshot,
 /// the copy a save writes on another thread); not part of the store's value.
 #[derive(Clone, Default)]

@@ -292,6 +292,28 @@ pub(crate) fn build(raw: &Raw, id: MessageId, folder: FolderId) -> Result<Messag
     Ok(m)
 }
 
+/// Tinta: [`build`], with the contents of the message's attachments in the order of
+/// [`Message::attachments`]: a file's bytes when they were read, an attached message as `.eml`
+/// text (its own attachments left out), `None` for one whose contents were only measured.
+pub(crate) fn build_with_files(raw: &Raw, id: MessageId, folder: FolderId) -> Result<(Message, crate::Files)> {
+    let mut m = build(raw, id, folder)?;
+    let files: crate::Files = raw.attachments.iter().take(MAX_ATTACHMENTS).map(contents).collect();
+    for (a, f) in m.attachments.iter_mut().zip(&files) {
+        if let Some(f) = f {
+            a.size = f.len();
+        }
+    }
+    Ok((m, files))
+}
+
+fn contents(a: &RawAttachment) -> Option<Vec<u8>> {
+    if let Some(inner) = a.embedded.as_deref() {
+        let m = build(inner, MessageId(0), FolderId(0)).ok()?;
+        return m.content().map(|c| ibercorreo_mime::archive::archived(&m, c).into_bytes());
+    }
+    a.props.bytes(tag::ATTACH_DATA, PT_BINARY).map(<[u8]>::to_vec)
+}
+
 /// A subject without the prefix marker a `.pst` can keep in front of it (MS-PST 2.5.3.1.1.1:
 /// `\u{1}` and a character giving the prefix's length).
 fn subject(s: String) -> String {

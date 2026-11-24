@@ -812,13 +812,15 @@ impl Shell {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let (tx, rx) = mpsc::channel();
             let ctx = self.ctx.clone();
+            // Tinta: the archive's attachment files go beside the mailbox as they are read.
+            let keep = self.app.session.store.file_keeper();
             let spawned = std::thread::Builder::new().name("pst import".into()).spawn(move || {
                 let wake = || {
                     if let Some(c) = &ctx {
                         c.request_repaint();
                     }
                 };
-                let result = read_pst(&path, |done, total| {
+                let result = read_pst(&path, &keep, |done, total| {
                     let _ = tx.send(PstEvent::Read(done, total));
                     wake();
                 });
@@ -1261,9 +1263,13 @@ fn warm_search(store: &Store) {
 }
 
 /// Reads an Outlook data file from disk as it goes, reporting progress.
-fn read_pst(path: &std::path::Path, progress: impl FnMut(usize, usize)) -> Result<ibercorreo_engine::pst::Batch, String> {
+fn read_pst(
+    path: &std::path::Path,
+    keep: &dyn Fn(Vec<u8>) -> Option<String>,
+    progress: impl FnMut(usize, usize),
+) -> Result<ibercorreo_engine::pst::Batch, String> {
     use ibercorreo_engine::pst::{FileSource, Pst, read};
-    FileSource::open(path).and_then(Pst::open).and_then(|pst| read(&pst, progress)).map_err(|e| e.to_string())
+    FileSource::open(path).and_then(Pst::open).and_then(|pst| read(&pst, keep, progress)).map_err(|e| e.to_string())
 }
 
 /// Imports the files and opens a draft for each `mailto:` link (never sends); the last error, if
@@ -1543,10 +1549,10 @@ mod tests {
 
     #[test]
     fn a_missing_or_foreign_file_is_an_error_not_a_panic() {
-        assert!(read_pst(std::path::Path::new("/nonexistent/x.pst"), |_, _| {}).is_err());
+        assert!(read_pst(std::path::Path::new("/nonexistent/x.pst"), &|_| None, |_, _| {}).is_err());
         let file = std::env::temp_dir().join(format!("ibercorreo-notpst-{}.pst", std::process::id()));
         std::fs::write(&file, b"not an archive").unwrap();
-        assert!(read_pst(&file, |_, _| {}).unwrap_err().contains(".pst"));
+        assert!(read_pst(&file, &|_| None, |_, _| {}).unwrap_err().contains(".pst"));
         let _ = std::fs::remove_file(&file);
     }
 }

@@ -99,6 +99,13 @@ fn check(bytes: Vec<u8>, what: &str) {
     );
     assert_eq!((m.attachments[1].name.as_str(), m.attachments[1].mime_type.as_str()), ("Pedido 42.eml", "message/rfc822"), "{what}");
     assert_eq!(pst.message(inbox[1], MessageId(1), FolderId(1)).unwrap().unwrap().subject, "Segundo");
+    // Tinta: the files come with the message when asked for.
+    let (with, files) = pst.message_with_files(inbox[0], MessageId(9), FolderId(4)).unwrap().unwrap();
+    assert_eq!(with.attachments.len(), 2, "{what}");
+    assert_eq!(files.first().cloned().flatten(), Some(vec![b'%'; 9000]), "{what}");
+    let eml = files.get(1).cloned().flatten().unwrap_or_default();
+    assert!(String::from_utf8_lossy(&eml).contains("Subject: Pedido 42"), "{what}: the attached message as .eml");
+    assert_eq!(with.attachments[1].size, eml.len());
 
     let long = pst.messages(&folders[1]).unwrap();
     let body = pst.message(long[0], MessageId(1), FolderId(1)).unwrap().unwrap().content().unwrap().body.clone();

@@ -5,6 +5,11 @@ use serde_json::json;
 use super::*;
 use crate::{Session, sample};
 
+/// Keeps no attachment file.
+fn none(_: Vec<u8>) -> Option<String> {
+    None
+}
+
 fn today() -> Date {
     Date::new(2026, 10, 22).unwrap()
 }
@@ -67,7 +72,7 @@ fn mail_folders_become_local_folders_once() {
     let mut s = Session::new(sample::store(today()).unwrap(), today());
     let pst = Pst::open(archive("Archivo 2025")).unwrap();
     let mut seen = Vec::new();
-    let batch = read(&pst, |done, total| seen.push((done, total))).unwrap();
+    let batch = read(&pst, &none, |done, total| seen.push((done, total))).unwrap();
     assert_eq!(seen.last(), Some(&(6, 6)), "every item counted, the progress ends at the total");
     assert_eq!((batch.skipped, batch.failed), (2, 0), "the appointment and the sticky note");
 
@@ -92,7 +97,7 @@ fn mail_folders_become_local_folders_once() {
     assert!(s.dirty && !s.can_undo());
     assert_eq!(s.status, "Imported 4 messages into 3 new folders, 2 tasks, notes or other items left out");
 
-    let again = read(&Pst::open(archive("Archivo 2025")).unwrap(), |_, _| {}).unwrap();
+    let again = read(&Pst::open(archive("Archivo 2025")).unwrap(), &none, |_, _| {}).unwrap();
     let r = s.apply_pst(None, again).unwrap();
     assert_eq!((r.folders, r.messages, r.duplicates), (0, 0, 4), "importing the archive again adds nothing");
     assert_eq!(names(&s, "Archivo 2025").len(), 3);
@@ -129,7 +134,7 @@ fn a_server_folder_of_the_same_name_is_left_alone() {
     let account = s.store.first_account();
     let synced = s.store.add_folder(account, "Outlook/Notas", FolderRole::Other);
     s.store.folder_mut(synced).unwrap().remote = Some(ibercorreo_core::RemoteFolder { path: "Outlook/Notas".into(), uid_validity: 1 });
-    let r = s.apply_pst(None, read(&Pst::open(archive("")).unwrap(), |_, _| {}).unwrap()).unwrap();
+    let r = s.apply_pst(None, read(&Pst::open(archive("")).unwrap(), &none, |_, _| {}).unwrap()).unwrap();
     assert_eq!(r.folders, 3, "local copies are made; imported mail is never put in a folder the server mirrors");
     assert!(s.store.messages_in(synced).is_empty());
 }
@@ -137,7 +142,7 @@ fn a_server_folder_of_the_same_name_is_left_alone() {
 #[test]
 fn an_imported_folder_can_be_deleted_and_brought_back() {
     let mut s = Session::new(sample::store(today()).unwrap(), today());
-    s.apply_pst(None, read(&Pst::open(archive("A")).unwrap(), |_, _| {}).unwrap()).unwrap();
+    s.apply_pst(None, read(&Pst::open(archive("A")).unwrap(), &none, |_, _| {}).unwrap()).unwrap();
     let inbox = s.store.folders().iter().find(|f| f.name == "A/Bandeja de entrada").map(|f| f.id).unwrap();
     s.run("folder.favorite", &json!({ "folder": inbox.0 })).unwrap();
     assert_eq!(s.folder, inbox);
@@ -220,7 +225,7 @@ mod calendars_and_contacts {
     fn calendars_and_contacts_become_local_ones_once() {
         let mut s = Session::new(sample::store(today()).unwrap(), today());
         let (calendars, books) = (s.store.calendars().len(), s.store.books().len());
-        let batch = read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap();
+        let batch = read(&Pst::open(archive()).unwrap(), &none, |_, _| {}).unwrap();
         assert_eq!((batch.skipped, batch.failed), (2, 0), "the contact group and the task");
         let r = s.apply_pst(None, batch).unwrap();
         assert_eq!(
@@ -244,7 +249,7 @@ mod calendars_and_contacts {
         assert_eq!(names, ["Ana Gil", "Pere"]);
         assert!(s.status.contains("3 events into 1 new calendars") && s.status.contains("2 contacts into 1 new address books"), "{}", s.status);
 
-        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap()).unwrap();
+        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), &none, |_, _| {}).unwrap()).unwrap();
         assert_eq!((r.calendars, r.events, r.books, r.contacts, r.duplicates), (0, 0, 0, 0, 5), "a second import adds nothing");
         assert_eq!(s.store.calendars().len(), calendars + 1);
     }
@@ -258,7 +263,7 @@ mod calendars_and_contacts {
             .unwrap();
         let synced_book =
             s.store.add_book("Archivo/Contactos", Some(ibercorreo_core::CalendarRemote { href: "/dav/y/".into(), ctag: None })).unwrap();
-        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), |_, _| {}).unwrap()).unwrap();
+        let r = s.apply_pst(None, read(&Pst::open(archive()).unwrap(), &none, |_, _| {}).unwrap()).unwrap();
         assert_eq!((r.calendars, r.books), (1, 1));
         assert!(s.store.events().iter().all(|e| e.calendar != synced));
         assert!(s.store.all_contacts().iter().all(|c| c.book != synced_book));
@@ -283,4 +288,51 @@ mod calendars_and_contacts {
         };
         assert_eq!(made_uid(&e), "outlook-334b9254340a3ded", "across versions of the app, so a later import finds the event");
     }
+}
+
+/// Tinta: an archive's attachment files come with its mail: written beside a saved mailbox as
+/// they are read, kept with an unsaved one, and exported in the mbox.
+#[test]
+fn attachment_files_come_with_the_mail_and_go_out_in_the_export() {
+    use ibercorreo_outlook::testing::pst::{Att, bin};
+    let pdf: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
+    let mut with_file = mail("Factura", "ana", 1);
+    with_file.attachments = vec![Att {
+        props: vec![long(0x3705, 1), uni(0x3707, "Factura 2025.pdf"), uni(0x370e, "application/pdf"), bin(0x3701, &pdf)],
+        embedded: None,
+    }];
+    let folders = vec![Folder { name: "Bandeja de entrada".into(), class: "IPF.Note".into(), messages: vec![with_file], ..Folder::default() }];
+    let bytes = Writer::new(Options::default()).archive("Archivo", &folders);
+
+    // A mailbox saved to disk: the file is written beside it while the archive is read.
+    let dir = std::env::temp_dir().join(format!("tinta-pst-files-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("store.json");
+    let store = sample::store(today()).unwrap();
+    store.save(&path).unwrap();
+    let store = ibercorreo_store::Store::load(&path).unwrap();
+    let keep = store.file_keeper();
+    let batch = read(&Pst::open(bytes.clone()).unwrap(), &keep, |_, _| {}).unwrap();
+    let hash = batch.folders.first().and_then(|(_, m)| m.first()).and_then(|m| m.attachments.first()).and_then(|a| a.sha256.clone()).unwrap();
+    assert_eq!(std::fs::read(ibercorreo_store::files::dir(&path).join(&hash)).unwrap(), pdf, "on disk before the mail is added");
+    let mut s = Session::new(store, today());
+    s.apply_pst(None, batch).unwrap();
+    let m = s.store.messages_in(s.folder).first().map(|m| (m.id, m.attachments.clone())).unwrap();
+    assert_eq!((m.1[0].name.as_str(), m.1[0].size), ("Factura 2025.pdf", pdf.len()));
+    assert_eq!(crate::attachments::contents(&s.store, m.0, 0).unwrap().1, pdf, "Save and Open have it");
+    let (mbox, written, _) = crate::export::mbox(&s.store, s.folder).unwrap();
+    assert_eq!(written, 1);
+    assert!(mbox.contains("multipart/mixed") && mbox.contains("filename=\"Factura 2025.pdf\""), "{}", &mbox[..mbox.len().min(2000)]);
+    let encoded = ibercorreo_mime::base64(&pdf);
+    assert!(mbox.contains(&encoded[..76]), "the file's bytes are in the mbox");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // A mailbox never saved keeps the file with it until it is.
+    let mut s = Session::new(sample::store(today()).unwrap(), today());
+    let keep = s.store.file_keeper();
+    let batch = read(&Pst::open(bytes).unwrap(), &keep, |_, _| {}).unwrap();
+    s.apply_pst(None, batch).unwrap();
+    let id = s.store.messages_in(s.folder).first().map(|m| m.id).unwrap();
+    assert_eq!(crate::attachments::contents(&s.store, id, 0).unwrap().1, pdf);
 }

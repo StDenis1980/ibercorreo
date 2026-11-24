@@ -24,3 +24,7 @@ mod recur;
 pub mod rtf;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
+
+/// The contents of a message's attachments, in the order of its attachment list; `None` for one
+/// whose contents the file does not hold.
+pub type Files = Vec<Option<Vec<u8>>>;
