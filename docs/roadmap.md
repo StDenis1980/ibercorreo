@@ -106,3 +106,4 @@ Then M4 (Exchange) and M5 (Outlook migration) in stage 2 of the suite plan (Dece
 - 2026-11-17 — Files attached to drafts (Attach file, dropped files, forwards, MCP `attach_file`).
 - 2026-11-17 — Search index kept on disk: big mailboxes in a tenth of the memory.
 - 2026-11-24 — M5: attachment files from `.pst` and `.msg` kept, and written in the mbox export.
+- 2026-11-24 — The forgotten-attachment reminder before Send.

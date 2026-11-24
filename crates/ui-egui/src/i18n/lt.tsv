@@ -450,3 +450,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Visi gautieji
 	The Inbox of every account in one list	Visų paskyrų gautieji viename sąraše
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Pamiršote priedą?
+	Your message says a file is attached, but it has no attachment.	Laiške rašoma, kad pridėtas failas, bet priedo nėra.
+	Send anyway	Vis tiek siųsti
+	Don't send	Nesiųsti

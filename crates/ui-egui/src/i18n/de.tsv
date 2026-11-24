@@ -451,3 +451,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Alle Posteingänge
 	The Inbox of every account in one list	Der Posteingang aller Konten in einer Liste
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Anhang vergessen?
+	Your message says a file is attached, but it has no attachment.	Die Nachricht erwähnt eine angehängte Datei, hat aber keinen Anhang.
+	Send anyway	Trotzdem senden
+	Don't send	Nicht senden

@@ -451,3 +451,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Tutta la posta in arrivo
 	The Inbox of every account in one list	La posta in arrivo di tutti gli account in un unico elenco
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Hai dimenticato l'allegato?
+	Your message says a file is attached, but it has no attachment.	Il messaggio dice che c'è un file allegato, ma non ha allegati.
+	Send anyway	Invia comunque
+	Don't send	Non inviare

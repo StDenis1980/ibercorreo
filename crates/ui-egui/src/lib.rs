@@ -9,6 +9,7 @@
 mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
+mod attach_reminder_ui;
 mod body_text;
 mod categories_ui;
 mod chrome;
@@ -1420,6 +1421,7 @@ impl App {
         self.reminder_window(ui);
         self.delete_window(ui);
         self.link_window(ui);
+        self.attach_reminder_window(ui);
         self.categories_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
@@ -2956,7 +2958,13 @@ impl App {
             self.attach_wanted = Some(MessageId(id));
         }
         if send {
-            self.run("message.send", json!({ "id": id }));
+            // Tinta: words promising a file with none attached ask first, as in Outlook.
+            let body = self.draft.as_ref().map(|d| d.body.as_str()).unwrap_or_default();
+            if self.session.store.message(MessageId(id)).is_ok_and(|m| ibercorreo_engine::attach_reminder::forgot_attachment(m, body)) {
+                attach_reminder_ui::ask(ui.ctx(), id);
+            } else {
+                self.run("message.send", json!({ "id": id }));
+            }
         } else if discard {
             self.run("message.delete", json!({ "id": id }));
         }

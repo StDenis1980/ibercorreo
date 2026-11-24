@@ -311,7 +311,7 @@ pub static REGISTRY: &[CommandSpec] = &[
         label: "Read message",
         group: "Message/Actions",
         shortcut: None,
-        params: "id?: number — the message with its text, its formatted body made safe (`rich`) when it has HTML, `attachmentList` (index, name, type, size, and `kept` with its `sha256` when Tinta Correo keeps the file) and `contentHash` (what message.send checks)",
+        params: "id?: number — the message with its text, its formatted body made safe (`rich`) when it has HTML, `attachmentList` (index, name, type, size, and `kept` with its `sha256` when Tinta Correo keeps the file) and `contentHash` (what message.send checks); for a draft, `forgotAttachment`: its words say a file is attached but it carries none",
         edits: false,
         run: message_read,
     },
@@ -1597,6 +1597,9 @@ fn message_read(s: &mut Session, p: &Value) -> Result<Value> {
         o.insert("attachmentList".into(), json!(m.attachments.iter().enumerate().map(|(i, a)| attachment_json(i, a)).collect::<Vec<_>>()));
         o.insert("account".into(), json!(s.store.account_of(m.folder)?.0));
         o.insert("contentHash".into(), json!(content_hash(s, id)?));
+        if s.store.folder(m.folder).is_ok_and(|f| f.role == FolderRole::Drafts) {
+            o.insert("forgotAttachment".into(), json!(crate::attach_reminder::forgot_attachment(m, &content.body)));
+        }
     }
     Ok(v)
 }

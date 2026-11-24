@@ -50,6 +50,9 @@ hex digits). The assistant shows the person the draft, and passes the hash of wh
 the draft changed after that (the person edited it in the window, another tool updated it), the
 send is refused and the draft stays in Drafts. The check runs in `message.send` itself, in the
 same step as the send, so nothing can change in between.
+For a draft, `read_message` also gives `forgotAttachment`: its words say a file is attached ("te
+adjunto", "attached"…) but it carries none. The assistant should mention it before sending, as
+the window asks; `send_draft` does not refuse it.
 
 A sent draft goes to the Outbox. With the window open it goes out at once (the window starts a
 Send/Receive); without it, at the window's next Send/Receive or `ibercorreo-cli sync`.

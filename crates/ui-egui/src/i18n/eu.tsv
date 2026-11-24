@@ -449,3 +449,8 @@
 # Tinta: All Inboxes
 	All Inboxes	Sarrera-ontzi guztiak
 	The Inbox of every account in one list	Kontu guztien sarrera-ontzia zerrenda bakarrean
+# Tinta: forgotten attachment reminder
+	Did you forget the attachment?	Eranskina ahaztu duzu?
+	Your message says a file is attached, but it has no attachment.	Mezuak dio fitxategi bat erantsita doala, baina ez du eranskinik.
+	Send anyway	Bidali hala ere
+	Don't send	Ez bidali
