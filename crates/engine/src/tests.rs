@@ -1003,6 +1003,44 @@ fn folders_go_in_and_out_of_favorites_with_undo() {
     assert!(s.run("folder.favorite", &json!({ "favorite": "yes" })).is_err());
 }
 
+/// Tinta: All Inboxes lists every account's Inbox together, newest first; opening one of its
+/// messages keeps it open and makes that message's account the current one; any other folder
+/// closes it.
+#[test]
+fn all_inboxes_list_every_account_together() {
+    let mut s = session();
+    let (work, home) = (s.store.first_account(), s.store.accounts.get(1).unwrap().id);
+    let inbox = |s: &Session, a| s.store.folder_by_role(a, FolderRole::Inbox).unwrap();
+    let (work_inbox, home_inbox) = (inbox(&s, work), inbox(&s, home));
+    let v = s.run("folder.select", &json!({ "folder": "allInboxes" })).unwrap();
+    assert_eq!(v["inboxes"], json!([work_inbox.0, home_inbox.0]));
+    assert!(s.all_inboxes);
+    let listed: Vec<Value> = s.run("message.list", &Value::Null).unwrap().as_array().unwrap().clone();
+    let both = s.store.messages_in(work_inbox).len() + s.store.messages_in(home_inbox).len();
+    assert_eq!(listed.len(), both);
+    assert!(listed.iter().any(|m| m["folder"] == work_inbox.0) && listed.iter().any(|m| m["folder"] == home_inbox.0));
+    let dates: Vec<_> = s.listed().iter().map(|m| m.date).collect();
+    assert!(dates.windows(2).all(|w| w[0] >= w[1]), "newest first across accounts");
+
+    // A message from the second account: still All Inboxes, and replies go from that account.
+    let theirs = s.store.messages_in(home_inbox).first().unwrap().id;
+    s.run("message.select", &json!({ "id": theirs.0 })).unwrap();
+    assert!(s.all_inboxes);
+    assert_eq!(s.current_account(), home);
+    assert_eq!(s.message, Some(theirs));
+    // Searching "this folder" looks in every Inbox, and nowhere else.
+    s.search_scope = SearchScope::Folder;
+    assert!(s.search_results("").iter().all(|m| m.folder == work_inbox || m.folder == home_inbox));
+    assert_eq!(s.search_results("").len(), both);
+
+    s.run("folder.select", &json!({ "folder": "sent" })).unwrap();
+    assert!(!s.all_inboxes, "another folder closes it");
+    s.run("folder.select", &json!({ "folder": "all inboxes" })).unwrap();
+    s.run("folder.select", &json!({ "folder": work_inbox.0 })).unwrap();
+    assert!(!s.all_inboxes, "one Inbox alone is that Inbox");
+    assert!(s.run("folder.select", &json!({ "folder": "allInbox" })).is_err());
+}
+
 #[test]
 fn mail_over_graph_needs_the_microsoft_sign_in_and_forgets_the_imap_copy() {
     let mut s = session();

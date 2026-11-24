@@ -87,7 +87,12 @@ pub struct Session {
     /// Where `file.save` writes; `None` until saved once or opened from a file.
     pub path: Option<PathBuf>,
     pub view: View,
+    /// The open folder. With [`Session::all_inboxes`] it is the Inbox of the open message's
+    /// account (else the first account's), so new mail and replies go from there.
     pub folder: FolderId,
+    /// Tinta: All Inboxes is open: the list shows every account's Inbox together, as Outlook's
+    /// does. A command that opens a folder other than an Inbox closes it.
+    pub all_inboxes: bool,
     pub message: Option<MessageId>,
     pub event: Option<EventId>,
     /// The day the calendar view is centred on.
@@ -132,6 +137,7 @@ impl Session {
             path: None,
             view: View::Mail,
             folder,
+            all_inboxes: false,
             message: None,
             event: None,
             day: today,
@@ -161,6 +167,9 @@ impl Session {
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value> {
         let out = self.run_inner(id, params);
         self.refresh_zone();
+        if self.all_inboxes && !self.store.folder(self.folder).is_ok_and(|f| f.role == FolderRole::Inbox) {
+            self.all_inboxes = false;
+        }
         out
     }
 
@@ -278,8 +287,34 @@ impl Session {
         self.now = now;
     }
 
+    /// Tinta: every account's Inbox, in the order of the accounts.
+    pub fn inboxes(&self) -> Vec<FolderId> {
+        let mut v: Vec<FolderId> = self.store.accounts.iter().filter_map(|a| self.store.folder_by_role(a.id, FolderRole::Inbox).ok()).collect();
+        if v.is_empty() {
+            v.extend(self.store.folder_by_role(self.store.first_account(), FolderRole::Inbox).ok());
+        }
+        v
+    }
+
+    /// Tinta: the messages the list shows: the open folder's, or with All Inboxes every Inbox's,
+    /// newest first.
+    pub fn listed(&self) -> Vec<&ibercorreo_core::Message> {
+        if self.all_inboxes { self.store.messages_in_any(&self.inboxes()) } else { self.store.messages_in(self.folder) }
+    }
+
+    /// Tinta: whether `folder` is shown in the list now.
+    pub fn shows_folder(&self, folder: FolderId) -> bool {
+        if self.all_inboxes { self.inboxes().contains(&folder) } else { folder == self.folder }
+    }
+
     /// The messages `query` finds in the current scope, newest first.
     pub fn search_results(&self, query: &str) -> Vec<&ibercorreo_core::Message> {
+        if self.all_inboxes && self.search_scope == SearchScope::Folder {
+            let inboxes = self.inboxes();
+            let mut found = self.store.search_in(query, ibercorreo_store::search::Scope::All);
+            found.retain(|m| inboxes.contains(&m.folder));
+            return found;
+        }
         let scope = match self.search_scope {
             SearchScope::All => ibercorreo_store::search::Scope::All,
             SearchScope::Mailbox => match self.store.account_of(self.folder) {
@@ -520,7 +555,7 @@ impl Session {
             self.folder = self.store.folder_by_role(self.store.first_account(), FolderRole::Inbox).unwrap_or(FolderId(0));
         }
         if let Some(m) = self.message
-            && self.store.message(m).map(|m| m.folder != self.folder).unwrap_or(true)
+            && self.store.message(m).map(|m| !self.shows_folder(m.folder)).unwrap_or(true)
         {
             self.message = None;
         }

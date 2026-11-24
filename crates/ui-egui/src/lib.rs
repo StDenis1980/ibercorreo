@@ -658,6 +658,9 @@ fn folds_from_keys(keys: &[String]) -> (std::collections::HashSet<u32>, std::col
 
 /// How far in each level of subfolders sits in the folder pane.
 const FOLDER_INDENT: f32 = 16.0;
+/// Tinta: the Favorites row with every account's Inbox together.
+const ALL_INBOXES: &str = "All Inboxes";
+const ALL_INBOXES_TIP: &str = "The Inbox of every account in one list";
 
 /// How a row of the folder pane is drawn.
 #[derive(Debug, Clone, Default)]
@@ -672,6 +675,8 @@ struct FolderLine {
     folded_unread: usize,
     /// Show the account's address under the name (Favorites, with several accounts).
     with_account: bool,
+    /// Tinta: the All Inboxes row (no folder of its own; `folded_unread` is its count).
+    all_inboxes: bool,
 }
 
 /// A row of an account's folder tree.
@@ -2285,6 +2290,13 @@ impl App {
         egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             if self.folder_heading(ui, FOLD_FAVORITES, tl("Favorites"), None).0 {
+                // Tinta: with several accounts, All Inboxes comes first, as in Outlook.
+                if several {
+                    let inboxes = self.session.inboxes();
+                    let unread = inboxes.iter().filter_map(|f| self.unread.get(f).copied()).fold(0usize, usize::saturating_add);
+                    let all = FolderLine { label: Some(tl(ALL_INBOXES).into()), folded_unread: unread, all_inboxes: true, ..FolderLine::default() };
+                    self.folder_row(ui, None, &all);
+                }
                 let line = FolderLine { with_account: several, ..FolderLine::default() };
                 for id in &favorites {
                     self.folder_row(ui, Some(*id), &line);
@@ -2393,11 +2405,12 @@ impl App {
             (None, Some(f)) => folder_label(f),
             (None, None) => String::new(),
         };
-        let role = folder.map_or(FolderRole::Other, |f| f.role);
+        let role = if line.all_inboxes { FolderRole::Inbox } else { folder.map_or(FolderRole::Other, |f| f.role) };
         let email = if line.with_account { folder.and_then(|f| store.account(f.account).ok()).map(|a| a.address.email.clone()) } else { None };
         let unread = id.and_then(|id| self.unread.get(&id).copied()).unwrap_or(0).saturating_add(line.folded_unread);
         let favorite = id.is_some_and(|id| store.is_favorite(id));
-        let selected = id.is_some_and(|id| self.session.folder == id) && self.search.is_empty();
+        let selected = self.search.is_empty()
+            && if line.all_inboxes { self.session.all_inboxes } else { !self.session.all_inboxes && id.is_some_and(|id| self.session.folder == id) };
         let height = if email.is_some() { 46.0 } else { 34.0 };
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         let painter = ui.painter_at(rect);
@@ -2420,7 +2433,7 @@ impl App {
         let strong = unread > 0;
         let color = if strong {
             t.unread
-        } else if id.is_none() {
+        } else if id.is_none() && !line.all_inboxes {
             t.text_weak
         } else {
             t.text
@@ -2467,6 +2480,13 @@ impl App {
             _ => resp,
         };
         let Some(id) = id else {
+            if line.all_inboxes {
+                if resp.on_hover_text(tl(ALL_INBOXES_TIP)).clicked() {
+                    self.search.clear();
+                    self.run("folder.select", json!({ "folder": "allInboxes" }));
+                }
+                return false;
+            }
             // A shared path is no folder to open: a click folds it.
             return toggled || resp.clicked();
         };
@@ -2517,6 +2537,7 @@ impl App {
                 fold: row.children.then_some(open),
                 folded_unread,
                 with_account: false,
+                all_inboxes: false,
             };
             if self.folder_row(ui, row.folder, &line) && row.children {
                 if open {
@@ -2532,11 +2553,13 @@ impl App {
     fn message_list(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         let ids: Vec<MessageId> = if self.search.is_empty() {
-            self.session.store.messages_in(self.session.folder).iter().map(|m| m.id).collect()
+            self.session.listed().iter().map(|m| m.id).collect()
         } else {
             self.session.search_results(&self.search).iter().map(|m| m.id).collect()
         };
-        let title = if self.search.is_empty() {
+        let title = if self.search.is_empty() && self.session.all_inboxes {
+            tl(ALL_INBOXES).to_string()
+        } else if self.search.is_empty() {
             self.session.store.folder(self.session.folder).map(folder_label).unwrap_or_default()
         } else {
             tf("Results for “{query}”", &[("query", &self.search)])
@@ -4874,6 +4897,15 @@ fn one_line(painter: &egui::Painter, text: &str, font: egui::FontId, color: Colo
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn all_inboxes_is_translated() {
+        for lang in crate::i18n::Language::ALL.into_iter().filter(|l| *l != crate::i18n::Language::En) {
+            for s in [super::ALL_INBOXES, super::ALL_INBOXES_TIP] {
+                assert!(crate::i18n::has(lang, s), "{lang:?}: {s}");
+            }
+        }
+    }
+
     use super::*;
 
     fn gnome(mail: bool) -> GnomeAccount {
