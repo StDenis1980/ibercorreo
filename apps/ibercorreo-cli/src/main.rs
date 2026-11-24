@@ -249,12 +249,15 @@ fn pst(args: &[String]) -> Result<(), String> {
     let file = file.ok_or("pst needs a file")?;
     let source = ibercorreo_engine::pst::FileSource::open(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     let archive = ibercorreo_engine::pst::Pst::open(source).map_err(|e| format!("{}: {e}", file.display()))?;
-    let batch = ibercorreo_engine::pst::read(&archive, |done, total| eprint!("\r{done}/{total}")).map_err(|e| e.to_string())?;
-    eprintln!();
     let store = match &store_path {
         Some(p) if p.exists() => Store::load(p).map_err(|e| e.to_string())?,
         _ => Store::new(),
     };
+    // Tinta: attachment files go beside the store as they are read (a new store keeps them until
+    // it is saved below).
+    let keep = store.file_keeper();
+    let batch = ibercorreo_engine::pst::read(&archive, &keep, |done, total| eprint!("\r{done}/{total}")).map_err(|e| e.to_string())?;
+    eprintln!();
     let mut s = Session::new(store, now().date);
     s.path = store_path.clone();
     let folders: Vec<Value> = batch.folders.iter().map(|(path, m)| json!({ "folder": path.join("/"), "messages": m.len() })).collect();

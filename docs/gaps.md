@@ -1,6 +1,6 @@
 # Tinta Correo — ranked gaps
 
-Status: 2026-11-17 · Pick from the top.
+Status: 2026-11-24 · Pick from the top.
 
 1. **Mail accounts: the basics only.** Account settings, Send/Receive (background, at start,
    every 5 minutes, F9) and the password in the system credential store work, checked against
@@ -13,7 +13,7 @@ Status: 2026-11-17 · Pick from the top.
    with more than 500 new messages keeps downloading until it is complete. Calendars and contacts
    sync with one account's server at a time. The folder pane has Favorites, folding accounts and
    a tree of subfolders, as Outlook's does, its folds kept after a restart; each account has its own signature, compose has Bcc, and the
-   status bar shows sync progress. Missing: a unified Inbox, moving mail between
+   status bar shows sync progress; All Inboxes shows every account's Inbox together (M3.4). Missing: moving mail between
    accounts, reordering Favorites by dragging, DNS SRV (RFC 6186) and MX lookups (no DNS
    resolver yet), a separate CardDAV/CalDAV address in Find settings, OAuth for Google's
    calendars and contacts, other OAuth providers. Sent copies are saved to the server's Sent
@@ -48,9 +48,8 @@ Status: 2026-11-17 · Pick from the top.
    network, and never tracking pixels (M6.2d).
    Tables of data are drawn as tables (layout tables flow as paragraphs); the sender's text
    colours, highlights and clearly larger or smaller sizes are kept where they stay readable on
-   the theme (M6.2e). Missing: merged cells (`colspan`, `rowspan`), cell backgrounds, the
-   sender's font families, a confirmation before opening a
-   deceptive link, and a true bold weight (the interface font has one weight, so bold is shown in
+   the theme (M6.2e), with merged cells and cell backgrounds; a link whose text names another
+   address asks before it opens (M3.4). Missing: the sender's font families and a true bold weight (the interface font has one weight, so bold is shown in
    the strong text colour).
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
    session) they last only until the app closes. No OAuth yet (M3).
@@ -160,8 +159,8 @@ Status: 2026-11-17 · Pick from the top.
     the background; an imported folder can be deleted. Its calendars and contacts become local
     calendars and address books (M5.2b), with recurring series and their exceptions. Everything
     exports to mbox, iCalendar and vCard (M5.3, engine and CLI), and `docs/outlook-migration.md`
-    guides the move. Missing: attachment files (only names and sizes are kept, for `.pst`, `.msg`
-    and the mbox export alike), the
+    guides the move. Attachment files come with the mail of a `.pst` or `.msg` and go out in the
+    mbox export (2026-11-24; written to disk as the archive is read). Missing: the
     tasks, notes and contact groups of a `.pst`, meeting attendees, Hijri-calendar series, `.ost`
     files, the formatting of mail written as RTF (its text is shown), contacts, appointments and
     tasks saved as `.msg`, opening an attached message, Outlook rules (`.rwz`), a File > Open
@@ -238,3 +237,4 @@ Status: 2026-11-17 · Pick from the top.
 - 2026-11-13 — gap 17: the Export everything button.
 - 2026-11-13 — gap 8: attachment contents kept; `save_attachment` over MCP.
 - 2026-11-17 — gaps 7 and 15: the search index kept on disk.
+- 2026-11-24 — gaps 1 and 2 narrowed (M3.4): All Inboxes, deceptive links, merged cells; gap 17: `.pst`/`.msg` attachment files kept and exported.

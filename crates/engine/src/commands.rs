@@ -1718,7 +1718,9 @@ fn import_msg(s: &mut Session, p: &Value) -> Result<Value> {
         Some(f) => f,
         None => s.role_folder(account_param(s, p)?, FolderRole::Inbox)?,
     };
-    let m = ibercorreo_outlook::msg::read(&bytes, MessageId(0), f)?;
+    let (m, files) = ibercorreo_outlook::msg::read_with_files(&bytes, MessageId(0), f)?;
+    let keep = |b: Vec<u8>| s.store.keep_file(b);
+    let m = crate::pst::with_files(m, files, &keep);
     let id = s.store.add_message(m)?;
     Ok(summary(s.store.message(id)?))
 }
@@ -1730,7 +1732,8 @@ fn import_pst(s: &mut Session, p: &Value) -> Result<Value> {
     let account = account_param(s, p)?;
     let bytes = ibercorreo_mime::unbase64(data).ok_or_else(|| Error::invalid("params", "data must be base64"))?;
     let pst = ibercorreo_outlook::pst::Pst::open(bytes)?;
-    let batch = crate::pst::read(&pst, |_, _| {})?;
+    let keep = s.store.file_keeper();
+    let batch = crate::pst::read(&pst, &keep, |_, _| {})?;
     let r = s.apply_pst(account, batch)?;
     Ok(json!({
         "folders": r.folders, "messages": r.messages, "calendars": r.calendars, "events": r.events, "books": r.books,

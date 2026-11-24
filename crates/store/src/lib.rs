@@ -584,6 +584,23 @@ impl Store {
         (bytes.len() <= files::MAX_FILE_BYTES).then(|| self.files.keep(bytes))
     }
 
+    /// Tinta: what keeps attachment files from another thread (a `.pst` read in the background):
+    /// written at once beside the store file when the store has one, so an archive's files never
+    /// all sit in memory, else kept with the store until it is saved ([`Store::keep_file`]). It
+    /// gives the name for [`Attachment::sha256`], or `None` for a file too large or not written.
+    pub fn file_keeper(&self) -> impl Fn(Vec<u8>) -> Option<String> + Send + Sync + 'static {
+        let (kept, home) = (self.files.clone(), self.saved.home());
+        move |bytes| {
+            if bytes.len() > files::MAX_FILE_BYTES {
+                return None;
+            }
+            match &home {
+                Some(home) => files::write_one(home, &bytes).ok(),
+                None => Some(kept.keep(bytes)),
+            }
+        }
+    }
+
     /// The contents of the attachment file `sha256`: kept here, or saved beside the store file.
     pub fn file(&self, sha256: &str) -> Result<Vec<u8>> {
         if let Some(bytes) = self.files.pending(sha256) {

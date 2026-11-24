@@ -1,6 +1,6 @@
 # Перехід з Outlook на Tinta Correo · De Outlook a Tinta Correo · Moving from Outlook
 
-Status: 2026-11-13 · Tinta Correo 0.2 (Preview 4 in progress): `.msg`, `.pst` (mail, calendars,
+Status: 2026-11-24 · Tinta Correo 0.2 (Preview 4 in progress): `.msg`, `.pst` (mail, calendars,
 contacts) and export to mbox / iCalendar / vCard.
 
 - [Українською](#українською)
@@ -32,6 +32,7 @@ contacts) and export to mbox / iCalendar / vCard.
 скільки вже прочитано.
 - **Пошта**: кожна папка архіву стає локальною папкою під назвою архіву, наприклад
   `Archivo de datos de Outlook/Bandeja de entrada`. Ці папки є лише на цьому комп'ютері.
+  Вкладення приходять разом із листами: їх можна відкрити й зберегти, як і вкладення нової пошти.
 - **Календар**: кожен календар стає локальним календарем. Повторювані зустрічі приходять як серії
   разом зі скасованими й перенесеними випадками, нагадуваннями й часовим поясом.
 - **Контакти**: кожна папка контактів стає адресною книгою (адреси, телефони, поштові адреси,
@@ -40,8 +41,6 @@ contacts) and export to mbox / iCalendar / vCard.
 - Непотрібну папку архіву можна видалити: правою кнопкою → **Delete folder** (Ctrl+Z повертає).
 
 ### 4. Чого поки не переноситься
-- **Вкладення** листів з `.pst` і `.msg`: видно їхні назви й розміри, але самих файлів Correo
-  поки не зберігає. Збережіть потрібні вкладення з Outlook або залиште собі файл `.pst`.
 - Завдання, нотатки, групи контактів і список учасників зустрічей (у рядку стану видно, скільки
   їх пропущено).
 - Підписи й правила Outlook: створіть їх заново в Correo (налаштування облікового запису та
@@ -56,7 +55,7 @@ contacts) and export to mbox / iCalendar / vCard.
 ### 6. Як забрати все з Correo
 Ваші дані не замкнені в програмі. Команда експорту записує все в нову папку
 `Tinta Correo <дата>`, нічого не перезаписуючи:
-- `Mail/<обліковий запис>/<папка>.mbox`: пошта кожної папки у форматі mbox, який імпортують
+- `Mail/<обліковий запис>/<папка>.mbox`: пошта кожної папки разом із вкладеннями у форматі mbox, який імпортують
   Thunderbird (додаток ImportExportTools NG), Apple Mail та Evolution;
 - `Calendars/<календар>.ics`: календарі для Outlook, Google Calendar, Apple Calendar;
 - `Contacts/<адресна книга>.vcf`: контакти для Outlook, Google Contacts, Apple Contacts.
@@ -95,6 +94,7 @@ Haga clic derecho en el `.pst` → **Abrir con** → **Tinta Correo**, o arrást
 archivo grande se lee en segundo plano, con el progreso en la barra de estado.
 - **Correo**: cada carpeta pasa a una carpeta local con el nombre del archivo delante, por ejemplo
   `Archivo de datos de Outlook/Bandeja de entrada`. Esas carpetas están solo en este ordenador.
+  Los adjuntos llegan con los mensajes: se abren y se guardan como los del correo nuevo.
 - **Calendario**: cada calendario pasa a un calendario local, con las series periódicas, sus
   excepciones, los avisos y la zona horaria.
 - **Contactos**: cada carpeta de contactos pasa a una libreta de direcciones.
@@ -102,8 +102,6 @@ archivo grande se lee en segundo plano, con el progreso en la barra de estado.
 - Una carpeta que no quiera se borra con clic derecho → **Delete folder** (Ctrl+Z la recupera).
 
 ### 4. Lo que todavía no se pasa
-- **Los adjuntos** de los mensajes de `.pst` y `.msg`: se ven su nombre y tamaño, pero Correo aún
-  no guarda los archivos. Guarde los adjuntos que necesite desde Outlook o conserve el `.pst`.
 - Tareas, notas, grupos de contactos y la lista de asistentes de las reuniones (la barra de estado
   dice cuántos elementos se han dejado fuera).
 - Las firmas y las reglas de Outlook: créelas de nuevo en Correo.
@@ -117,7 +115,8 @@ Compárelo con Outlook y no borre el `.pst` hasta estar seguro de que está todo
 Sus datos no quedan encerrados. La exportación escribe todo en una carpeta nueva
 `Tinta Correo <fecha>`, sin sobrescribir nada: `Mail/…/*.mbox` (Thunderbird con ImportExportTools
 NG, Apple Mail, Evolution), `Calendars/*.ics` (Outlook, Google Calendar, Apple Calendar) y
-`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). En la ventana: el botón **Exportar todo**
+`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). Cada mensaje del mbox lleva los
+adjuntos que Correo guarda de él. En la ventana: el botón **Exportar todo**
 abajo en la barra izquierda, sobre el engranaje, → **Exportar**; la carpeta aparece en Documentos y
 **Abrir la carpeta exportada** la abre. Lo mismo desde la línea de comandos:
 
@@ -149,6 +148,7 @@ Right-click the `.pst` → **Open with** → **Tinta Correo**, or drag it onto t
 is read in the background, with progress in the status bar.
 - **Mail**: each folder becomes a local folder named after the archive, such as
   `Outlook Data File/Inbox`. These folders exist only on this computer.
+  Attachments come with the messages: open and save them like those of new mail.
 - **Calendar**: each calendar becomes a local calendar, with recurring series, their exceptions,
   reminders and time zone.
 - **Contacts**: each contacts folder becomes an address book.
@@ -156,8 +156,6 @@ is read in the background, with progress in the status bar.
 - An unwanted folder goes with right-click → **Delete folder** (Ctrl+Z brings it back).
 
 ### 4. Not moved yet
-- **Attachments** of `.pst` and `.msg` messages: their names and sizes show, but Correo doesn't keep
-  the files yet. Save the attachments you need from Outlook, or keep the `.pst`.
 - Tasks, notes, contact groups and meeting attendee lists (the status bar says how many items were
   left out).
 - Outlook signatures and rules: set them up again in Correo.
@@ -171,7 +169,8 @@ with Outlook, and keep the `.pst` until you are sure everything is there.
 Your data is not locked in. The export writes everything to a new folder `Tinta Correo <date>`
 and never overwrites anything: `Mail/<account>/<folder>.mbox` (Thunderbird with ImportExportTools
 NG, Apple Mail, Evolution), `Calendars/*.ics` (Outlook, Google Calendar, Apple Calendar) and
-`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). In the window: the **Export everything**
+`Contacts/*.vcf` (Outlook, Google Contacts, Apple Contacts). Each message in the mbox carries the
+attachment files Correo keeps for it. In the window: the **Export everything**
 button at the foot of the left rail, above the gear, → **Export**; the folder appears in Documents
 and **Open the exported folder** opens it. The same from the command line:
 
@@ -186,3 +185,4 @@ On macOS the store is `~/Library/Application Support/Iber Correo/store.json`, on
 ## Revision history
 - 2026-11-12 — created (M5.3): moving from Outlook, and export, in Ukrainian, Spanish and English.
 - 2026-11-13 — the Export everything button in the window.
+- 2026-11-24 — attachments of `.pst` and `.msg` messages come with them and go out in the mbox export.

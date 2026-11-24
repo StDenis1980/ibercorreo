@@ -45,9 +45,10 @@ pub struct Report {
     pub failed: usize,
 }
 
-/// Reads every mail folder of `pst`. `progress` is told how many items were read out of how many
-/// the folders say they hold.
-pub fn read<S: Source>(pst: &Pst<S>, mut progress: impl FnMut(usize, usize)) -> Result<Batch> {
+/// Reads every mail folder of `pst`. `keep` keeps each attachment file and names it
+/// ([`ibercorreo_store::Store::file_keeper`]); `progress` is told how many items were read out of
+/// how many the folders say they hold.
+pub fn read<S: Source>(pst: &Pst<S>, keep: &dyn Fn(Vec<u8>) -> Option<String>, mut progress: impl FnMut(usize, usize)) -> Result<Batch> {
     let folders = pst.folders()?;
     let total: usize = folders.iter().map(|f| f.count as usize).sum();
     let mut batch = Batch { archive: pst.name(), ..Batch::default() };
@@ -73,7 +74,7 @@ pub fn read<S: Source>(pst: &Pst<S>, mut progress: impl FnMut(usize, usize)) -> 
             } else if f.holds_contacts() {
                 pst.contact(nid).map(|c| c.map(|c| contacts.push(c)))
             } else {
-                pst.message(nid, MessageId(0), FolderId(0)).map(|m| m.map(|m| messages.push(m)))
+                pst.message_with_files(nid, MessageId(0), FolderId(0)).map(|m| m.map(|(m, files)| messages.push(with_files(m, files, keep))))
             };
             match found {
                 Ok(Some(())) => {}
@@ -95,6 +96,14 @@ pub fn read<S: Source>(pst: &Pst<S>, mut progress: impl FnMut(usize, usize)) -> 
     }
     progress(done, total.max(done));
     Ok(batch)
+}
+
+/// Tinta: `m` with its attachment files kept, each named in its [`ibercorreo_core::Attachment::sha256`].
+pub(crate) fn with_files(mut m: Message, files: ibercorreo_outlook::Files, keep: &dyn Fn(Vec<u8>) -> Option<String>) -> Message {
+    for (a, f) in m.attachments.iter_mut().zip(files) {
+        a.sha256 = f.and_then(keep);
+    }
+    m
 }
 
 /// The local folder name for an archive folder.

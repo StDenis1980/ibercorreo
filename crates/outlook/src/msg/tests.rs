@@ -100,6 +100,30 @@ fn a_received_message_reads_whole() {
     assert!(names.contains(&("Re: presupuesto.eml", "message/rfc822", 0)), "an attached message is named by its subject: {names:?}");
 }
 
+/// Tinta: the files a message carries come with it, in the order of its attachment list; an
+/// attached message comes as `.eml` text.
+#[test]
+fn attachment_contents_come_with_the_message() {
+    let plain = read(&full(), MessageId(7), FolderId(3)).unwrap();
+    let (m, files) = read_with_files(&full(), MessageId(7), FolderId(3)).unwrap();
+    assert_eq!(m.subject, plain.subject);
+    assert_eq!(files.len(), m.attachments.len());
+    for (a, f) in m.attachments.iter().zip(&files) {
+        let f = f.as_deref().unwrap_or_else(|| panic!("{} has its contents", a.name));
+        assert_eq!(a.size, f.len(), "{}", a.name);
+        match a.name.as_str() {
+            "Factura octubre.pdf" => assert_eq!(f, vec![b'%'; 5000].as_slice()),
+            "attachment" => assert_eq!(f, [1, 2, 3]),
+            "Re: presupuesto.eml" => {
+                let text = String::from_utf8_lossy(f);
+                assert!(text.contains("Subject: Re: presupuesto"), "{text}");
+            }
+            other => panic!("unexpected {other}"),
+        }
+    }
+    assert!(plain.attachments.iter().all(|a| a.sha256.is_none()));
+}
+
 #[test]
 fn eight_bit_text_follows_the_code_page_and_headers_fill_gaps() {
     let subject_1251: &[u8] = b"\xcf\xf0\xe8\xe2\xb3\xf2"; // Привіт

@@ -10,8 +10,8 @@
 //! ```
 //!
 //! Thunderbird (ImportExportTools NG), Apple Mail and Evolution import the mbox files; Outlook
-//! imports the `.ics` and `.vcf` files, and a message dragged out of Correo as `.eml`. Attachment
-//! files are not kept by the store, so they are not written. Writing files is not a command: only
+//! imports the `.ics` and `.vcf` files, and a message dragged out of Correo as `.eml`. Each message
+//! carries the attachment files the store keeps for it (`multipart/mixed`). Writing files is not a command: only
 //! the window and the command-line tool, which the person drives, call [`write_all`]. The
 //! commands return the text instead (`folder.exportMbox`, `calendar.exportIcs`,
 //! `contact.exportVcf`).
@@ -60,7 +60,7 @@ fn mbox_within(store: &Store, folder: FolderId, limit: usize) -> Result<(String,
     for m in oldest_first(store, folder) {
         match store.content(m.id) {
             Ok(c) => {
-                ibercorreo_mime::archive::push_mbox(&mut out, m, &c);
+                push_with_files(store, &mut out, m, &c);
                 if out.len() > limit {
                     return Err(Error::TooLarge { what: "folder as mbox text (export to a folder instead)", size: out.len(), limit });
                 }
@@ -70,6 +70,16 @@ fn mbox_within(store: &Store, folder: FolderId, limit: usize) -> Result<(String,
         }
     }
     Ok((out, written, failed))
+}
+
+/// Tinta: `m` as mbox text with the attachment files Correo kept for it (one whose file is not
+/// here, like those of mail from before files were kept, is left out).
+fn push_with_files(store: &Store, out: &mut String, m: &ibercorreo_core::Message, c: &ibercorreo_core::Content) {
+    let kept: Vec<(&ibercorreo_core::mail::Attachment, Vec<u8>)> =
+        m.attachments.iter().filter_map(|a| a.sha256.as_deref().and_then(|h| store.file(h).ok()).map(|b| (a, b))).collect();
+    let files: Vec<ibercorreo_mime::OutFile<'_>> =
+        kept.iter().map(|(a, b)| ibercorreo_mime::OutFile { name: &a.name, mime_type: &a.mime_type, bytes: b }).collect();
+    ibercorreo_mime::archive::push_mbox_with_files(out, m, c, &files);
 }
 
 /// Writes everything in `store` to a new folder `Tinta Correo <today>` inside `parent` (made if
@@ -105,7 +115,7 @@ pub fn write_all(store: &Store, parent: &Path, today: &str, mut progress: impl F
             match store.content(m.id) {
                 Ok(c) => {
                     one.clear();
-                    ibercorreo_mime::archive::push_mbox(&mut one, m, &c);
+                    push_with_files(store, &mut one, m, &c);
                     file.write_all(one.as_bytes()).map_err(|e| io("file", &path, e))?;
                     report.messages = report.messages.saturating_add(1);
                 }

@@ -156,11 +156,22 @@ impl<S: Source> Pst<S> {
     /// a contact, a task, a note).
     pub fn message(&self, nid: u32, id: MessageId, folder: FolderId) -> Result<Option<Message>> {
         let n = self.ndb.node(nid)?.ok_or_else(|| bad("a missing message"))?;
-        let raw = self.raw(n.data, n.sub, 0)?;
+        let raw = self.raw(n.data, n.sub, 0, false)?;
         if props::mail_class(&raw).is_err() {
             return Ok(None);
         }
         props::build(&raw, id, folder).map(Some)
+    }
+
+    /// Tinta: [`Pst::message`], with the contents of its attachments in the order of
+    /// [`Message::attachments`] (`None` for one that could not be read: it is still listed).
+    pub fn message_with_files(&self, nid: u32, id: MessageId, folder: FolderId) -> Result<Option<(Message, crate::Files)>> {
+        let n = self.ndb.node(nid)?.ok_or_else(|| bad("a missing message"))?;
+        let raw = self.raw(n.data, n.sub, 0, true)?;
+        if props::mail_class(&raw).is_err() {
+            return Ok(None);
+        }
+        props::build_with_files(&raw, id, folder).map(Some)
     }
 
     /// Item `nid` as events: an appointment, with the changed occurrences of its series. `None`
@@ -178,12 +189,14 @@ impl<S: Source> Pst<S> {
 
     fn item(&self, nid: u32) -> Result<Raw> {
         let n = self.ndb.node(nid)?.ok_or_else(|| bad("a missing item"))?;
-        self.raw(n.data, n.sub, 0)
+        self.raw(n.data, n.sub, 0, false)
     }
 
     /// A message's properties, recipients and attachments: the message node, or an attached
     /// message's subnode.
-    fn raw(&self, data: u64, sub: u64, depth: usize) -> Result<Raw> {
+    /// `files`: read the attachments' contents, not only their sizes (the message's own; an
+    /// attached message is written out from its properties).
+    fn raw(&self, data: u64, sub: u64, depth: usize, files: bool) -> Result<Raw> {
         let ctx = Context::open(&self.ndb, data, sub, PC_SIG)?;
         let mut raw = Raw { props: ctx.pc(&[tag::ATTACH_DATA])?, ..Raw::default() };
         if let Some(t) = ctx.subnode(NID_RECIPIENT_TABLE) {
@@ -194,19 +207,23 @@ impl<S: Source> Pst<S> {
             for row in rows {
                 // Each row names the attachment's own subnode, with its properties.
                 let Some(a) = row.int(ROW_ID).and_then(|n| ctx.subnode(n)) else { continue };
-                raw.attachments.push(self.attachment(a, depth).unwrap_or_default());
+                raw.attachments.push(self.attachment(a, depth, files && depth == 0).unwrap_or_default());
             }
         }
         Ok(raw)
     }
 
-    fn attachment(&self, a: Subnode, depth: usize) -> Result<RawAttachment> {
+    fn attachment(&self, a: Subnode, depth: usize, files: bool) -> Result<RawAttachment> {
         let ctx = Context::open(&self.ndb, a.data, a.sub, PC_SIG)?;
-        let props = ctx.pc(&[tag::ATTACH_DATA])?;
+        let mut props = ctx.pc(if files { &[] } else { &[tag::ATTACH_DATA] })?;
+        if files && props.size(tag::ATTACH_DATA, PT_BINARY).is_none() {
+            // Contents too large or damaged to read: measured, so the list still says the size.
+            props = ctx.pc(&[tag::ATTACH_DATA])?;
+        }
         let embedded = if props.int(tag::ATTACH_METHOD) == Some(EMBEDDED) && depth < MAX_DEPTH {
             // The attached message is a subnode of the attachment, with its own subnodes.
             match ctx.object(&props, tag::ATTACH_DATA).and_then(|n| ctx.subnode(n)) {
-                Some(m) => self.raw(m.data, m.sub, depth + 1).ok().map(Box::new),
+                Some(m) => self.raw(m.data, m.sub, depth + 1, false).ok().map(Box::new),
                 None => None,
             }
         } else {
