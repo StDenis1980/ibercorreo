@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::*;
 
 fn sample_server(limits: Limits) -> Server {
-    let today = ibercorreo_core::Zone::utc().from_utc(now()).date;
+    let today = ibercorreo_core::Zone::system().from_utc(now()).date;
     Server::new(Mailbox::Sample(Box::new(session(ibercorreo_engine::sample::store(today).unwrap(), None))), limits)
 }
 
