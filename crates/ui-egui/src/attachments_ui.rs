@@ -1,5 +1,5 @@
 //! Attachments in the reading pane (Tinta): each one a chip with its name and size, and Open and
-//! Save beside it. The window only asks; the shell writes the file
+//! Save beside it, and Save as… to choose the folder and the name. The window only asks; the shell writes the file
 //! ([`ibercorreo_engine::attachments`]): Save to the Downloads folder under a free name, Open as a
 //! copy handed to the program the system opens that kind of file with. A chip whose contents
 //! Correo does not keep (mail that arrived before it kept them) shows the buttons greyed, with
@@ -16,6 +16,8 @@ pub(crate) const OPEN: &str = "Open";
 pub(crate) const SAVE: &str = "Save";
 pub(crate) const OPEN_TIP: &str = "Open it with the program this kind of file opens with";
 pub(crate) const SAVE_TIP: &str = "Save a copy in the Downloads folder";
+pub(crate) const SAVE_AS: &str = "Save as…";
+pub(crate) const SAVE_AS_TIP: &str = "Choose the folder and the name to save it under";
 pub(crate) const NOT_KEPT: &str = "This attachment arrived before Tinta Correo began keeping attachments, so it can't be opened or saved here.";
 pub(crate) const RISKY: &str = "This file could run a program: save it and check it before you open it.";
 pub(crate) const SAVED: &str = "Saved {name} in {folder}";
@@ -23,13 +25,15 @@ pub(crate) const OPENING: &str = "Opening {name}…";
 pub(crate) const FAILED: &str = "Could not save {name}: {error}";
 
 #[cfg(test)]
-const STRINGS: [&str; 9] = [OPEN, SAVE, OPEN_TIP, SAVE_TIP, NOT_KEPT, RISKY, SAVED, OPENING, FAILED];
+const STRINGS: [&str; 11] = [OPEN, SAVE, OPEN_TIP, SAVE_TIP, NOT_KEPT, RISKY, SAVED, OPENING, FAILED, SAVE_AS, SAVE_AS_TIP];
 
 /// What the person asked for with an attachment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttachmentAction {
     Open,
     Save,
+    /// Save where the person chooses, in the system's Save dialog.
+    SaveAs,
 }
 
 /// An attachment of a message and what to do with it, for the shell.
@@ -89,6 +93,7 @@ pub(crate) fn chips(ui: &mut Ui, t: &Tokens, m: &Message, shown: &std::collectio
                             ask(ui, AttachmentAction::Open, OPEN, OPEN_TIP, kept);
                         }
                         ask(ui, AttachmentAction::Save, SAVE, SAVE_TIP, kept);
+                        ask(ui, AttachmentAction::SaveAs, SAVE_AS, SAVE_AS_TIP, kept);
                     });
                 },
             );

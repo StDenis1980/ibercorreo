@@ -211,6 +211,25 @@ pub fn save_into(store: &Store, id: MessageId, index: usize, dir: &Path) -> Resu
     Ok(to)
 }
 
+/// Save attachment `index` of message `id` as the file `to`, a place the person chose in the
+/// system's Save dialog (which asked before replacing a file): written beside it under a
+/// temporary name first, then put in its place, so a failed write never leaves half a file.
+pub fn save_as(store: &Store, id: MessageId, index: usize, to: &Path) -> Result<()> {
+    let (_, bytes) = contents(store, id, index)?;
+    let storage = |e: std::io::Error| Error::Storage(format!("{}: {e}", to.display()));
+    if to.is_dir() {
+        return Err(Error::invalid("file", format!("{}: a folder, not a file", to.display())));
+    }
+    let dir = to.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let shown = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let temp = free_path(dir, &format!(".{shown}.part"))?;
+    write_new(&temp, &bytes)?;
+    std::fs::rename(&temp, to).map_err(|e| {
+        let _ = std::fs::remove_file(&temp);
+        storage(e)
+    })
+}
+
 /// Write attachment `index` of message `id` to open it: into `opened` (Correo's `Opened` folder),
 /// in a folder of its own named by the start of its SHA-256, so opening it again reuses the copy.
 /// A risky file ([`risky`]) is refused. Returns the file to open.
@@ -404,5 +423,24 @@ mod tests {
             assert_eq!(downloads_dir(&env, &bad), Some(home.join("Downloads")));
         }
         assert_eq!(downloads_dir(&|_| None, &none), None);
+    }
+
+    #[test]
+    fn save_as_writes_the_chosen_file_and_replaces_one_there() {
+        let mut s = crate::Session::new(Store::new(), ibercorreo_core::Date::EPOCH);
+        let id = MessageId(s.run("message.compose", &serde_json::json!({})).unwrap()["id"].as_u64().unwrap());
+        attach(&mut s, id, "factura.pdf", b"%PDF-1.7 one").unwrap();
+        let dir = std::env::temp_dir().join(format!("correo-save-as-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let to = dir.join("Factura noviembre.pdf");
+        std::fs::write(&to, b"old").unwrap();
+        save_as(&s.store, id, 0, &to).unwrap();
+        assert_eq!(std::fs::read(&to).unwrap(), b"%PDF-1.7 one", "replaced: the dialog asked");
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left.len(), 1, "no temporary file left: {left:?}");
+        assert!(save_as(&s.store, id, 0, &dir).is_err(), "a folder is not a file");
+        assert!(save_as(&s.store, id, 7, &to).is_err(), "no such attachment");
+        assert!(save_as(&s.store, id, 0, &dir.join("missing").join("x.pdf")).is_err(), "no such folder");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

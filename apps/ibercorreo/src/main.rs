@@ -143,7 +143,12 @@ struct Shell {
     pictures: Vec<Receiver<PictureArrived>>,
     /// Tinta: the system's file picker, open for Attach file: the draft, and the files chosen.
     picking: Option<Receiver<Picked>>,
+    /// Tinta: the system's Save dialog, open for Save as…: the attachment, and the file chosen.
+    saving_as: Option<Receiver<SaveAsChosen>>,
 }
+
+/// Tinta: what the Save dialog answered for attachment `index` of a message (`None`: cancelled).
+type SaveAsChosen = (ibercorreo_core::MessageId, usize, Option<PathBuf>);
 
 /// Tinta: what the file picker answered for a draft: the files chosen (none when cancelled), and
 /// whether it answered too soon for anyone to have seen it (no picker on the system).
@@ -932,11 +937,16 @@ impl Shell {
     fn attachments(&mut self) {
         use ibercorreo_engine::attachments;
         use ibercorreo_ui_egui::AttachmentAction;
+        self.saved_as();
         for r in self.app.take_attachment_requests() {
             let name =
                 self.app.session.store.message(r.message).ok().and_then(|m| m.attachments.get(r.index)).map(|a| a.name.clone()).unwrap_or_default();
             let store = &self.app.session.store;
             let outcome = match r.action {
+                AttachmentAction::SaveAs => {
+                    self.ask_where_to_save(r.message, r.index, &name);
+                    continue;
+                }
                 AttachmentAction::Save => {
                     let dir = attachments::downloads_dir(&|k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from), &|p| {
                         std::fs::read_to_string(p).ok()
@@ -963,6 +973,60 @@ impl Shell {
                 }
                 Err(e) => self.app.attachment_failed(&name, &e),
             }
+        }
+    }
+
+    /// Tinta: Save as… shows the system's Save dialog on another thread (the window keeps
+    /// drawing), starting in the Downloads folder with the attachment's name.
+    fn ask_where_to_save(&mut self, message: ibercorreo_core::MessageId, index: usize, name: &str) {
+        if self.saving_as.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let ctx = self.ctx.clone();
+        let title = ibercorreo_ui_egui::i18n::tl("Save as…").to_string();
+        let name = ibercorreo_engine::attachments::file_name(name);
+        let start = ibercorreo_engine::attachments::downloads_dir(&|k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from), &|p| {
+            std::fs::read_to_string(p).ok()
+        });
+        let spawned = std::thread::Builder::new().name("save dialog".into()).spawn(move || {
+            let mut dialog = rfd::AsyncFileDialog::new().set_title(title).set_file_name(name);
+            if let Some(dir) = start.filter(|d| d.is_dir()) {
+                dialog = dialog.set_directory(dir);
+            }
+            let chosen = pollster::block_on(dialog.save_file()).map(|f| f.path().to_path_buf());
+            let _ = tx.send((message, index, chosen));
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+        match spawned {
+            Ok(_) => self.saving_as = Some(rx),
+            Err(e) => self.app.attachment_failed(&name_of(&self.app, message, index), &e.to_string()),
+        }
+    }
+
+    /// Tinta: write the attachment where the Save dialog answered, once it has.
+    fn saved_as(&mut self) {
+        let Some(rx) = &self.saving_as else { return };
+        let (message, index, chosen) = match rx.try_recv() {
+            Ok(answer) => answer,
+            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.saving_as = None;
+                return;
+            }
+        };
+        self.saving_as = None;
+        let Some(to) = chosen else { return };
+        let name = name_of(&self.app, message, index);
+        match ibercorreo_engine::attachments::save_as(&self.app.session.store, message, index, &to) {
+            Ok(()) => {
+                let shown = to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or(name);
+                let folder = to.parent().map(|d| d.display().to_string()).unwrap_or_default();
+                self.app.attachment_saved(&shown, &folder);
+            }
+            Err(e) => self.app.attachment_failed(&name, &e.to_string()),
         }
     }
 
@@ -1202,6 +1266,11 @@ impl Shell {
             self.app.session.status = format!("Could not save the mailbox: {e}");
         }
     }
+}
+
+/// The name of attachment `index` of `message`, for the status bar.
+fn name_of(app: &ibercorreo_ui_egui::App, message: ibercorreo_core::MessageId, index: usize) -> String {
+    app.session.store.message(message).ok().and_then(|m| m.attachments.get(index)).map(|a| a.name.clone()).unwrap_or_default()
 }
 
 /// The files on the clipboard (copied in a file manager), when it holds some.
@@ -1535,6 +1604,7 @@ fn main() -> eframe::Result {
                 export: None,
                 pictures: Vec::new(),
                 picking: None,
+                saving_as: None,
             }))
         }),
     )
