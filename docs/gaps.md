@@ -94,9 +94,9 @@ Status: 2026-11-24 · Pick from the top.
    hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Appointments drag to another time or
-    day and their bottom edge stretches them. Missing: dragging a repeating or all-day one, a
-    working-hours setting (the grid opens at 07:00), a week starting on
-    Sunday.
+    day and their bottom edge stretches them; the work hours are chosen on the ribbon (the grid
+    opens an hour before they start and shades the rest). Missing: dragging a repeating or all-day
+    one, choosing the working days, a week starting on Sunday.
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
@@ -247,3 +247,4 @@ Status: 2026-11-24 · Pick from the top.
 - 2026-11-24 — gap 8: the forgotten-attachment reminder.
 - 2026-11-24 — gap 15: date words and `in:` in search.
 - 2026-11-24 — gap 10: appointments drag to move and stretch.
+- 2026-11-24 — gap 10: work hours.
