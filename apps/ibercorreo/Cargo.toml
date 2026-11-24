@@ -31,6 +31,9 @@ getrandom = "0.4"
 rfd = "0.17"
 # Waits for the picker on a background thread (MIT OR Apache-2.0); rfd already depends on it.
 pollster = "1"
+# Tinta: files and pictures on the clipboard for Paste in a draft (MIT OR Apache-2.0); egui-winit
+# already depends on it for text.
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
 
 # Events in the GNOME clock panel (`gnome_calendar.rs`): Evolution Data Server's D-Bus API. Already
 # in the tree through the Secret Service keyring.

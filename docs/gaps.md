@@ -88,9 +88,12 @@ Status: 2026-11-24 · Pick from the top.
    per message. The files of `.pst`/`.msg` imports are kept and go out in the mbox export
    (2026-11-24). Send asks first when the words of a draft say a file is attached but it has none
    (in the interface's 13 languages; quoted text and a reply's subject do not count), and
-   `message.read` says so as `forgotAttachment` (2026-11-24). Missing: choosing where to save,
-   downloading the attachments of mail that arrived before, pasting a file or picture from the
-   clipboard, pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
+   `message.read` says so as `forgotAttachment` (2026-11-24). Paste beside Attach file attaches
+   the files copied in a file manager, or else the picture on the clipboard as a PNG named after
+   the time; Ctrl+V in a draft attaches copied files too (2026-11-24). A picture alone reaches the
+   window with no Ctrl+V to see (egui's window layer only hands on text), so it takes the button.
+   Missing: choosing where to save, downloading the attachments of mail that arrived before,
+   pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
    hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Appointments drag to another time or

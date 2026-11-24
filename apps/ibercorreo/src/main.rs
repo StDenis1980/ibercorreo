@@ -766,6 +766,24 @@ impl Shell {
         }
     }
 
+    /// Tinta: Paste in a draft attaches what the clipboard holds: the files copied in a file
+    /// manager, or else a picture (a screenshot, an image copied from a page).
+    fn paste(&mut self) {
+        let Some(draft) = self.app.take_paste_request() else { return };
+        let Ok(mut clipboard) = arboard::Clipboard::new() else {
+            self.app.paste_nothing();
+            return;
+        };
+        if let Some(files) = clipboard_files(&mut clipboard) {
+            self.attach_files(draft, &files);
+            return;
+        }
+        match clipboard.get_image() {
+            Ok(image) => self.app.paste_picture(draft, image.width, image.height, &image.bytes),
+            Err(_) => self.app.paste_nothing(),
+        }
+    }
+
     /// Tinta: show the file picker when the window asks for one (on another thread, so the window
     /// keeps drawing), and attach what it answers.
     fn pick_files(&mut self) {
@@ -1186,7 +1204,26 @@ impl Shell {
     }
 }
 
+/// The files on the clipboard (copied in a file manager), when it holds some.
+fn clipboard_files(clipboard: &mut arboard::Clipboard) -> Option<Vec<PathBuf>> {
+    let files: Vec<PathBuf> = clipboard.get().file_list().ok()?.into_iter().filter(|p| p.is_absolute()).collect();
+    (!files.is_empty()).then_some(files)
+}
+
 impl eframe::App for Shell {
+    /// Tinta: Ctrl+V in a draft while files are on the clipboard attaches them, as Outlook does,
+    /// instead of typing their names (a file manager also copies them as text). A picture alone
+    /// gives the window no paste to see, so the Paste button beside Attach file takes it.
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let Some(draft) = self.app.composing() else { return };
+        if !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
+            return;
+        }
+        let Some(files) = arboard::Clipboard::new().ok().as_mut().and_then(clipboard_files) else { return };
+        raw.events.retain(|e| !matches!(e, egui::Event::Paste(_)));
+        self.attach_files(draft, &files);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         tinta_report::busy();
         tinta_report::tick(&mut self.app);
@@ -1214,6 +1251,7 @@ impl eframe::App for Shell {
         }
         self.attachments();
         self.pick_files();
+        self.paste();
         self.pictures();
         if let Some(g) = &mut self.gnome {
             g.tick(&mut self.app.session, self.worker.is_some());

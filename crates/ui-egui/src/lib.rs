@@ -577,6 +577,8 @@ pub struct App {
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
     /// Tinta: the draft the person asked to attach files to (the shell shows the file picker).
     attach_wanted: Option<MessageId>,
+    /// The draft the person asked to paste the clipboard into, for the shell to read it.
+    paste_wanted: Option<MessageId>,
     /// The addresses offered under the recipient field being typed.
     completion: address_complete_ui::Completion,
     /// Tinta: the appointment being dragged in the day or week view.
@@ -843,6 +845,7 @@ impl App {
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
             attach_wanted: None,
+            paste_wanted: None,
             completion: address_complete_ui::Completion::default(),
             calendar_drag: None,
             calendar_day_drag: None,
@@ -3005,11 +3008,15 @@ impl App {
         let mut send = false;
         let mut discard = false;
         let mut attach = false;
+        let mut paste = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
             attach = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Clip), compose_files_ui::ATTACH, true)
                 .on_hover_text(tl(compose_files_ui::ATTACH_TIP))
+                .clicked();
+            paste = chrome::button(ui, &t, chrome::Kind::Secondary, None, compose_files_ui::PASTE, true)
+                .on_hover_text(tl(compose_files_ui::PASTE_TIP))
                 .clicked();
             discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
@@ -3076,6 +3083,9 @@ impl App {
         }
         if attach {
             self.attach_wanted = Some(MessageId(id));
+        }
+        if paste {
+            self.paste_wanted = Some(MessageId(id));
         }
         if send {
             // Tinta: words promising a file with none attached ask first, as in Outlook.
