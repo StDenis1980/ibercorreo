@@ -31,6 +31,7 @@ mod series_ui;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
+pub mod tinta_share;
 pub mod tinta_whats_new;
 
 use crate::i18n::{Language, tf, tl};

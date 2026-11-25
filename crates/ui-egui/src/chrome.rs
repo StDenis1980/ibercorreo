@@ -482,8 +482,8 @@ impl App {
     pub(crate) fn title_bar(&mut self, ui: &mut Ui) {
         let t = self.tokens;
         let (full, _) = ui.allocate_exact_size(vec2(ui.available_width(), BAR_H), Sense::hover());
-        // Room on the right for five buttons: feedback, error reports, language, theme, My Day.
-        let search_w = (full.width() - 460.0).clamp(160.0, 640.0);
+        // Room on the right for six buttons: share, feedback, error reports, language, theme, My Day.
+        let search_w = (full.width() - 500.0).clamp(160.0, 640.0);
         let search = Rect::from_center_size(full.center(), vec2(search_w, 34.0));
         let left = Rect::from_min_max(pos2(full.left() + 12.0, full.top()), pos2(search.left() - 12.0, full.bottom()));
         ui.scope_builder(UiBuilder::new().max_rect(left).layout(Layout::left_to_right(Align::Center)), |ui| {
@@ -541,8 +541,18 @@ impl App {
             self.language_menu(ui);
             crate::tinta_reports_ui::menu(self, ui);
             self.feedback_button(ui);
+            self.share_button(ui);
             self.whats_new_button(ui);
         });
+    }
+
+    /// Tinta Office: copies the link to the website, to send to someone (`app.share`).
+    fn share_button(&mut self, ui: &mut Ui) {
+        let lang = crate::i18n::current().code();
+        let tip = crate::tinta_share::tr(lang, crate::tinta_share::MENU);
+        if self.icon_button(ui, Icon::Share, tip, false).clicked() && self.run("app.share", json!({})).is_some() {
+            self.session.status = crate::tinta_share::copy(ui.ctx(), lang).to_owned();
+        }
     }
 
     /// An icon button, like [`App::icon_button`], that opens a menu with `add` in it.
