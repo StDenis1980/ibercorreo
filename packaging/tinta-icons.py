@@ -24,6 +24,7 @@ INK = "#1E2547"
 COLORS = {"pdf": "#B03A2E", "texto": "#2D4BA0", "calculo": "#4F7A28", "presenta": "#C7780F", "correo": "#1F7A8C"}
 SLUG = {"suite": "tinta-office", "pdf": "tinta-pdf", "texto": "tinta-texto", "calculo": "tinta-calculo", "presenta": "tinta-presenta", "correo": "tinta-correo"}
 SMALL_MAX = 32  # sizes up to this use the simplified tile
+LINUX_BODY = 0.8125  # share of the canvas the tile fills in the Linux icon theme (13/16)
 
 
 def glyph(kind, small):
@@ -85,8 +86,29 @@ def render(svg, size):
 
 
 def tile(kind, size):
-    """Full bleed (Windows, Linux), the simplified tile at small sizes."""
+    """Full bleed (Windows), the simplified tile at small sizes."""
     return render(icon(kind, small=size <= SMALL_MAX), size)
+
+
+def linux(kind, size):
+    """For Linux icon themes: the tile with a transparent margin, like the other apps' icons.
+
+    Desktop icons on Linux are not full bleed: a square app icon fills about 13/16 of the
+    canvas (LibreOffice, Papirus), so a full-bleed tile looks larger than its neighbours in
+    menus, panels and docks. The body is LINUX_BODY of the canvas, at least 1 px of margin."""
+    margin = max(1, round(size * (1 - LINUX_BODY) / 2)) if size > SMALL_MAX else max(1, round(size / 16))
+    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    body = size - 2 * margin
+    canvas.alpha_composite(tile(kind, body), (margin, margin))
+    return canvas
+
+
+def linux_svg(kind):
+    """The scalable Linux icon: the master tile shrunk to LINUX_BODY and centred."""
+    off = 512 * (1 - LINUX_BODY) / 2
+    inner = icon(kind, standalone=False)
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">'
+            f'<g transform="translate({off:g} {off:g}) scale({LINUX_BODY:g})">{inner}</g></svg>')
 
 
 def mac(kind, size):
@@ -140,8 +162,8 @@ def apply(repo, kind, base):
     out(f"{base}.icns", lambda p: mac(kind, 1024).save(p))
     out(f"{base}.ico", lambda p: write_ico(p, kind))
     for s in (16, 24, 32, 48, 64, 128, 256, 512):
-        out(f"hicolor/{s}x{s}/apps/{app_id}.png", lambda p, s=s: tile(kind, s).save(p))
-    out(f"hicolor/scalable/apps/{app_id}.svg", text(icon(kind)))
+        out(f"hicolor/{s}x{s}/apps/{app_id}.png", lambda p, s=s: linux(kind, s).save(p))
+    out(f"hicolor/scalable/apps/{app_id}.svg", text(linux_svg(kind)))
     return done
 
 
