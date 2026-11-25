@@ -1,0 +1,17 @@
+# Languages every Tinta Office app ships, besides English (the source): its interface, desktop
+# entry and AppStream metadata. These are Vilna OS's core languages (tintaoffice-web#43); keep this
+# file the same in all five apps. Codes as desktop entries and AppStream use them.
+uk
+es
+pl
+de
+fr
+it
+ro
+cs
+lt
+ca
+ca@valencia
+gl
+eu
+pt
