@@ -40,10 +40,10 @@ fn english_texts() -> Vec<String> {
         if line.starts_with('[') && line != "[Desktop Entry]" {
             break;
         }
-        if let Some((key, value)) = line.split_once('=') {
-            if ["GenericName", "Comment", "Keywords"].contains(&key) {
-                texts.push(value.to_string());
-            }
+        if let Some((key, value)) = line.split_once('=')
+            && ["GenericName", "Comment", "Keywords"].contains(&key)
+        {
+            texts.push(value.to_string());
         }
     }
     let metainfo = repo_file(METAINFO);
