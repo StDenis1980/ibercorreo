@@ -71,11 +71,14 @@ fn export_parent(env: &dyn Fn(&str) -> Option<PathBuf>, is_dir: &dyn Fn(&std::pa
 
 /// Hand the file at `path` to the program the system opens its kind of file with (never a shell:
 /// the path is one argument). Inside Flatpak, `xdg-open` goes through the OpenURI portal.
+/// On Windows through shell32's `ShellExec_RunDLL`: rundll32 calls its wide (`…W`) form, so a
+/// name in Cyrillic or any other script arrives whole. url.dll's `FileProtocolHandler` has only
+/// an ANSI form, which turned such a name into question marks, and nothing opened.
 fn open_file(path: &std::path::Path) -> Result<(), String> {
     use std::process::{Command, Stdio};
     let mut c = if cfg!(target_os = "windows") {
         let mut c = Command::new("rundll32");
-        c.arg("url.dll,FileProtocolHandler");
+        c.arg("shell32.dll,ShellExec_RunDLL");
         c
     } else if cfg!(target_os = "macos") {
         Command::new("open")
