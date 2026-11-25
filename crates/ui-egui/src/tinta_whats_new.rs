@@ -14,9 +14,8 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use egui::{Id, RichText};
+use egui::{Align, Color32, CornerRadius, FontId, Frame, Id, Layout, Margin, RichText, Sense, Stroke, pos2, vec2};
 
-use crate::chrome::{self, Kind, Part};
 use crate::theme::Tokens;
 
 /// The release this list describes. A later release's list opens by itself once again.
@@ -26,6 +25,8 @@ pub const SEEN_FILE: &str = "tinta-whats-new.txt";
 /// The app the list is about.
 const APP: &str = "Tinta Correo";
 const MAX_WIDTH: f32 = 520.0;
+/// The list scrolls past this share of the window's height.
+const MAX_HEIGHT_SHARE: f32 = 0.6;
 
 /// Set by [`enable`]: the settings folder, or `None` when this run keeps no settings (the window
 /// still opens on request, but never by itself).
@@ -92,38 +93,214 @@ pub fn is_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<bool>(id())).is_some()
 }
 
-/// Draw the window when it is open, in the app's dialog frame: the list, and Close.
+/// Draw the window when it is open, in the same design in all five Tinta apps: a header washed
+/// with the app's colour (its badge, its name, the title and what kind of version this is), the
+/// changes as a numbered list that scrolls when long, and Close in the app's colour. The colours
+/// are Tinta Office's own, light or dark as the window is, so the window looks the same whichever
+/// look the app has.
 pub fn draw(ctx: &egui::Context, lang: &str, t: &Tokens) {
+    draw_with(ctx, lang, t.accent);
+}
+
+fn draw_with(ctx: &egui::Context, lang: &str, accent: Color32) {
     // `true` until Close has taken the focus once.
     let Some(focus) = ctx.data(|d| d.get_temp::<bool>(id())) else {
         return;
     };
+    let style = ctx.global_style();
+    let c = Look::new(style.visuals.dark_mode, accent);
     let list = list(lang);
-    let (mut keep, mut closed) = (true, false);
-    let modal = chrome::modal_dialog(ctx, t, "tinta.whatsNew", tr(lang, TITLE), MAX_WIDTH, Some(&mut keep), |ui, part| match part {
-        Part::Body => {
-            ui.label(RichText::new(APP).color(t.text_weak));
-            ui.label(list.intro);
-            ui.add_space(8.0);
-            for (title, text) in list.items {
-                ui.label(RichText::new(*title).strong().color(t.text));
-                ui.label(*text);
-                ui.add_space(6.0);
-            }
-        }
-        Part::Footer => chrome::footer_right(ui, |ui| {
-            let close = chrome::button(ui, t, Kind::Primary, None, tr(lang, CLOSE), true);
-            if focus {
-                close.request_focus();
-            }
-            closed |= close.clicked();
-        }),
+    let screen = ctx.content_rect();
+    let width = MAX_WIDTH.min(screen.width() - 48.0).max(260.0);
+    let max_height = (screen.height() * MAX_HEIGHT_SHARE).max(160.0);
+    let frame = Frame::new()
+        .fill(c.card)
+        .stroke(Stroke::new(1.0, c.border))
+        .corner_radius(CornerRadius::same(RADIUS))
+        .shadow(style.visuals.window_shadow)
+        .inner_margin(Margin::ZERO);
+    let modal = egui::Modal::new(id().with("modal")).frame(frame).show(ctx, |ui| {
+        ui.set_width(width);
+        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        let mut close = false;
+        let top = CornerRadius { nw: RADIUS, ne: RADIUS, sw: 0, se: 0 };
+        Frame::new().fill(c.header).corner_radius(top).inner_margin(Margin { left: 24, right: 14, top: 14, bottom: 20 }).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                badge(ui, &c);
+                ui.add_space(10.0);
+                ui.label(RichText::new(APP).size(13.5).color(c.accent_text));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| close |= close_cross(ui, &c, tr(lang, CLOSE)));
+            });
+            ui.add_space(12.0);
+            ui.add(egui::Label::new(RichText::new(tr(lang, TITLE)).size(23.0).color(c.text)).wrap());
+            ui.add_space(10.0);
+            Frame::new().fill(c.pill).corner_radius(CornerRadius::same(10)).inner_margin(Margin::symmetric(10, 4)).show(ui, |ui| {
+                ui.add(egui::Label::new(RichText::new(list.intro).size(12.5).color(c.accent_text)).wrap());
+            });
+        });
+        Frame::new().inner_margin(Margin { left: 24, right: 10, top: 20, bottom: 4 }).show(ui, |ui| {
+            egui::ScrollArea::vertical().max_height(max_height).auto_shrink([false, true]).show(ui, |ui| {
+                Frame::new().inner_margin(Margin { left: 0, right: 14, top: 0, bottom: 0 }).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    for (n, (title, text)) in list.items.iter().enumerate() {
+                        item(ui, &c, n + 1, title, text);
+                        ui.add_space(16.0);
+                    }
+                });
+            });
+        });
+        let line = ui.cursor().top();
+        ui.painter().hline(ui.max_rect().x_range(), line, Stroke::new(1.0, c.border));
+        Frame::new().inner_margin(Margin { left: 24, right: 24, top: 14, bottom: 16 }).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let button = primary(ui, &c, tr(lang, CLOSE));
+                if focus {
+                    button.request_focus();
+                }
+                close |= button.clicked();
+            });
+        });
+        close
     });
-    if !keep || closed || modal.should_close() {
+    if modal.inner || modal.should_close() {
         ctx.data_mut(|d| d.remove::<bool>(id()));
     } else if focus {
         ctx.data_mut(|d| d.insert_temp(id(), false));
     }
+}
+
+/// The window's corners.
+const RADIUS: u8 = 14;
+
+/// The window's colours: Tinta Office's neutrals, light or dark, with the app's colour.
+struct Look {
+    card: Color32,
+    header: Color32,
+    pill: Color32,
+    text: Color32,
+    weak: Color32,
+    border: Color32,
+    accent: Color32,
+    accent_text: Color32,
+    accent_soft: Color32,
+    on_accent: Color32,
+}
+
+impl Look {
+    fn new(dark: bool, accent: Color32) -> Self {
+        let (card, text, weak, border) = if dark {
+            (
+                Color32::from_rgb(0x2A, 0x26, 0x27),
+                Color32::from_rgb(0xEC, 0xE8, 0xDF),
+                Color32::from_rgb(0xB8, 0xB3, 0xB0),
+                Color32::from_rgb(0x45, 0x3E, 0x3E),
+            )
+        } else {
+            (Color32::WHITE, Color32::from_rgb(0x1F, 0x24, 0x30), Color32::from_rgb(0x5C, 0x5E, 0x66), Color32::from_rgb(0xE6, 0xE1, 0xE0))
+        };
+        Look {
+            card,
+            header: mix(card, accent, if dark { 0.14 } else { 0.08 }),
+            pill: mix(card, accent, if dark { 0.26 } else { 0.15 }),
+            text,
+            weak,
+            border,
+            accent,
+            accent_text: if dark { mix(accent, Color32::WHITE, 0.25) } else { mix(accent, Color32::BLACK, 0.12) },
+            accent_soft: mix(card, accent, if dark { 0.28 } else { 0.14 }),
+            on_accent: if dark { Color32::from_rgb(0x14, 0x12, 0x12) } else { Color32::WHITE },
+        }
+    }
+}
+
+/// `a` moved `share` (0 to 1) of the way to `b`.
+fn mix(a: Color32, b: Color32, share: f32) -> Color32 {
+    let s = share.clamp(0.0, 1.0);
+    let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * s).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgb(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()))
+}
+
+/// The app's badge: a rounded square in its colour with a four-pointed star, "new".
+fn badge(ui: &mut egui::Ui, c: &Look) {
+    let (rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, 8.0, c.accent);
+    let m = rect.center();
+    let (far, near) = (8.5, 2.4);
+    let points = [
+        pos2(m.x, m.y - far),
+        pos2(m.x + near, m.y - near),
+        pos2(m.x + far, m.y),
+        pos2(m.x + near, m.y + near),
+        pos2(m.x, m.y + far),
+        pos2(m.x - near, m.y + near),
+        pos2(m.x - far, m.y),
+        pos2(m.x - near, m.y - near),
+    ];
+    // A fan from the middle: the star is not convex, but every point sees the middle.
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(m, c.on_accent);
+    for p in points {
+        mesh.colored_vertex(p, c.on_accent);
+    }
+    for i in 0..8u32 {
+        mesh.add_triangle(0, 1 + i, 1 + (i + 1) % 8);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
+
+/// The cross in the header's corner; `true` when clicked.
+fn close_cross(ui: &mut egui::Ui, c: &Look, tip: &str) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(vec2(30.0, 30.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 8.0, c.pill);
+    }
+    let color = if resp.hovered() { c.accent_text } else { c.weak };
+    let r = rect.shrink(10.0);
+    let stroke = Stroke::new(1.6, color);
+    ui.painter().line_segment([r.left_top(), r.right_bottom()], stroke);
+    ui.painter().line_segment([r.right_top(), r.left_bottom()], stroke);
+    resp.on_hover_text(tip).clicked()
+}
+
+/// One change: its number in a soft circle of the app's colour, its title and its sentence.
+fn item(ui: &mut egui::Ui, c: &Look, n: usize, title: &str, text: &str) {
+    ui.horizontal_top(|ui| {
+        let (rect, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
+        ui.painter().circle_filled(rect.center(), 13.0, c.accent_soft);
+        ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, n.to_string(), FontId::proportional(12.5), c.accent_text);
+        ui.add_space(14.0);
+        ui.vertical(|ui| {
+            ui.add_space(3.0);
+            ui.add(egui::Label::new(RichText::new(title).size(15.0).color(c.text)).wrap());
+            ui.add_space(4.0);
+            ui.add(egui::Label::new(RichText::new(text).size(13.5).color(c.weak)).wrap());
+        });
+    });
+}
+
+/// Close: the app's colour, a little darker (lighter in the dark) under the pointer.
+fn primary(ui: &mut egui::Ui, c: &Look, label: &str) -> egui::Response {
+    let galley = ui.painter().layout_no_wrap(label.to_string(), FontId::proportional(14.0), c.on_accent);
+    let (rect, resp) = ui.allocate_exact_size(vec2((galley.size().x + 40.0).max(104.0), 36.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let toward = if c.on_accent == Color32::WHITE { Color32::BLACK } else { Color32::WHITE };
+    let fill = if resp.is_pointer_button_down_on() {
+        mix(c.accent, toward, 0.2)
+    } else if resp.hovered() {
+        mix(c.accent, toward, 0.1)
+    } else {
+        c.accent
+    };
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect.expand(2.5), 10.0, Stroke::new(2.0, c.accent_soft), egui::StrokeKind::Outside);
+    }
+    ui.painter().rect_filled(rect, 8.0, fill);
+    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, c.on_accent);
+    resp
 }
 
 /// What's new: one release's highlights in one language.
