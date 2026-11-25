@@ -534,6 +534,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: error_reports,
     },
     CommandSpec {
+        id: "help.whatsNew",
+        label: "What's new",
+        group: "File/Options",
+        shortcut: None,
+        params: "none — asks the desktop app's window to show this release's highlights (the command line has no window)",
+        edits: false,
+        run: whats_new,
+    },
+    CommandSpec {
         id: "calendar.viewDay",
         label: "Day",
         group: "Calendar/Arrange",
@@ -2366,6 +2375,12 @@ fn toggle_pane(s: &mut Session, p: &Value, pane: Pane) -> Result<Value> {
 
 /// Tinta Office: whether error reports may be sent. The desktop app asks at the first start and
 /// sends; this keeps the answer with the person's other choices in the store.
+/// Tinta Office: the window opens What's new (`ibercorreo_ui_egui::tinta_whats_new`) on its next frame.
+fn whats_new(s: &mut Session, _: &Value) -> Result<Value> {
+    s.whats_new_requested = true;
+    Ok(json!({"requested": true}))
+}
+
 fn error_reports(s: &mut Session, p: &Value) -> Result<Value> {
     let value = bool_param(p, "value")?;
     let forget = bool_param(p, "forget")?.unwrap_or(false);

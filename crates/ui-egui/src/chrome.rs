@@ -541,6 +541,7 @@ impl App {
             self.language_menu(ui);
             crate::tinta_reports_ui::menu(self, ui);
             self.feedback_button(ui);
+            self.whats_new_button(ui);
         });
     }
 
@@ -555,6 +556,17 @@ impl App {
         icons::paint(ui.painter(), rect.shrink(8.0), icon, t.accent);
         let resp = resp.on_hover_text(tip);
         egui::Popup::menu(&resp).show(add);
+    }
+
+    /// What's new in this release (Tinta Office's window), in the desktop app.
+    fn whats_new_button(&mut self, ui: &mut Ui) {
+        if !crate::tinta_whats_new::available() {
+            return;
+        }
+        let tip = crate::tinta_whats_new::tr(crate::i18n::current().code(), crate::tinta_whats_new::MENU);
+        if self.icon_button(ui, Icon::Star, tip, false).clicked() {
+            self.run("help.whatsNew", json!({}));
+        }
     }
 
     /// Send feedback (Tinta Office's dialog), in builds that can send.

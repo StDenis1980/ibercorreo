@@ -1562,6 +1562,8 @@ fn main() -> eframe::Result {
     let persist = !sample;
     // Tinta Office: error reports, sent only with consent (asked at the first start). Not for
     // the sample mailbox, which is never saved.
+    // Tinta Office: the What's new window opens once after an update (not for the sample mailbox).
+    ibercorreo_ui_egui::tinta_whats_new::enable(data_dir().filter(|_| persist && store_path.is_some()));
     let reports = tinta_report::dir(data_dir(), persist && store_path.is_some());
     if let Some(dir) = &reports {
         tinta_report::install(dir.clone(), None, "release");
