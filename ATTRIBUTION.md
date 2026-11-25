@@ -29,3 +29,5 @@ Generated-in-code art is original and has no file to list: the UI icons (`crates
 | `packaging/linux/flatpak/io.github.stdenis1980.ibercorreo.bundle.yml` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | Linux Flatpak bundle manifest |
 | `packaging/macos/Info.plist.in` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | macOS app bundle description (template) |
 | `packaging/macos/entitlements.plist` | Tinta Office contributors | original Tinta Office text | MIT OR Apache-2.0 | macOS hardened-runtime entitlements (empty) |
+| `packaging/linux/tinta-l10n.txt` | Tinta Office contributors | original translations of this repository's desktop entry and AppStream text, AI-made (Claude), not reviewed by native speakers | MIT OR Apache-2.0 | applied by `packaging/linux/tinta-l10n.py` |
+| `packaging/linux/tinta-languages.txt` | Tinta Office contributors | original list of language codes | MIT OR Apache-2.0 | languages every Tinta app ships |

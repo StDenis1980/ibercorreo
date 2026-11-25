@@ -1,0 +1,73 @@
+# Tinta Office: translations of the desktop entry and AppStream metadata (packaging/linux/tinta-l10n.py).
+# language<TAB>release's English, exactly as in the files<TAB>translation. AI-made (Claude), not reviewed by native speakers.
+
+uk	Mail and Calendar	Пошта й календар
+es	Mail and Calendar	Correo y calendario
+pl	Mail and Calendar	Poczta i kalendarz
+de	Mail and Calendar	E-Mail und Kalender
+fr	Mail and Calendar	Courrier et agenda
+it	Mail and Calendar	Posta e calendario
+ro	Mail and Calendar	E-mail și calendar
+cs	Mail and Calendar	Pošta a kalendář
+lt	Mail and Calendar	Paštas ir kalendorius
+ca	Mail and Calendar	Correu i calendari
+ca@valencia	Mail and Calendar	Correu i calendari
+gl	Mail and Calendar	Correo e calendario
+eu	Mail and Calendar	Posta eta egutegia
+pt	Mail and Calendar	Correio e calendário
+uk	Read and send mail, keep your calendar and contacts	Читайте й надсилайте пошту, ведіть календар і контакти
+es	Read and send mail, keep your calendar and contacts	Lee y envía correo, lleva tu calendario y tus contactos
+pl	Read and send mail, keep your calendar and contacts	Czytaj i wysyłaj pocztę, prowadź kalendarz i kontakty
+de	Read and send mail, keep your calendar and contacts	E-Mails lesen und senden, Kalender und Kontakte führen
+fr	Read and send mail, keep your calendar and contacts	Lire et envoyer des courriels, tenir son agenda et ses contacts
+it	Read and send mail, keep your calendar and contacts	Leggi e invia la posta, gestisci calendario e contatti
+ro	Read and send mail, keep your calendar and contacts	Citiți și trimiteți e-mailuri, țineți calendarul și contactele
+cs	Read and send mail, keep your calendar and contacts	Čtěte a odesílejte poštu, veďte si kalendář a kontakty
+lt	Read and send mail, keep your calendar and contacts	Skaitykite ir siųskite laiškus, tvarkykite kalendorių ir adresatus
+ca	Read and send mail, keep your calendar and contacts	Llegiu i envieu correu, porteu el calendari i els contactes
+ca@valencia	Read and send mail, keep your calendar and contacts	Llegiu i envieu correu, porteu el calendari i els contactes
+gl	Read and send mail, keep your calendar and contacts	Le e envía correo, leva o teu calendario e os teus contactos
+eu	Read and send mail, keep your calendar and contacts	Irakurri eta bidali posta, eraman egutegia eta kontaktuak
+pt	Read and send mail, keep your calendar and contacts	Leia e envie correio, mantenha o calendário e os contactos
+uk	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	пошта;електронна пошта;лист;календар;контакти;imap;smtp;caldav;carddav;correo;
+es	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	correo;correo electrónico;email;calendario;contactos;agenda;imap;smtp;caldav;carddav;
+pl	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	poczta;e-mail;kalendarz;kontakty;imap;smtp;caldav;carddav;correo;
+de	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	e-mail;post;kalender;kontakte;termine;imap;smtp;caldav;carddav;correo;
+fr	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	courriel;courrier;e-mail;agenda;calendrier;contacts;imap;smtp;caldav;carddav;correo;
+it	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	posta;email;calendario;contatti;rubrica;imap;smtp;caldav;carddav;correo;
+ro	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	e-mail;poștă;calendar;contacte;imap;smtp;caldav;carddav;correo;
+cs	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	pošta;e-mail;kalendář;kontakty;imap;smtp;caldav;carddav;correo;
+lt	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	paštas;el. paštas;kalendorius;adresatai;kontaktai;imap;smtp;caldav;carddav;correo;
+ca	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	correu;correu electrònic;calendari;agenda;contactes;imap;smtp;caldav;carddav;correo;
+ca@valencia	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	correu;correu electrònic;calendari;agenda;contactes;imap;smtp;caldav;carddav;correo;
+gl	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	correo;correo electrónico;calendario;axenda;contactos;imap;smtp;caldav;carddav;
+eu	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	posta;posta elektronikoa;egutegia;kontaktuak;imap;smtp;caldav;carddav;correo;
+pt	mail;email;calendar;contacts;imap;smtp;caldav;carddav;correo;	correio;email;correio eletrónico;calendário;contactos;imap;smtp;caldav;carddav;correo;
+uk	Mail, calendar and contacts	Пошта, календар і контакти
+es	Mail, calendar and contacts	Correo, calendario y contactos
+pl	Mail, calendar and contacts	Poczta, kalendarz i kontakty
+de	Mail, calendar and contacts	E-Mail, Kalender und Kontakte
+fr	Mail, calendar and contacts	Courrier, agenda et contacts
+it	Mail, calendar and contacts	Posta, calendario e contatti
+ro	Mail, calendar and contacts	E-mail, calendar și contacte
+cs	Mail, calendar and contacts	Pošta, kalendář a kontakty
+lt	Mail, calendar and contacts	Paštas, kalendorius ir adresatai
+ca	Mail, calendar and contacts	Correu, calendari i contactes
+ca@valencia	Mail, calendar and contacts	Correu, calendari i contactes
+gl	Mail, calendar and contacts	Correo, calendario e contactos
+eu	Mail, calendar and contacts	Posta, egutegia eta kontaktuak
+pt	Mail, calendar and contacts	Correio, calendário e contactos
+uk	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo — програма пошти й календаря з Tinta Office: пошта IMAP і SMTP (зі входом через Gmail і Microsoft 365), календар із синхронізацією CalDAV і запрошеннями та контакти із синхронізацією CardDAV. Вона безкоштовна й має відкритий код.
+es	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo es la aplicación de correo y calendario de Tinta Office: correo IMAP y SMTP (con inicio de sesión de Gmail y Microsoft 365), un calendario con sincronización CalDAV e invitaciones, y contactos con sincronización CardDAV. Es gratuita y de código abierto.
+pl	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo to program pocztowy i kalendarz pakietu Tinta Office: poczta IMAP i SMTP (z logowaniem przez Gmail i Microsoft 365), kalendarz z synchronizacją CalDAV i zaproszeniami oraz kontakty z synchronizacją CardDAV. Jest darmowy i otwarty.
+de	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo ist die E-Mail- und Kalender-App von Tinta Office: IMAP- und SMTP-E-Mail (mit Anmeldung über Gmail und Microsoft 365), ein Kalender mit CalDAV-Abgleich und Einladungen sowie Kontakte mit CardDAV-Abgleich. Sie ist kostenlos und quelloffen.
+fr	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo est l’application de courrier et d’agenda de Tinta Office : courrier IMAP et SMTP (avec connexion Gmail et Microsoft 365), un agenda avec synchronisation CalDAV et invitations, et des contacts avec synchronisation CardDAV. Elle est gratuite et libre.
+it	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo è l’app di posta e calendario di Tinta Office: posta IMAP e SMTP (con accesso tramite Gmail e Microsoft 365), un calendario con sincronizzazione CalDAV e inviti, e contatti con sincronizzazione CardDAV. È gratuita e open source.
+ro	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo este aplicația de e-mail și calendar din Tinta Office: e-mail IMAP și SMTP (cu autentificare Gmail și Microsoft 365), un calendar cu sincronizare CalDAV și invitații, și contacte cu sincronizare CardDAV. Este gratuită și open source.
+cs	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo je poštovní a kalendářová aplikace sady Tinta Office: pošta IMAP a SMTP (s přihlášením přes Gmail a Microsoft 365), kalendář se synchronizací CalDAV a pozvánkami a kontakty se synchronizací CardDAV. Je zdarma a s otevřeným kódem.
+lt	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo – Tinta Office pašto ir kalendoriaus programa: IMAP ir SMTP paštas (su prisijungimu per Gmail ir Microsoft 365), kalendorius su CalDAV sinchronizavimu ir kvietimais bei adresatai su CardDAV sinchronizavimu. Ji nemokama ir atvirojo kodo.
+ca	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo és l’aplicació de correu i calendari de Tinta Office: correu IMAP i SMTP (amb inici de sessió de Gmail i Microsoft 365), un calendari amb sincronització CalDAV i invitacions, i contactes amb sincronització CardDAV. És gratuïta i de codi obert.
+ca@valencia	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo és l’aplicació de correu i calendari de Tinta Office: correu IMAP i SMTP (amb inici de sessió de Gmail i Microsoft 365), un calendari amb sincronització CalDAV i invitacions, i contactes amb sincronització CardDAV. És gratuïta i de codi obert.
+gl	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo é a aplicación de correo e calendario de Tinta Office: correo IMAP e SMTP (con inicio de sesión de Gmail e Microsoft 365), un calendario con sincronización CalDAV e convites, e contactos con sincronización CardDAV. É gratuíta e de código aberto.
+eu	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	Tinta Correo Tinta Officeren posta eta egutegi aplikazioa da: IMAP eta SMTP posta (Gmail eta Microsoft 365 bidezko saio-hasierarekin), CalDAV sinkronizazioa eta gonbidapenak dituen egutegia, eta CardDAV sinkronizazioa duten kontaktuak. Doakoa eta kode irekikoa da.
+pt	Tinta Correo is the mail and calendar app of Tinta Office: IMAP and SMTP mail (with Gmail and Microsoft 365 sign-in), a calendar with CalDAV sync and invitations, and contacts with CardDAV sync. It is free and open source.	O Tinta Correo é a aplicação de correio e calendário do Tinta Office: correio IMAP e SMTP (com início de sessão do Gmail e do Microsoft 365), um calendário com sincronização CalDAV e convites, e contactos com sincronização CardDAV. É gratuito e de código aberto.

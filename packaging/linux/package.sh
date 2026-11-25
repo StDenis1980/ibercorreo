@@ -80,6 +80,9 @@ install -Dm644 "$HERE/$APP_ID.desktop" "$STAGE/usr/share/applications/$APP_ID.de
 mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$BUILD_DATE/g" \
   "$HERE/$APP_ID.metainfo.xml.in" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
+# Translations of both files, keyed by their English (tinta-l10n.txt).
+python3 "$HERE/tinta-l10n.py" apply \
+  "$STAGE/usr/share/applications/$APP_ID.desktop" "$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 mkdir -p "$STAGE/usr/share/icons"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
 DOC="$STAGE/usr/share/doc/$SLUG"
