@@ -469,6 +469,15 @@ pub static REGISTRY: &[CommandSpec] = &[
         run: message_download,
     },
     CommandSpec {
+        id: "app.share",
+        label: "Share Tinta Office",
+        group: "File/Share",
+        shortcut: None,
+        params: "none — the link to the Tinta Office website, to send to someone (the window also copies it to the clipboard)",
+        edits: false,
+        run: |_, _| Ok(json!({ "url": "https://tintaoffice.com/?ref=app" })),
+    },
+    CommandSpec {
         id: "app.language",
         label: "Interface language",
         group: "File/Options",

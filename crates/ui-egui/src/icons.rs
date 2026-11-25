@@ -63,6 +63,8 @@ pub enum Icon {
     Clip,
     /// Tinta: a birthday cake, two tiers and a candle with its flame (birthdays).
     Cake,
+    /// Tinta: three dots joined by two lines (share Tinta Office).
+    Share,
 }
 
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
@@ -163,6 +165,14 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
         Icon::Tag => {
             p.add(egui::Shape::closed_line(vec![at(-0.32, -0.2), at(0.1, -0.2), at(0.32, 0.0), at(0.1, 0.2), at(-0.32, 0.2)], w));
             p.circle_stroke(at(0.08, 0.0), s * 0.05, w);
+        }
+        Icon::Share => {
+            let (top, mid, low) = (at(0.2, -0.22), at(-0.2, 0.0), at(0.2, 0.22));
+            p.line_segment([mid, top], w);
+            p.line_segment([mid, low], w);
+            for dot in [top, mid, low] {
+                p.circle_filled(dot, s * 0.09, color);
+            }
         }
         Icon::Cake => {
             // Two tiers, the lower wider, a wavy line of icing on the upper, and a candle.
