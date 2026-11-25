@@ -59,6 +59,12 @@ impl App {
         self.session.status = tf(ATTACH_FAILED, &[("name", name), ("error", error)]);
     }
 
+    /// Ask to paste the clipboard into draft `id`, as the Paste button does (Ctrl+V with no text
+    /// on the clipboard, which the window itself ignores).
+    pub fn request_paste(&mut self, id: MessageId) {
+        self.paste_wanted = Some(id);
+    }
+
     /// The draft the person asked to paste the clipboard into since the last call. Taken once.
     pub fn take_paste_request(&mut self) -> Option<MessageId> {
         self.paste_wanted.take()
