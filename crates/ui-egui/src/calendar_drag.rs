@@ -1,7 +1,8 @@
 //! Dragging appointments in the day and week views (Tinta), as in Outlook: drag one to move it
 //! (to another time, or another day of the week shown), or drag its bottom edge to make it longer
 //! or shorter. Times snap to 15 minutes; the result goes through `event.move`, so it can be
-//! undone like any edit. Repeating and all-day appointments do not drag yet (the engine says why).
+//! undone like any edit. A repeating one asks first whether that occurrence alone moves or the
+//! whole series (`series_ui`).
 
 use ibercorreo_core::{Date, DateTime, EventId};
 

@@ -54,8 +54,11 @@ Status: 2026-11-24 · Pick from the top.
 3. **Credentials**: passwords live in the system credential store; where none runs (a bare Linux
    session) they last only until the app closes. No OAuth yet (M3).
 4. **Recurring events** expand (`DAILY`…`YEARLY` with `BYDAY`, `BYMONTHDAY`, `BYMONTH`, `BYSETPOS`,
-   `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). Missing: editing one
-   occurrence in the window (only deleting it), sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
+   `COUNT`, `UNTIL`; `EXDATE`; changed occurrences by `RECURRENCE-ID`). One occurrence is
+   changed (Edit this occurrence) or dragged by itself, which makes it a changed occurrence sent
+   with its series, or the whole series is edited or moved by as much (its plain weekdays shift
+   with it; a rule naming days of the month moves only within its day) (2026-11-24). Missing:
+   sub-daily and `BYWEEKNO`/`BYYEARDAY` rules (shown
    once), `RDATE`, and exceptions matched by day only (one occurrence a day at most).
 5. **Time zones** work: events in a zone (IANA, Windows names as Outlook writes them, vendor
    ids) and in UTC show in the zone chosen (default: the computer's), repeating events follow
@@ -88,17 +91,22 @@ Status: 2026-11-24 · Pick from the top.
    per message. The files of `.pst`/`.msg` imports are kept and go out in the mbox export
    (2026-11-24). Send asks first when the words of a draft say a file is attached but it has none
    (in the interface's 13 languages; quoted text and a reply's subject do not count), and
-   `message.read` says so as `forgotAttachment` (2026-11-24). Missing: choosing where to save,
-   downloading the attachments of mail that arrived before, pasting a file or picture from the
-   clipboard, pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
+   `message.read` says so as `forgotAttachment` (2026-11-24). Paste beside Attach file attaches
+   the files copied in a file manager, or else the picture on the clipboard as a PNG named after
+   the time; Ctrl+V in a draft attaches copied files too (2026-11-24). A picture alone reaches the
+   window with no Ctrl+V to see (egui's window layer only hands on text), so it takes the button.
+   Save as… beside Save asks the system's Save dialog where, starting in Downloads with the
+   attachment's name, and writes the file beside its place first, then puts it there (2026-11-24).
+   Missing: downloading the attachments of mail that arrived before,
+   pictures inside the text of a message written here, the Tinta PDF, Texto and Calculo
    hand-off.
 9. **Localization**: the interface is English only; Ukrainian, Spanish and Portuguese planned.
 10. **Calendar views**: day, work week, week and month work. Appointments drag to another time or
     day and their bottom edge stretches them; the work hours are chosen on the ribbon (the grid
     opens an hour before they start and shades the rest), with the working days (the Work Week
     view) and the first day of the week; all-day events drag in the strip above the hours, and any
-    appointment that does not repeat drags to another day in the month. Missing: dragging a
-    repeating appointment (it needs the "this one or the series" question).
+    appointment drags to another day in the month. A repeating appointment dragged asks "this
+    occurrence or the whole series" (2026-11-24). Missing: a second time-zone column.
 11. **Reminders** fire in the window (Dismiss, Snooze, Dismiss All; dismissals saved, missed ones
     kept two days) and travel in `.ics` as `VALARM`. Missing: a system notification and a sound
     when the window is in the background or closed (needs a tray/background process), a
@@ -139,10 +147,19 @@ Status: 2026-11-24 · Pick from the top.
     CardDAV address when it differs from the CalDAV one; creating, renaming and deleting address
     books (on the server too); `sync-collection` (RFC 6578) instead of a full listing on every
     change; cards written back as 3.0 even when the server held 4.0; contact groups and lists, photos
-    shown, postal addresses and web sites edited, address completion in the To field, an
-    "add sender to contacts" action, birthdays in the calendar, and an export button in the
+    shown, postal addresses and web sites edited, and an export button in the
     window (export is a command). A multi-part organization (`ORG:Company;Department`) is kept
     as one text ("Company, Department").
+    Add to contacts sits beside a message's sender (and on its context menu, with Copy address),
+    and a sender already there is not added twice (`contact.addSender`); To, Cc and Bcc offer
+    addresses while they are typed, contacts first, then the people written to (`contact.suggest`,
+    2026-11-24). Missing there: contact groups offered as one recipient, and forgetting an
+    address offered. Birthdays show in the calendar as Outlook's Birthdays calendar does
+    (2026-11-24): a rose chip with a cake and confetti and the age turned, in the month's cells, a
+    ribbon over the day and week views, a dot in the small month, a card in the agenda with Send
+    wishes, and in My Day; the calendar list shows or hides them (`calendar.birthdays`,
+    `contact.birthdays`, MCP `list_birthdays`). They are not appointments: no reminder, and
+    nothing goes to a server.
 15. **Search (M3.4).** An in-memory full-text index (words from their start, accents and case
     ignored) with Outlook-style queries (phrases, `-word`, `OR`, field prefixes, `has:`, `is:`,
     dates) and the All mailboxes / Current mailbox / Current folder scope. The index is kept

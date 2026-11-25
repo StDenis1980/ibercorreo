@@ -462,3 +462,32 @@
 	Working days	Lanegunak
 	First day of the week	Asteko lehen eguna
 	Work week changed	Lan-astea aldatu da
+	Add to contacts	Gehitu kontaktuetara
+	Save the sender in your contacts	Gorde igorlea zure kontaktuetan
+	In your contacts	Zure kontaktuetan
+	Copy address	Kopiatu helbidea
+	Already in your contacts	Dagoeneko zure kontaktuetan dago
+	↑↓ to choose, Enter to use	↑↓ aukeratzeko, Sartu erabiltzeko
+	Paste	Itsatsi
+	Attach the files or the picture you copied	Erantsi kopiatu dituzun fitxategiak edo irudia
+	Nothing to paste: copy a file or a picture first	Ez dago ezer itsasteko: kopiatu lehenik fitxategi bat edo irudi bat
+	Picture {time}	Irudia {time}
+	Save as…	Gorde honela…
+	Choose the folder and the name to save it under	Aukeratu gordetzeko karpeta eta izena
+	Move a repeating appointment	Mugitu hitzordu errepikakor bat
+	Move only this occurrence, or every one in the series?	Errepikapen hau bakarrik mugitu, edo serieko guztiak?
+	This occurrence	Errepikapen hau
+	The whole series	Serie osoa
+	Edit appointment	Editatu hitzordua
+	Edit this occurrence	Editatu errepikapen hau
+	Edit the series	Editatu seriea
+	Edit Appointment	Editatu hitzordua
+	Birthdays	Urtebetetzeak
+	Show or hide your contacts' birthdays	Erakutsi edo ezkutatu zure kontaktuen urtebetetzeak
+	turns {age}	{age} urte betetzen ditu
+	turns {age} today	gaur {age} urte betetzen ditu
+	Birthday today	Gaur du urtebetetzea
+	Send wishes	Zoriondu
+	Write to them: a new message with a birthday greeting	Idatzi zorion-mezu bat
+	Happy birthday!	Zorionak!
+	+{n} more	{n} gehiago

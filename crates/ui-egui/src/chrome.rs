@@ -754,6 +754,8 @@ impl App {
             ui.painter().text(c, Align2::CENTER_CENTER, letter, font.clone(), t.text_weak);
         }
         let week_mode = matches!(self.session.calendar_mode, CalendarMode::Week | CalendarMode::WorkWeek);
+        // Tinta: a rose dot under a day with a birthday.
+        let birthdays = self.session.birthdays_between(start, start.add_days(41).unwrap_or(start));
         for n in 0..42i64 {
             let Ok(d) = start.add_days(n) else { continue };
             let (row, col) = (n / 7, n % 7);
@@ -779,6 +781,9 @@ impl App {
                 t.text_weak.gamma_multiply(0.7)
             };
             p.text(rect.center(), Align2::CENTER_CENTER, d.day().to_string(), font.clone(), color);
+            if birthdays.iter().any(|b| b.date == d) {
+                p.circle_filled(pos2(rect.center().x, rect.bottom() - cell * 0.1), 2.0, crate::birthdays_ui::ROSE);
+            }
             if resp.clicked() {
                 goto = Some(d);
                 if to_calendar {
@@ -806,7 +811,9 @@ impl App {
                 .into_iter()
                 .map(|o| (o.event.calendar, o.event.summary.clone(), o.event.location.clone(), o.when))
                 .collect();
-            if events.is_empty() && n > 0 {
+            // Tinta: birthdays count as something on the day.
+            let birthdays = self.session.birthdays_between(d, d);
+            if events.is_empty() && birthdays.is_empty() && n > 0 {
                 continue;
             }
             any = true;
@@ -817,7 +824,12 @@ impl App {
             };
             ui.add_space(12.0);
             ui.label(RichText::new(heading).small().strong().color(if n == 0 { t.accent } else { t.text }));
-            if events.is_empty() {
+            for b in &birthdays {
+                ui.add_space(6.0);
+                let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().min(320.0), 24.0), Sense::hover());
+                crate::birthdays_ui::chip(ui.painter(), rect, &t, b);
+            }
+            if events.is_empty() && birthdays.is_empty() {
                 ui.label(RichText::new(tl("No appointments")).small().color(t.text_weak));
             }
             for (calendar, summary, location, when) in events {

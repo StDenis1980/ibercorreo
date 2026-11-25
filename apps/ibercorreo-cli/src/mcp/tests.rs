@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::*;
 
 fn sample_server(limits: Limits) -> Server {
-    let today = ibercorreo_core::Zone::utc().from_utc(now()).date;
+    let today = ibercorreo_core::Zone::system().from_utc(now()).date;
     Server::new(Mailbox::Sample(Box::new(session(ibercorreo_engine::sample::store(today).unwrap(), None))), limits)
 }
 
@@ -419,4 +419,38 @@ fn an_appointment_moves_and_keeps_its_length() {
     assert_eq!((moved["start"].as_str(), moved["end"].as_str()), (Some("2031-03-05T16:30"), Some("2031-03-05T17:15")));
     assert!(call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-05T16:30", "end": "2031-03-05T16:00" })).is_err());
     assert!(call(&mut s, "move_event", json!({ "id": u64::MAX, "start": "2031-03-05T16:30" })).is_err());
+}
+
+#[test]
+fn a_sender_becomes_a_contact_and_addresses_are_suggested() {
+    let mut s = sample_server(Limits::default());
+    let found = call(&mut s, "search_messages", json!({ "query": "from:help@example.org" })).unwrap();
+    let id = found["messages"][0]["id"].clone();
+    let added = call(&mut s, "add_sender_to_contacts", json!({ "id": id })).unwrap();
+    assert_eq!((added["name"].as_str(), added["existing"].as_bool()), (Some("Support desk"), Some(false)));
+    assert_eq!(call(&mut s, "add_sender_to_contacts", json!({ "id": id })).unwrap()["existing"], true);
+    let offered = call(&mut s, "suggest_addresses", json!({ "text": "supp" })).unwrap();
+    assert_eq!(offered[0]["email"], "help@example.org");
+}
+
+#[test]
+fn one_occurrence_of_a_series_moves_and_changes_alone() {
+    let mut s = sample_server(Limits::default());
+    let added = call(&mut s, "add_event", json!({ "summary": "Yoga", "start": "2031-03-03T18:00", "repeat": "weekly" })).unwrap();
+    assert!(call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-11T19:00" })).is_err(), "which occurrence?");
+    let moved = call(&mut s, "move_event", json!({ "id": added["id"], "start": "2031-03-11T19:00", "occurrence": "2031-03-10" })).unwrap();
+    assert_eq!((moved["occurrenceOf"].as_str(), moved["start"].as_str()), (Some("2031-03-10"), Some("2031-03-11T19:00")));
+    let changed = call(&mut s, "update_event", json!({ "id": added["id"], "occurrence": "2031-03-17", "location": "Sala 2" })).unwrap();
+    assert_eq!((changed["location"].as_str(), changed["occurrenceOf"].as_str()), (Some("Sala 2"), Some("2031-03-17")));
+    let series = call(&mut s, "update_event", json!({ "id": added["id"], "summary": "Yoga suave" })).unwrap();
+    assert_eq!(series["summary"], "Yoga suave");
+}
+
+#[test]
+fn birthdays_are_listed_with_the_age_turned() {
+    let mut s = sample_server(Limits::default());
+    let list = call(&mut s, "list_birthdays", json!({})).unwrap();
+    let first = &list[0];
+    assert_eq!((first["name"].as_str(), first["age"].as_i64()), (Some("Олена Коваль"), Some(34)), "the sample's birthday today: {list}");
+    assert!(call(&mut s, "list_birthdays", json!({ "from": "2026-01-01", "to": "2027-06-01" })).is_err(), "at most 366 days");
 }

@@ -5,8 +5,10 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod addresses;
 pub mod attach_reminder;
 pub mod attachments;
+pub mod birthdays;
 pub mod commands;
 pub mod conversations;
 pub mod export;
@@ -14,6 +16,7 @@ pub mod instance;
 pub mod mailto;
 pub mod pst;
 pub mod sample;
+pub mod series;
 
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -293,6 +296,15 @@ impl Session {
     }
 
     /// Today's date where the person is.
+    /// Tinta: the contacts' birthdays from `from` to `to` as the calendar shows them: none while
+    /// they are hidden ([`birthdays`]).
+    pub fn birthdays_between(&self, from: Date, to: Date) -> Vec<birthdays::Birthday> {
+        if self.store.hide_birthdays {
+            return Vec::new();
+        }
+        birthdays::between(&self.store, from, to).unwrap_or_default()
+    }
+
     pub fn today(&self) -> Date {
         self.local_now().date
     }

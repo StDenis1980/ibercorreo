@@ -206,6 +206,12 @@ ATTENDEE;CN=Rui Carvalho;PARTSTAT=ACCEPTED:mailto:rui@example.pt\r\nEND:VEVENT\r
         c.uid = format!("sample-{email}");
         c.emails = vec![Address::new(Some(name), email)?];
         c.organization = Some(org.into());
+        // Tinta: birthdays to show in the calendar: one today, one in three days, one unknown year.
+        c.birthday = match email {
+            "olena@example.com.ua" => Date::new(today.year() - 34, today.month(), today.day()).ok(),
+            "marta@example.es" => today.add_days(3).ok().and_then(|d| Date::new(1604, d.month(), d.day()).ok()),
+            _ => None,
+        };
         s.add_contact(c);
     }
     // A second account, to show how several sit side by side in the folder pane.

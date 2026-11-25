@@ -6,10 +6,12 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod address_complete_ui;
 mod admin_approval;
 mod attachments_ui;
 pub use attachments_ui::{AttachmentAction, AttachmentRequest};
 mod attach_reminder_ui;
+mod birthdays_ui;
 mod body_text;
 mod calendar_drag;
 mod categories_ui;
@@ -25,6 +27,7 @@ mod link_ui;
 mod partial_ui;
 mod pictures_ui;
 mod rich_table;
+mod series_ui;
 pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
@@ -35,7 +38,7 @@ use egui::{Align, Color32, CornerRadius, Frame, Key, Layout, Margin, Rect, RichT
 use ibercorreo_core::calendar::{MINUTES_PER_DAY, When};
 use ibercorreo_core::mail::{OAUTH_PROVIDERS, OAuthProvider};
 use ibercorreo_core::rich::{BlockKind, Rich, Span};
-use ibercorreo_core::{AccountId, Content, Date, FolderId, FolderRole, MessageId};
+use ibercorreo_core::{AccountId, Content, Date, EventId, FolderId, FolderRole, MessageId};
 use ibercorreo_engine::{CalendarMode, SearchScope, Session, View};
 use serde_json::{Value, json};
 
@@ -70,6 +73,9 @@ struct EventForm {
     reminder: String,
     /// The calendar chosen; `None`: the one used last.
     calendar: Option<u32>,
+    /// Tinta: the appointment changed (not a new one): its id, and for a series the day of the
+    /// occurrence opened and whether the whole series changes.
+    editing: Option<(EventId, Option<Date>, bool)>,
 }
 
 /// Rules (Home ▸ Rules…): the list, and the rule being made or edited.
@@ -576,6 +582,10 @@ pub struct App {
     attachment_requests: Vec<attachments_ui::AttachmentRequest>,
     /// Tinta: the draft the person asked to attach files to (the shell shows the file picker).
     attach_wanted: Option<MessageId>,
+    /// The draft the person asked to paste the clipboard into, for the shell to read it.
+    paste_wanted: Option<MessageId>,
+    /// The addresses offered under the recipient field being typed.
+    completion: address_complete_ui::Completion,
     /// Tinta: the appointment being dragged in the day or week view.
     calendar_drag: Option<calendar_drag::Drag>,
     /// Tinta: an appointment being dragged to another day (all-day strip, month).
@@ -584,6 +594,8 @@ pub struct App {
     inline_images: inline_images::InlineImages,
     /// Tinta: the message in Deleted Items the window asks about deleting for good.
     confirm_delete: Option<MessageId>,
+    /// Tinta: an occurrence of a series dropped elsewhere, waiting for "this one or the series".
+    series_move: Option<series_ui::PendingMove>,
     /// Tinta: the Categories window.
     categories_form: categories_ui::CategoriesForm,
     /// Tinta: the message list's conversations.
@@ -840,10 +852,13 @@ impl App {
             export: export_ui::ExportState::default(),
             attachment_requests: Vec::new(),
             attach_wanted: None,
+            paste_wanted: None,
+            completion: address_complete_ui::Completion::default(),
             calendar_drag: None,
             calendar_day_drag: None,
             inline_images: inline_images::InlineImages::default(),
             confirm_delete: None,
+            series_move: None,
             categories_form: categories_ui::CategoriesForm::default(),
             conversations: conversations_ui::Conversations::default(),
             body_asked: None,
@@ -1441,6 +1456,7 @@ impl App {
         self.rules_window(ui);
         self.reminder_window(ui);
         self.delete_window(ui);
+        self.series_window(ui);
         self.link_window(ui);
         self.attach_reminder_window(ui);
         self.categories_window(ui);
@@ -2840,9 +2856,15 @@ impl App {
         };
         ui.label(RichText::new(if m.subject.is_empty() { tl("(no subject)") } else { &m.subject }).size(24.0).strong().color(t.text));
         ui.add_space(12.0);
+        let mut add_sender = false;
         ui.horizontal(|ui| {
             let who = m.from.as_ref().map(ToString::to_string).unwrap_or_default();
-            ui.label(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text));
+            let sender = ui.add(egui::Label::new(RichText::new(who).size(theme::SUBTITLE).strong().color(t.text)).sense(egui::Sense::click()));
+            // Tinta: the sender saved in the contacts in one step, as in Outlook.
+            if let Some(from) = &m.from {
+                add_sender |= address_complete_ui::sender_menu(&sender, &self.session, &from.email);
+                add_sender |= address_complete_ui::add_sender_button(ui, &t, &self.session, &from.email);
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
                     RichText::new(m.date.map(|d| self.session.zone().from_utc(d).to_string().replace('T', " ")).unwrap_or_default())
@@ -2958,6 +2980,9 @@ impl App {
         if toggle_plain {
             self.run("view.plainText", json!({}));
         }
+        if add_sender {
+            self.run("contact.addSender", json!({}));
+        }
         if let Some(p) = pictures_choice {
             self.run("message.loadPictures", p);
         }
@@ -2992,11 +3017,15 @@ impl App {
         let mut send = false;
         let mut discard = false;
         let mut attach = false;
+        let mut paste = false;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             send = chrome::button(ui, &t, chrome::Kind::Primary, Some(Icon::Sent), "Send", true).clicked();
             attach = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Clip), compose_files_ui::ATTACH, true)
                 .on_hover_text(tl(compose_files_ui::ATTACH_TIP))
+                .clicked();
+            paste = chrome::button(ui, &t, chrome::Kind::Secondary, None, compose_files_ui::PASTE, true)
+                .on_hover_text(tl(compose_files_ui::PASTE_TIP))
                 .clicked();
             discard = chrome::button(ui, &t, chrome::Kind::Secondary, Some(Icon::Trash), "Discard", true).clicked();
         });
@@ -3021,8 +3050,15 @@ impl App {
                     };
                     let room = (ui.available_width() - toggle_w).max(80.0);
                     let size = if label == "Subject" { theme::SUBTITLE } else { theme::BODY };
-                    let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(egui::FontId::proportional(size)).desired_width(room);
-                    changed |= ui.add(edit).lost_focus();
+                    let font = egui::FontId::proportional(size);
+                    if label == "Subject" {
+                        let edit = egui::TextEdit::singleline(field).frame(Frame::NONE).font(font).desired_width(room);
+                        changed |= ui.add(edit).lost_focus();
+                    } else {
+                        // Tinta: addresses offered while a recipient is typed.
+                        let (resp, put) = address_complete_ui::field(ui, &t, &self.session, &mut self.completion, (d.id, label), field, (font, room));
+                        changed |= resp.lost_focus() || put;
+                    }
                     if bcc_toggle {
                         let tip = tl("Blind copies: they get the message, the others don't see them");
                         if chrome::button(ui, &t, chrome::Kind::Quiet, None, "Bcc", true).on_hover_text(tip).clicked() {
@@ -3056,6 +3092,9 @@ impl App {
         }
         if attach {
             self.attach_wanted = Some(MessageId(id));
+        }
+        if paste {
+            self.paste_wanted = Some(MessageId(id));
         }
         if send {
             // Tinta: words promising a file with none attached ask first, as in Outlook.
@@ -3119,6 +3158,8 @@ impl App {
         let mut drop_day: Option<Date> = None;
         let today = self.session.today();
         let names = week_names(&self.session);
+        // Tinta: the contacts' birthdays in the six weeks shown.
+        let birthdays = self.session.birthdays_between(grid_start, grid_start.add_days(41).unwrap_or(grid_start));
         let avail = ui.available_size();
         let cell_w = (avail.x / 7.0).max(40.0);
         let cell_h = ((avail.y - 28.0) / 6.0).max(48.0);
@@ -3170,6 +3211,18 @@ impl App {
                     }
                     let mut y = rect.top() + 32.0;
                     let mut chip_clicked = false;
+                    // Tinta: birthdays first, festive, with confetti by the day's number.
+                    for b in birthdays.iter().filter(|b| b.date == day) {
+                        if y + 20.0 > rect.bottom() {
+                            break;
+                        }
+                        if y == rect.top() + 32.0 {
+                            birthdays_ui::confetti(&p, Rect::from_min_size(rect.right_top() + vec2(-34.0, 6.0), vec2(26.0, 18.0)), b.contact);
+                        }
+                        let chip = egui::Rect::from_min_size(egui::pos2(rect.left() + 4.0, y), vec2(rect.width() - 8.0, 20.0));
+                        birthdays_ui::chip(&p, chip, &t, b);
+                        y += 22.0;
+                    }
                     for o in self.session.store.shown_events_on(day, self.session.zone()) {
                         let e = o.event;
                         if y + 20.0 > rect.bottom() {
@@ -3184,8 +3237,8 @@ impl App {
                             }
                             _ => format!("{repeat}{}", e.summary),
                         };
-                        // Tinta: an appointment that does not repeat drags to another day.
-                        if e.rrule.is_none() && e.recurrence_id.is_none() {
+                        // Tinta: an appointment drags to another day (a repeating one asks which).
+                        {
                             let r = ui.interact(chip, ui.id().with(("month-chip", e.id.0, day.day_number())), Sense::click_and_drag());
                             if r.drag_started() {
                                 self.calendar_day_drag = Some(calendar_drag::DayDrag { id: e.id, from: day });
@@ -3238,8 +3291,12 @@ impl App {
         self.calendar_day_drag = None;
         let Some(to) = target.filter(|d| *d != drag.from) else { return };
         let shift = to.day_number() - drag.from.day_number();
-        let Ok(e) = self.session.store.event(drag.id) else { return };
-        let start = match e.when.in_zone(e.zone().as_ref(), self.session.zone()) {
+        // The occurrence picked up: for a series, not its first one.
+        let Some(shown) = self.session.store.events_on(drag.from, self.session.zone()).into_iter().find(|o| o.event.id == drag.id).map(|o| o.when)
+        else {
+            return;
+        };
+        let start = match shown {
             When::AllDay { start, .. } => start.add_days(shift).ok().map(|d| d.to_string()),
             When::Timed { start, .. } => start
                 .date
@@ -3249,7 +3306,7 @@ impl App {
                 .map(calendar_drag::param),
         };
         if let Some(start) = start {
-            self.run("event.move", json!({ "id": drag.id.0, "start": start }));
+            self.move_dropped(drag.id, shown.start_date(), start, None);
         }
     }
 
@@ -3294,10 +3351,30 @@ impl App {
                     .shown_events_on(*d, self.session.zone())
                     .into_iter()
                     .filter(|o| matches!(o.when, When::AllDay { .. }))
-                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar, o.event.id, o.event.rrule.is_none() && o.event.recurrence_id.is_none()))
+                    .map(|o| (o.event.summary.clone(), *d, o.event.calendar, o.event.id, true))
                     .collect()
             })
             .collect();
+        // Tinta: a ribbon of birthdays over the columns, each day's first one as a chip.
+        let first_day = days.first().copied().unwrap_or(self.session.day);
+        let birthdays = self.session.birthdays_between(first_day, days.last().copied().unwrap_or(first_day));
+        if !birthdays.is_empty() {
+            let (ribbon, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW + 4.0), Sense::hover());
+            let p = ui.painter_at(ribbon);
+            p.rect_filled(ribbon, 0.0, theme::mix(t.card, birthdays_ui::ROSE, 0.06));
+            for (n, day) in days.iter().enumerate() {
+                let on: Vec<_> = birthdays.iter().filter(|b| b.date == *day).collect();
+                let Some(b) = on.first() else { continue };
+                let chip =
+                    egui::Rect::from_min_size(egui::pos2(x_of(ribbon.left(), n) + 2.0, ribbon.top() + 3.0), vec2(col_w - 4.0, ALL_DAY_ROW - 2.0));
+                birthdays_ui::chip(&p, chip, &t, b);
+                if on.len() > 1 {
+                    let more = tf(birthdays_ui::MORE, &[("n", &(on.len() - 1).to_string())]);
+                    let tip = on.iter().map(|b| birthdays_ui::label(b)).collect::<Vec<_>>().join("\n");
+                    ui.interact(chip, ui.id().with(("birthdays", n)), Sense::hover()).on_hover_text(format!("{more}\n{tip}"));
+                }
+            }
+        }
         let rows = all_day.iter().map(Vec::len).max().unwrap_or(0).min(4);
         if rows > 0 {
             let (strip, _) = ui.allocate_exact_size(vec2(ui.available_width(), ALL_DAY_ROW * rows as f32 + 4.0), Sense::hover());
@@ -3442,9 +3519,9 @@ impl App {
                     } else {
                         format!("{}\n{times}\n📍 {}", e.summary, e.location)
                     };
-                    // Tinta: a timed appointment that does not repeat drags to move, and its bottom
-                    // edge drags to change its end (the edge only on the day it ends).
-                    let movable = e.rrule.is_none() && e.recurrence_id.is_none() && matches!(when, When::Timed { .. });
+                    // Tinta: a timed appointment drags to move, and its bottom edge drags to change its
+                    // end (the edge only on the day it ends); a repeating one asks which moves.
+                    let movable = matches!(when, When::Timed { .. });
                     let sense = if movable { Sense::click_and_drag() } else { Sense::click() };
                     let r = ui.interact(rect, ui.id().with(("event", e.id.0, n)), sense);
                     let r = if self.calendar_drag.is_none() { r.on_hover_text(tip) } else { r };
@@ -3531,7 +3608,7 @@ impl App {
         if !down {
             self.calendar_drag = None;
             if let Some((start, end)) = target.filter(|(s, e)| (*s, *e) != (drag.start, drag.end)) {
-                self.run("event.move", json!({ "id": drag.id.0, "start": calendar_drag::param(start), "end": calendar_drag::param(end) }));
+                self.move_dropped(drag.id, drag.start.date, calendar_drag::param(start), Some(calendar_drag::param(end)));
             }
             return;
         }
@@ -3571,10 +3648,13 @@ impl App {
         let day = self.session.day;
         ui.label(RichText::new(long_date(day)).heading().color(t.text));
         ui.add_space(8.0);
+        // Tinta: birthdays come first, each a card with Send wishes.
+        self.birthday_cards(ui, day);
         let events: Vec<_> = self.session.store.shown_events_on(day, self.session.zone()).into_iter().map(|o| (o.event.clone(), o.when)).collect();
         if events.is_empty() {
             ui.label(RichText::new(tl("No appointments")).color(t.text_weak));
         }
+        let mut edit: Option<(EventId, When, Option<bool>)> = None;
         for (e, occurrence) in events {
             let when = match occurrence {
                 When::AllDay { .. } => tl("All day").to_string(),
@@ -3591,6 +3671,21 @@ impl App {
                         ui.label(RichText::new(when).small().color(t.accent));
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
+                            // Tinta: Edit, for this occurrence or the series when it repeats.
+                            let repeats = e.rrule.is_some() && e.recurrence_id.is_none();
+                            if repeats {
+                                let resp = chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT, false);
+                                egui::Popup::menu(&resp).id(ui.id().with(("edit-series", e.id.0, occurrence.start_date().day_number()))).show(|ui| {
+                                    if ui.button(tl(series_ui::EDIT_ONE)).clicked() {
+                                        edit = Some((e.id, occurrence, Some(false)));
+                                    }
+                                    if ui.button(tl(series_ui::EDIT_SERIES)).clicked() {
+                                        edit = Some((e.id, occurrence, Some(true)));
+                                    }
+                                });
+                            } else if chrome::icon_action(ui, &t, Icon::Pencil, series_ui::EDIT, false).clicked() {
+                                edit = Some((e.id, occurrence, None));
+                            }
                             if e.rrule.is_some() {
                                 let series = chrome::words(tl("🗑 Series"));
                                 if chrome::button(ui, &t, chrome::Kind::Danger, Some(Icon::Trash), series, true)
@@ -3632,6 +3727,39 @@ impl App {
             ui.painter().rect_filled(Rect::from_min_size(r.left_top() + vec2(0.0, 8.0), vec2(4.0, (r.height() - 16.0).max(4.0))), 2.0, color);
             ui.add_space(8.0);
         }
+        if let Some((id, occurrence, series)) = edit {
+            self.edit_appointment(id, occurrence, series);
+        }
+    }
+
+    /// Tinta: the appointment form, filled in from appointment `id` as `occurrence` shows it; for
+    /// a series, `series` says whether the whole series changes or this occurrence alone.
+    fn edit_appointment(&mut self, id: EventId, occurrence: When, series: Option<bool>) {
+        let Ok(e) = self.session.store.event(id) else { return };
+        let (start, end) = match occurrence {
+            When::AllDay { start, end } => {
+                let last = end.add_days(-1).unwrap_or(start);
+                (start.to_string(), if last == start { String::new() } else { end.to_string() })
+            }
+            When::Timed { start, end, .. } => (calendar_drag::param(start), calendar_drag::param(end)),
+        };
+        let reminder = match e.reminders.first() {
+            None => "none".to_string(),
+            Some(15) => String::new(),
+            Some(m) => m.to_string(),
+        };
+        let day = series.map(|_| occurrence.start_date());
+        self.event_form = EventForm {
+            open: true,
+            summary: e.summary.clone(),
+            start,
+            end,
+            location: e.location.clone(),
+            repeat: String::new(),
+            reminder,
+            calendar: Some(e.calendar),
+            editing: Some((id, day, series.unwrap_or(false))),
+        };
     }
 
     /// The calendars, with their colours; the ones synced from a server are marked. A click on
@@ -3689,6 +3817,29 @@ impl App {
                 }
             });
         }
+        // Tinta: the contacts' birthdays, a row of their own with the cake.
+        let shown = !self.session.store.hide_birthdays;
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+        let p = ui.painter();
+        if resp.hovered() {
+            p.rect_filled(rect, 6.0, t.accent_soft.gamma_multiply(0.6));
+        }
+        let square = Rect::from_center_size(egui::pos2(rect.left() + 16.0, rect.center().y), vec2(14.0, 14.0));
+        if shown {
+            p.rect_filled(square, 3.0, birthdays_ui::ROSE);
+            icons::paint(p, square.shrink(1.5), Icon::Check, Color32::WHITE);
+        } else {
+            p.rect_stroke(square, 3.0, Stroke::new(1.5, birthdays_ui::ROSE), StrokeKind::Inside);
+        }
+        let text_color = if shown { t.text } else { t.text_weak };
+        let g = p.layout_no_wrap(tl(birthdays_ui::BIRTHDAYS).to_string(), egui::FontId::proportional(theme::BODY), text_color);
+        let text_x = rect.left() + 32.0;
+        let cake = Rect::from_center_size(egui::pos2(text_x + g.size().x + 16.0, rect.center().y), vec2(16.0, 16.0));
+        p.galley(egui::pos2(text_x, rect.center().y - g.size().y / 2.0), g, text_color);
+        icons::paint(p, cake, Icon::Cake, birthdays_ui::ROSE);
+        if resp.on_hover_text(tl(birthdays_ui::SHOW_TIP)).clicked() {
+            self.run("calendar.birthdays", json!({ "show": !shown }));
+        }
         if let Some(p) = act {
             self.run("calendar.show", p);
         }
@@ -3709,7 +3860,9 @@ impl App {
         let calendars: Vec<(u32, String, bool)> = self.session.store.calendars().iter().map(|c| (c.id, c.name.clone(), c.remote.is_some())).collect();
         let default_calendar = self.last_calendar.filter(|id| calendars.iter().any(|c| c.0 == *id)).or_else(|| calendars.first().map(|c| c.0));
         let mut cancel = false;
-        chrome::dialog(ui.ctx(), &t, "new-appointment", tl("New Appointment"), 520.0, &mut open, |ui, part| {
+        let editing = self.event_form.editing;
+        let title = if editing.is_some() { tl(series_ui::EDIT_TITLE) } else { tl("New Appointment") };
+        chrome::dialog(ui.ctx(), &t, "new-appointment", title, 520.0, &mut open, |ui, part| {
             use chrome::{Kind, Part, form_row};
             if part == Part::Footer {
                 ui.horizontal(|ui| {
@@ -3739,6 +3892,9 @@ impl App {
                     }
                 });
             });
+            if editing.is_some() {
+                return;
+            }
             if calendars.len() > 1 {
                 form_row(ui, &t, "Calendar", None, |ui| {
                     let chosen = f.calendar.or(default_calendar);
@@ -3765,7 +3921,23 @@ impl App {
         if cancel {
             open = false;
         }
-        if save {
+        if save && let Some((id, day, series)) = editing {
+            let f = &self.event_form;
+            let mut p = json!({ "id": id.0, "summary": f.summary, "start": f.start, "location": f.location });
+            if let Some(o) = p.as_object_mut() {
+                if !f.end.trim().is_empty() {
+                    o.insert("end".into(), Value::String(f.end.clone()));
+                }
+                o.insert("reminder".into(), if f.reminder.is_empty() { json!(15) } else { Value::String(f.reminder.clone()) });
+                if let Some(day) = day {
+                    o.insert("occurrence".into(), json!(day.to_string()));
+                    o.insert("series".into(), json!(series));
+                }
+            }
+            if self.run("event.update", p).is_some() {
+                open = false;
+            }
+        } else if save {
             let f = &self.event_form;
             let mut p = json!({ "summary": f.summary, "start": f.start, "location": f.location, "repeat": f.repeat });
             if !f.reminder.is_empty()
@@ -6635,5 +6807,200 @@ mod tests {
         assert!(matches!(start_of(&app, weekly), When::Timed { start, .. } if start.date == Date::new(2026, 11, 12).unwrap()));
         app.session.run("edit.undo", &Value::Null).unwrap();
         assert!(matches!(start_of(&app, cita), When::Timed { start, .. } if start.date == Date::new(2026, 11, 10).unwrap()), "undone");
+    }
+
+    #[test]
+    fn a_sender_is_added_in_one_click_and_recipients_are_completed() {
+        use egui::{Event, Key, PointerButton, Pos2};
+        let mut store = ibercorreo_store::Store::new();
+        let mut marta = ibercorreo_core::Contact::new("Marta Iglesias");
+        marta.emails = vec![ibercorreo_core::Address::new(Some("Marta Iglesias"), "marta@example.es").unwrap()];
+        store.add_contact(marta);
+        let inbox = store.folder_by_role(AccountId(0), FolderRole::Inbox).unwrap();
+        let mut m = ibercorreo_core::Message::new(MessageId(0), inbox);
+        m.from = Some(ibercorreo_core::Address::new(Some("Rui Carvalho"), "rui@example.pt").unwrap());
+        m.set_subject("Olá");
+        let rui = store.add_message(m).unwrap();
+        let mut s = Session::new(store, Date::EPOCH);
+        s.message = Some(rui);
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1500.0, 900.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for _ in 0..3 {
+            frame(&mut app, vec![]);
+        }
+        // Add to contacts beside the sender, then a note that they are one.
+        let texts = frame(&mut app, vec![]);
+        let (_, at) = texts.iter().find(|(t, _)| t == "Add to contacts").cloned().expect("the button is shown");
+        let at = at + vec2(4.0, 4.0);
+        let press = |pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![Event::PointerMoved(at), press(true)]);
+        frame(&mut app, vec![press(false)]);
+        assert!(app.session.store.all_contacts().iter().any(|c| c.name == "Rui Carvalho"), "{}", app.session.status);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t.ends_with("In your contacts")), "{texts:?}");
+
+        // A new message: typing in To offers the contacts, Enter puts one in.
+        app.run("message.compose", json!({}));
+        frame(&mut app, vec![]);
+        let id = app.draft.as_ref().map(|d| d.id).expect("a draft is open");
+        ctx.memory_mut(|m| m.request_focus(address_complete_ui::field_id((id, "To"))));
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![Event::Text("ma".into())]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Marta Iglesias   marta@example.es"), "{texts:?}");
+        assert!(!texts.iter().any(|(t, _)| t.contains("rui@example.pt")), "only what matches");
+        let enter = Event::Key { key: Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut app, vec![enter]);
+        frame(&mut app, vec![]);
+        assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("Marta Iglesias <marta@example.es>, "));
+        let saved = app.session.store.message(MessageId(id)).unwrap();
+        assert_eq!(saved.to.first().map(|a| a.email.as_str()), Some("marta@example.es"), "the draft is saved with it");
+        // The next address goes after it: the list opens for it alone.
+        frame(&mut app, vec![Event::Text("ru".into())]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Rui Carvalho   rui@example.pt"), "{texts:?}");
+        let esc = Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Default::default() };
+        frame(&mut app, vec![esc]);
+        let texts = frame(&mut app, vec![]);
+        assert!(!texts.iter().any(|(t, _)| t == "Rui Carvalho   rui@example.pt"), "Esc closes the list");
+        assert_eq!(app.draft.as_ref().map(|d| d.to.as_str()), Some("Marta Iglesias <marta@example.es>, ru"));
+    }
+
+    #[test]
+    fn a_repeating_appointment_asks_this_one_or_the_series_and_edits_either() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap();
+        let mut s = Session::new(ibercorreo_store::Store::new(), day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 8, 0, 0).unwrap());
+        s.run("calendar.timeZone", &json!({ "zone": "UTC" })).unwrap();
+        let id = s
+            .run("event.add", &json!({ "summary": "Weekly", "start": "2026-11-17T10:00", "end": "2026-11-17T11:00", "repeat": "weekly" }))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewDay", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        app.scroll_to_morning = true;
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1360.0, 860.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let find = |texts: &[(String, Pos2)], text: &str| texts.iter().filter(|(t, _)| t == text).map(|(_, p)| *p).min_by(|a, b| a.x.total_cmp(&b.x));
+        for _ in 0..6 {
+            frame(&mut app, vec![]);
+        }
+        let title = find(&frame(&mut app, vec![]), "⟳ Weekly").expect("the occurrence is drawn");
+        let press = |pos: Pos2, pressed: bool| Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        let click = |app: &mut App, at: Pos2| {
+            frame(app, vec![Event::PointerMoved(at), press(at, true)]);
+            frame(app, vec![press(at, false)]);
+            frame(app, vec![]);
+        };
+        // Dragged two hours later: the window asks which.
+        let grab = title + vec2(10.0, 10.0);
+        frame(&mut app, vec![Event::PointerMoved(grab), press(grab, true)]);
+        for step in 1..=4 {
+            frame(&mut app, vec![Event::PointerMoved(grab + vec2(0.0, 26.0 * step as f32))]);
+        }
+        frame(&mut app, vec![press(grab + vec2(0.0, 104.0), false)]);
+        let texts = frame(&mut app, vec![Event::PointerMoved(Pos2::ZERO)]);
+        assert!(app.series_move.is_some() && texts.iter().any(|(t, _)| t == series_ui::ASK), "asked");
+        assert_eq!(app.session.store.events().len(), 1, "nothing moved before the answer");
+        let this_one = find(&texts, series_ui::THIS_ONE).expect("This occurrence");
+        click(&mut app, this_one + vec2(4.0, 4.0));
+        assert!(app.series_move.is_none());
+        let copy = app.session.store.events().iter().find(|e| e.recurrence_id == Some(day)).cloned().expect("a changed occurrence");
+        assert!(matches!(copy.when, When::Timed { start, .. } if start.hour() == 12), "{:?}", copy.when);
+        // Edit the series from the agenda's occurrence: its title, the whole series.
+        let next = Date::new(2026, 12, 1).unwrap();
+        let shown = app.session.store.events_on(next, app.session.zone()).into_iter().find(|o| o.event.id.0 == id).map(|o| o.when).unwrap();
+        app.edit_appointment(EventId(id), shown, Some(true));
+        app.event_form.summary = "Weekly review".into();
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![]);
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == series_ui::EDIT_TITLE), "the edit form");
+        assert!(!texts.iter().any(|(t, _)| t == "Repeat"), "no repeat choice while editing");
+        let save = texts.iter().filter(|(t, _)| t == "Save").map(|(_, p)| *p).max_by(|a, b| a.y.total_cmp(&b.y)).expect("Save");
+        click(&mut app, save + vec2(4.0, 4.0));
+        assert!(!app.event_form.open, "{}", app.session.status);
+        assert_eq!(app.session.store.event(EventId(id)).unwrap().summary, "Weekly review");
+        assert_eq!(app.session.store.event(copy.id).unwrap().summary, "Weekly", "the changed occurrence keeps its own");
+        assert_eq!(app.session.store.events().len(), 2);
+    }
+
+    #[test]
+    fn birthdays_show_festively_and_a_click_writes_wishes() {
+        use egui::{Event, PointerButton, Pos2};
+        let day = Date::new(2026, 11, 24).unwrap();
+        let mut store = ibercorreo_store::Store::new();
+        let mut olena = ibercorreo_core::Contact::new("Olena Koval");
+        olena.emails = vec![ibercorreo_core::Address::new(Some("Olena Koval"), "olena@example.com.ua").unwrap()];
+        olena.birthday = Date::new(1992, 11, 24).ok();
+        store.add_contact(olena);
+        let mut s = Session::new(store, day);
+        s.set_now(ibercorreo_core::DateTime::new(day, 9, 0, 0).unwrap());
+        s.run("view.calendar", &json!({})).unwrap();
+        s.run("calendar.viewMonth", &json!({})).unwrap();
+        s.run("calendar.goto", &json!({ "date": "2026-11-24" })).unwrap();
+        let mut app = App::new(s);
+        let ctx = egui::Context::default();
+        let frame = |app: &mut App, events: Vec<Event>| {
+            let raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(Pos2::ZERO, vec2(1500.0, 900.0))), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| app.ui(ui));
+            out.textures_delta.clear();
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::Shape::Text(t) => Some((t.galley.job.text.clone(), t.pos)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        for _ in 0..3 {
+            frame(&mut app, vec![]);
+        }
+        let texts = frame(&mut app, vec![]);
+        assert!(texts.iter().any(|(t, _)| t == "Olena · 34"), "the month's chip: {texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "turns 34 today"), "the agenda's card");
+        let wishes = texts.iter().find(|(t, _)| t == birthdays_ui::WISHES).map(|(_, p)| *p).expect("Send wishes");
+        let at = wishes + vec2(4.0, 4.0);
+        let press = |pressed: bool| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, vec![Event::PointerMoved(at), press(true)]);
+        frame(&mut app, vec![press(false)]);
+        let draft = app.session.store.all_messages().find(|m| m.subject == birthdays_ui::SUBJECT).expect("a birthday message");
+        assert_eq!(draft.to.first().map(|a| a.email.as_str()), Some("olena@example.com.ua"));
+        // Hidden from the calendar list's row: gone from the views.
+        app.run("calendar.birthdays", json!({ "show": false }));
+        app.run("view.calendar", json!({}));
+        for _ in 0..2 {
+            frame(&mut app, vec![]);
+        }
+        let texts = frame(&mut app, vec![]);
+        assert!(!texts.iter().any(|(t, _)| t == "Olena · 34" || t == "turns 34 today"), "hidden");
+        assert!(texts.iter().any(|(t, _)| t == birthdays_ui::BIRTHDAYS), "the row stays to show them again");
     }
 }

@@ -1696,3 +1696,173 @@ fn files_are_read_to_attach_only_when_they_are_files() {
     assert_eq!(s.store.message(MessageId(id)).unwrap().attachments.len(), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_sender_becomes_a_contact_and_addresses_are_suggested() {
+    let mut s = session();
+    let from = |s: &Session, email: &str| s.store.all_messages().find(|m| m.from.as_ref().is_some_and(|a| a.email == email)).map(|m| m.id.0).unwrap();
+    // The support desk is not a contact yet: one step adds it, named as the message names it.
+    let help = from(&s, "help@example.org");
+    let before = s.store.contact_count();
+    let c = s.run("contact.addSender", &json!({"id": help})).unwrap();
+    assert_eq!((c["name"].as_str(), c["existing"].as_bool()), (Some("Support desk"), Some(false)));
+    assert_eq!(c["emails"][0], "help@example.org");
+    assert_eq!(s.store.contact_count(), before + 1);
+    // Again, or a sender already there (any case): no copy.
+    assert_eq!(s.run("contact.addSender", &json!({"id": help})).unwrap()["existing"], true);
+    assert_eq!(s.status, "Already in your contacts");
+    let marta = from(&s, "marta@example.es");
+    s.message = Some(MessageId(marta));
+    assert_eq!(s.run("contact.addSender", &json!({})).unwrap()["existing"], true, "the open message by default");
+    assert_eq!(s.store.contact_count(), before + 1);
+    for _ in 0..3 {
+        if s.store.contact_count() > before {
+            s.run("edit.undo", &Value::Null).unwrap();
+        }
+    }
+    assert_eq!(s.store.contact_count(), before, "undone");
+    // A draft has no sender to add.
+    let draft = s.run("message.compose", &json!({})).unwrap()["id"].as_u64().unwrap();
+    s.store.message_mut(MessageId(draft)).unwrap().from = None;
+    assert!(s.run("contact.addSender", &json!({"id": draft})).is_err());
+
+    // Suggestions: contacts first, from the start of a name word or an address part, accents ignored.
+    let text = |v: &Value| v.as_array().unwrap().iter().map(|x| x["text"].as_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "igle"})).unwrap()), ["Marta Iglesias <marta@example.es>"]);
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "ОЛЕ"})).unwrap()), ["Олена Коваль <olena@example.com.ua>"]);
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "rui@"})).unwrap()), ["Rui Carvalho <rui@example.pt>"]);
+    assert!(text(&s.run("contact.suggest", &json!({"text": "arta"})).unwrap()).is_empty(), "not from the middle of a word");
+    assert!(text(&s.run("contact.suggest", &json!({"text": "  "})).unwrap()).is_empty());
+    // Then the people written to, the most written to first; never the person's own address.
+    let sent = s.store.folders().into_iter().find(|f| f.role == FolderRole::Sent).unwrap().id;
+    for (to, n) in [("Martín Ruiz <martin@example.es>", 1), ("María López <maria@example.es>", 3), ("Denys <denys@example.com>", 2)] {
+        for _ in 0..n {
+            let mut m = Message::new(MessageId(0), sent);
+            m.to = vec![ibercorreo_core::Address::parse_list(to).unwrap().remove(0)];
+            s.store.add_message(m).unwrap();
+        }
+    }
+    let found = s.run("contact.suggest", &json!({"text": "MAR"})).unwrap();
+    assert_eq!(text(&found), ["Marta Iglesias <marta@example.es>", "María López <maria@example.es>", "Martín Ruiz <martin@example.es>"]);
+    assert_eq!((found[0]["contact"].is_u64(), found[1]["contact"].is_null()), (true, true));
+    assert!(text(&s.run("contact.suggest", &json!({"text": "denys"})).unwrap()).is_empty(), "own address left out");
+    assert_eq!(text(&s.run("contact.suggest", &json!({"text": "mar", "limit": 1})).unwrap()).len(), 1);
+    assert!(s.run("contact.suggest", &json!({})).is_err());
+}
+
+#[test]
+fn one_occurrence_or_the_whole_series_moves_and_changes() {
+    let mut s = session();
+    s.run("calendar.timeZone", &json!({ "zone": "Europe/Madrid" })).unwrap();
+    // Mondays at 10:00 from 2 November 2026.
+    let id = s.run("event.add", &json!({ "summary": "Clase", "start": "2026-11-02T10:00", "end": "2026-11-02T11:00", "repeat": "weekly" })).unwrap()
+        ["id"]
+        .as_u64()
+        .unwrap();
+    let on = |s: &Session, day: &str| -> Vec<(String, String)> {
+        let d = Date::parse(day).unwrap();
+        s.store
+            .shown_events_on(d, s.zone())
+            .into_iter()
+            .filter(|o| o.event.summary.starts_with("Clase"))
+            .map(|o| {
+                (
+                    o.event.summary.clone(),
+                    match o.when {
+                        ibercorreo_core::calendar::When::Timed { start, .. } => format!("{:02}:{:02}", start.hour(), start.minute()),
+                        ibercorreo_core::calendar::When::AllDay { .. } => "all day".into(),
+                    },
+                )
+            })
+            .collect()
+    };
+    // A repeating appointment says which occurrence moves.
+    assert!(s.run("event.move", &json!({ "id": id, "start": "2026-11-10T15:00" })).is_err());
+    assert!(s.run("event.move", &json!({ "id": id, "start": "2026-11-10T15:00", "occurrence": "2026-11-04" })).is_err(), "no occurrence that day");
+    // This occurrence only: 9 November moves to Tuesday 10th at 15:00.
+    let moved = s.run("event.move", &json!({ "id": id, "start": "2026-11-10T15:00", "occurrence": "2026-11-09" })).unwrap();
+    assert_eq!(
+        (moved["start"].as_str(), moved["end"].as_str(), moved["occurrenceOf"].as_str()),
+        (Some("2026-11-10T15:00"), Some("2026-11-10T16:00"), Some("2026-11-09"))
+    );
+    let copy = moved["id"].as_u64().unwrap();
+    assert_ne!(copy, id);
+    assert!(on(&s, "2026-11-09").is_empty(), "the series' Monday is hidden");
+    assert_eq!(on(&s, "2026-11-10"), [("Clase".to_string(), "15:00".to_string())]);
+    assert_eq!(on(&s, "2026-11-16"), [("Clase".to_string(), "10:00".to_string())], "the others stay");
+    // Moving it again moves the same changed copy, like any appointment.
+    s.run("event.move", &json!({ "id": copy, "start": "2026-11-10T16:00" })).unwrap();
+    assert_eq!(on(&s, "2026-11-10"), [("Clase".to_string(), "16:00".to_string())]);
+    // Editing one occurrence: its title alone, and its reminder.
+    let edited = s.run("event.update", &json!({ "id": id, "occurrence": "2026-11-23", "summary": "Clase (aula 3)", "reminder": 30 })).unwrap();
+    assert_eq!((edited["summary"].as_str(), edited["reminders"][0].as_i64()), (Some("Clase (aula 3)"), Some(30)));
+    assert_eq!(on(&s, "2026-11-23"), [("Clase (aula 3)".to_string(), "10:00".to_string())]);
+    assert_eq!(on(&s, "2026-11-30"), [("Clase".to_string(), "10:00".to_string())]);
+    // The series: a delete on the 16th, then every occurrence to Tuesday at 11:30.
+    s.run("event.delete", &json!({ "id": id, "occurrence": "2026-11-16" })).unwrap();
+    s.run("event.move", &json!({ "id": id, "start": "2026-11-03T11:30", "occurrence": "2026-11-02", "series": true })).unwrap();
+    let series = s.store.event(EventId(id)).unwrap();
+    assert_eq!(series.rrule.as_deref().map(|r| r.contains("BYDAY=MO")), Some(false));
+    assert_eq!(on(&s, "2026-11-02"), Vec::<(String, String)>::new());
+    assert_eq!(on(&s, "2026-11-03"), [("Clase".to_string(), "11:30".to_string())]);
+    assert_eq!(on(&s, "2026-12-01"), [("Clase".to_string(), "11:30".to_string())]);
+    assert!(on(&s, "2026-11-17").is_empty(), "the deleted day moved with it");
+    // A changed occurrence stays where it was put, and stands in for its series' moved day.
+    assert_eq!(on(&s, "2026-11-23"), [("Clase (aula 3)".to_string(), "10:00".to_string())]);
+    assert!(on(&s, "2026-11-24").is_empty());
+    assert_eq!(on(&s, "2026-11-10"), [("Clase".to_string(), "16:00".to_string())]);
+    // The whole series renamed: its changed occurrences keep theirs.
+    s.run("event.update", &json!({ "id": id, "occurrence": "2026-12-01", "series": true, "summary": "Clase de inglés" })).unwrap();
+    assert_eq!(on(&s, "2026-12-08"), [("Clase de inglés".to_string(), "11:30".to_string())]);
+    // A rule naming days of the month moves only within its day.
+    let monthly =
+        s.run("event.add", &json!({ "summary": "Clase mensual", "start": "2026-11-15T09:00", "rrule": "FREQ=MONTHLY;BYMONTHDAY=15" })).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+    assert!(s.run("event.move", &json!({ "id": monthly, "start": "2026-12-16T09:00", "occurrence": "2026-12-15", "series": true })).is_err());
+    s.run("event.move", &json!({ "id": monthly, "start": "2026-12-15T12:00", "occurrence": "2026-12-15", "series": true })).unwrap();
+    assert_eq!(on(&s, "2027-01-15").first().map(|o| o.1.as_str()), Some("12:00"));
+    // All undone step by step.
+    for _ in 0..8 {
+        s.run("edit.undo", &Value::Null).unwrap();
+    }
+    assert_eq!(on(&s, "2026-11-09"), [("Clase".to_string(), "10:00".to_string())]);
+    assert_eq!(s.store.events().iter().filter(|e| e.summary.starts_with("Clase")).count(), 1, "the series alone again");
+    assert!(s.run("event.update", &json!({ "id": id, "summary": " " })).is_err(), "a title is needed");
+    let single = s.run("event.add", &json!({ "summary": "Once", "start": "2026-11-05T10:00" })).unwrap()["id"].as_u64().unwrap();
+    assert!(s.run("event.update", &json!({ "id": single, "occurrence": "2026-11-05", "summary": "x" })).is_err());
+    assert_eq!(
+        s.run("event.update", &json!({ "id": single, "location": "Sala 2", "start": "2026-11-05T12:00" })).unwrap()["start"],
+        "2026-11-05T12:00"
+    );
+}
+
+#[test]
+fn a_changed_occurrence_goes_back_to_the_server_with_its_series() {
+    let mut s = session();
+    let id = s.run("event.add", &json!({ "summary": "Turno", "start": "2026-11-02T08:00", "repeat": "daily" })).unwrap()["id"].as_u64().unwrap();
+    s.store.event_mut(EventId(id)).unwrap().remote =
+        Some(ibercorreo_core::EventRemote { href: "/cal/turno.ics".into(), etag: "1".into(), dirty: false, raw: String::new() });
+    let moved = s.run("event.move", &json!({ "id": id, "start": "2026-11-04T09:00", "occurrence": "2026-11-04" })).unwrap();
+    let copy = s.store.event(EventId(moved["id"].as_u64().unwrap())).unwrap();
+    assert_eq!(copy.remote.as_ref().map(|r| (r.href.as_str(), r.dirty)), Some(("/cal/turno.ics", true)), "in the series' resource");
+    assert_eq!(copy.uid, s.store.event(EventId(id)).unwrap().uid);
+    assert!(s.store.event(EventId(id)).unwrap().remote.as_ref().is_some_and(|r| r.dirty));
+    let ics = s.store.export_ics(None);
+    assert!(ics.contains("RECURRENCE-ID"), "{ics}");
+}
+
+#[test]
+fn an_all_day_series_or_one_of_its_days_moves_by_whole_days() {
+    let mut s = session();
+    let id = s.run("event.add", &json!({ "summary": "Mercado", "start": "2026-11-07", "repeat": "weekly" })).unwrap()["id"].as_u64().unwrap();
+    let shown = |s: &Session, day: &str| !s.store.shown_events_on(Date::parse(day).unwrap(), s.zone()).iter().all(|o| o.event.summary != "Mercado");
+    s.run("event.move", &json!({ "id": id, "start": "2026-11-15", "occurrence": "2026-11-14" })).unwrap();
+    assert!(!shown(&s, "2026-11-14") && shown(&s, "2026-11-15") && shown(&s, "2026-11-21"));
+    s.run("event.move", &json!({ "id": id, "start": "2026-11-06", "occurrence": "2026-11-07", "series": true })).unwrap();
+    assert!(shown(&s, "2026-11-06") && shown(&s, "2026-11-27") && !shown(&s, "2026-11-28"));
+    assert!(
+        s.run("event.move", &json!({ "id": id, "start": "2026-11-06T10:00", "occurrence": "2026-11-06", "series": true })).is_err(),
+        "a date for an all-day series"
+    );
+}
