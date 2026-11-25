@@ -9,9 +9,9 @@
 use egui::{CornerRadius, Frame, Margin, RichText, Stroke, Ui};
 use ibercorreo_core::MessageId;
 
-use crate::App;
 use crate::i18n::{tf, tl};
 use crate::theme::Tokens;
+use crate::{App, attachments_ui};
 
 pub(crate) const ATTACH: &str = "Attach file";
 pub(crate) const ATTACH_TIP: &str = "Attach files to this message (or drop them on the window)";
@@ -103,23 +103,46 @@ pub(crate) fn encode_png(width: usize, height: usize, rgba: &[u8]) -> Result<Vec
     Ok(out)
 }
 
-/// The chips of the files on draft `id`, each with ×; returns the index the person took off.
-pub(crate) fn chips(ui: &mut Ui, t: &Tokens, app: &App, id: MessageId) -> Option<usize> {
+/// What the person did with a draft's file chip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChipAction {
+    /// Took the file at this index off the draft.
+    Remove(usize),
+    /// Asked to open it, as Open on a received message's attachment does.
+    Open(usize),
+}
+
+/// The chips of the files on draft `id`, each with Open (a double click on its name too, but never
+/// for a file that could run a program) and ×.
+pub(crate) fn chips(ui: &mut Ui, t: &Tokens, app: &App, id: MessageId) -> Option<ChipAction> {
     let m = app.session.store.message(id).ok()?;
     if m.attachments.is_empty() {
         return None;
     }
-    let mut removed = None;
+    let mut action = None;
     ui.horizontal_wrapped(|ui| {
         for (index, a) in m.attachments.iter().enumerate() {
+            let openable = a.sha256.is_some() && !ibercorreo_engine::attachments::risky(&a.name);
             Frame::NONE.stroke(Stroke::new(1.0, t.border)).corner_radius(CornerRadius::same(6)).inner_margin(Margin::symmetric(8, 4)).show(
                 ui,
                 |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("📎 {}  ·  {}", a.name, crate::human_size(a.size))).small());
+                        let name = ui.add(
+                            egui::Label::new(RichText::new(format!("📎 {}  ·  {}", a.name, crate::human_size(a.size))).small())
+                                .sense(egui::Sense::click()),
+                        );
+                        if openable && name.double_clicked() {
+                            action = Some(ChipAction::Open(index));
+                        }
+                        if openable {
+                            let open = egui::Button::new(RichText::new(tl(attachments_ui::OPEN)).small().color(t.accent)).frame(false);
+                            if ui.add(open).on_hover_text(tl(attachments_ui::OPEN_TIP)).clicked() {
+                                action = Some(ChipAction::Open(index));
+                            }
+                        }
                         let x = egui::Button::new(RichText::new("×").small().color(t.text_weak)).frame(false);
                         if ui.add(x).on_hover_text(tl(REMOVE_TIP)).clicked() {
-                            removed = Some(index);
+                            action = Some(ChipAction::Remove(index));
                         }
                     });
                 },
@@ -131,7 +154,7 @@ pub(crate) fn chips(ui: &mut Ui, t: &Tokens, app: &App, id: MessageId) -> Option
             ui.label(RichText::new(tf(TOTAL, &[("count", &count), ("size", &crate::human_size(total))])).small().color(t.text_weak));
         }
     });
-    removed
+    action
 }
 
 #[cfg(test)]
