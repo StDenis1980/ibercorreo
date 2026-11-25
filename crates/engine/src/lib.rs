@@ -112,6 +112,8 @@ pub struct Session {
     pub status: String,
     /// Set by `account.sync`: the front end runs the sync (it owns the network) and clears it.
     pub sync_requested: bool,
+    /// Tinta Office: `help.whatsNew` asked the window to open What's new (the window takes it).
+    pub whats_new_requested: bool,
     /// Show HTML mail as its plain text (`view.plainText`).
     pub plain_text: bool,
     /// Tinta: messages whose pictures on the web the person asked to load in this session
@@ -151,6 +153,7 @@ impl Session {
             dirty: false,
             status: String::new(),
             sync_requested: false,
+            whats_new_requested: false,
             plain_text: false,
             pictures_shown: std::collections::HashSet::new(),
             bodies_wanted: std::collections::HashSet::new(),

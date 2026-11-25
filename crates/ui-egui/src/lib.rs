@@ -32,6 +32,7 @@ pub mod theme;
 pub mod tinta_feedback;
 mod tinta_reports_ui;
 pub mod tinta_share;
+pub mod tinta_whats_new;
 
 use crate::i18n::{Language, tf, tl};
 use chrome::avatar_color;
@@ -1463,6 +1464,10 @@ impl App {
         self.categories_window(ui);
         tinta_reports_ui::first_start(self, ui.ctx());
         self.tinta_feedback.show(ui.ctx(), i18n::current().code(), &t);
+        if std::mem::take(&mut self.session.whats_new_requested) && !tinta_whats_new::request() {
+            self.session.status = "What's new is only in the Tinta Office desktop app".into();
+        }
+        tinta_whats_new::show(ui.ctx(), i18n::current().code(), &t);
         self.take_open_requests(ui.ctx());
     }
 
@@ -6093,6 +6098,7 @@ mod tests {
             ("lib.rs", include_str!("lib.rs")),
             ("tinta_feedback.rs", include_str!("tinta_feedback.rs")),
             ("tinta_reports_ui.rs", include_str!("tinta_reports_ui.rs")),
+            ("tinta_whats_new.rs", include_str!("tinta_whats_new.rs")),
         ] {
             assert!(!source.contains(window) && !source.contains(modal), "{file} opens a window of its own");
         }
