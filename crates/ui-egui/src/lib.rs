@@ -3079,7 +3079,7 @@ impl App {
         // Tinta: the files attached, under the header as in Outlook.
         let draft_id = MessageId(d.id);
         ui.add_space(6.0);
-        let removed = compose_files_ui::chips(ui, &t, self, draft_id);
+        let chip = compose_files_ui::chips(ui, &t, self, draft_id);
         let Some(d) = self.draft.as_mut() else { return };
         ui.add_space(4.0);
         // The text: just the card below the header, with a letter's shape as a hint while empty.
@@ -3093,8 +3093,19 @@ impl App {
         if changed || send {
             self.run("message.update", params);
         }
-        if let Some(index) = removed {
-            self.run("message.detach", json!({ "id": id, "index": index }));
+        match chip {
+            Some(compose_files_ui::ChipAction::Remove(index)) => {
+                self.run("message.detach", json!({ "id": id, "index": index }));
+            }
+            // Tinta: a draft's file opens as a received one does (the shell hands a copy over).
+            Some(compose_files_ui::ChipAction::Open(index)) => {
+                self.attachment_requests.push(attachments_ui::AttachmentRequest {
+                    action: attachments_ui::AttachmentAction::Open,
+                    message: MessageId(id),
+                    index,
+                });
+            }
+            None => {}
         }
         if attach {
             self.attach_wanted = Some(MessageId(id));
