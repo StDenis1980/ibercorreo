@@ -119,7 +119,7 @@ fn draw_with(ctx: &egui::Context, lang: &str, accent: Color32) {
         .corner_radius(CornerRadius::same(RADIUS))
         .shadow(style.visuals.window_shadow)
         .inner_margin(Margin::ZERO);
-    let modal = egui::Modal::new(id().with("modal")).frame(frame).show(ctx, |ui| {
+    let modal = crate::chrome::framed_modal(ctx, id().with("modal"), frame, |ui| {
         ui.set_width(width);
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
         let mut close = false;
