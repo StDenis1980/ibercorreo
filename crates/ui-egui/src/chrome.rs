@@ -84,6 +84,12 @@ pub(crate) fn modal_dialog(
     egui::Modal::new(id).frame(dialog_frame(ctx)).show(ctx, |ui| dialog_contents(ui, t, id, title, width, close, &mut add))
 }
 
+/// A modal over everything in a frame of its own: Tinta Office's What's new window, which looks the
+/// same in all five apps rather than like this app's dialogs.
+pub(crate) fn framed_modal<R>(ctx: &egui::Context, id: egui::Id, frame: Frame, add: impl FnOnce(&mut Ui) -> R) -> egui::ModalResponse<R> {
+    egui::Modal::new(id).frame(frame).show(ctx, add)
+}
+
 /// A small window in a corner of the main one, `offset` from it, with a dialog's look: what
 /// comes up by itself, like the reminders.
 pub(crate) fn corner_window(ctx: &egui::Context, id: &str, title: &str, offset: [f32; 2], add: impl FnOnce(&mut Ui)) {
