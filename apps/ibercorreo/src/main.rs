@@ -145,6 +145,9 @@ struct Shell {
     picking: Option<Receiver<Picked>>,
     /// Tinta: the system's Save dialog, open for Save as…: the attachment, and the file chosen.
     saving_as: Option<Receiver<SaveAsChosen>>,
+    /// Tinta: a paste key (V, Insert, Paste) was seen going down as an ordinary key press. egui
+    /// swallows the press of a paste shortcut, so a release without one is a Ctrl+V.
+    paste_key_typed: bool,
 }
 
 /// Tinta: what the Save dialog answered for attachment `index` of a message (`None`: cancelled).
@@ -1282,10 +1285,28 @@ fn clipboard_files(clipboard: &mut arboard::Clipboard) -> Option<Vec<PathBuf>> {
 impl eframe::App for Shell {
     /// Tinta: Ctrl+V in a draft while files are on the clipboard attaches them, as Outlook does,
     /// instead of typing their names (a file manager also copies them as text). A picture alone
-    /// gives the window no paste to see, so the Paste button beside Attach file takes it.
+    /// gives the window no paste to see (egui drops a Ctrl+V with no text on the clipboard, a
+    /// picture or files copied in Explorer): the release of the key shows it was one, and then it
+    /// does what the Paste button beside Attach file does.
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let mut shortcut = false;
+        for e in &raw.events {
+            if let egui::Event::Key { key: egui::Key::V | egui::Key::Insert | egui::Key::Paste, pressed, .. } = e {
+                if *pressed {
+                    self.paste_key_typed = true;
+                } else {
+                    shortcut |= !self.paste_key_typed;
+                    self.paste_key_typed = false;
+                }
+            }
+        }
         let Some(draft) = self.app.composing() else { return };
         if !raw.events.iter().any(|e| matches!(e, egui::Event::Paste(_))) {
+            // A paste of text has already gone to the field (or to the files, below).
+            let text = || arboard::Clipboard::new().ok().and_then(|mut c| c.get_text().ok()).is_some_and(|t| !t.is_empty());
+            if shortcut && !text() {
+                self.app.request_paste(draft);
+            }
             return;
         }
         let Some(files) = arboard::Clipboard::new().ok().as_mut().and_then(clipboard_files) else { return };
@@ -1607,6 +1628,7 @@ fn main() -> eframe::Result {
                 pictures: Vec::new(),
                 picking: None,
                 saving_as: None,
+                paste_key_typed: false,
             }))
         }),
     )
